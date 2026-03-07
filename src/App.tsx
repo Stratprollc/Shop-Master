@@ -129,7 +129,7 @@ interface Sale {
   customerId?: string;
   customerName?: string;
   customerPhone?: string;
-  items: { productId: string; productName: string; quantity: number; price: number; originalPrice: number }[];
+  items: { productId: string; productName: string; quantity: number; price: number; originalPrice: number; cost: number }[];
   totalAmount: number;
   discount: number;
   finalAmount: number;
@@ -150,6 +150,31 @@ interface Customer {
   points: number;
   totalSpent: number;
   currentDue: number;
+  dueDate?: string;
+}
+
+interface Expense {
+  id: string;
+  category: 'salary' | 'rent' | 'electricity' | 'internet' | 'food' | 'others';
+  amount: number;
+  description: string;
+  timestamp: any;
+  staffId?: string;
+}
+
+interface Investment {
+  id: string;
+  amount: number;
+  description: string;
+  timestamp: any;
+}
+
+interface StaffSalary {
+  id: string;
+  staffName: string;
+  amount: number;
+  month: string;
+  timestamp: any;
 }
 
 interface Category {
@@ -183,10 +208,10 @@ const printInvoice = (sale: Sale, settings: ShopSettings) => {
 
   const itemsHtml = sale.items.map(item => `
     <tr>
-      <td style="padding: 8px; border-bottom: 1px solid #eee;">${item.productName}</td>
-      <td style="padding: 8px; border-bottom: 1px solid #eee; text-align: center;">${item.quantity}</td>
-      <td style="padding: 8px; border-bottom: 1px solid #eee; text-align: right;">${(item.price || 0).toFixed(2)}</td>
-      <td style="padding: 8px; border-bottom: 1px solid #eee; text-align: right;">${((item.price || 0) * (item.quantity || 0)).toFixed(2)}</td>
+      <td style="padding: 4px 0;">${item.productName}</td>
+      <td style="padding: 4px 0; text-align: center;">${item.quantity}</td>
+      <td style="padding: 4px 0; text-align: right;">${(item.price || 0).toFixed(2)}</td>
+      <td style="padding: 4px 0; text-align: right;">${((item.price || 0) * (item.quantity || 0)).toFixed(2)}</td>
     </tr>
   `).join('');
 
@@ -195,17 +220,34 @@ const printInvoice = (sale: Sale, settings: ShopSettings) => {
       <head>
         <title>Invoice #${sale.id.slice(-6).toUpperCase()}</title>
         <style>
-          body { font-family: 'Inter', sans-serif; padding: 20px; color: #333; }
-          .header { text-align: center; margin-bottom: 30px; }
-          .logo { max-width: 100px; margin-bottom: 10px; }
-          .shop-name { font-size: 24px; font-weight: bold; margin-bottom: 5px; }
-          .shop-info { font-size: 12px; color: #666; }
-          .invoice-meta { display: flex; justify-content: space-between; margin-bottom: 20px; font-size: 14px; }
-          table { width: 100%; border-collapse: collapse; margin-bottom: 20px; }
-          .totals { text-align: right; }
-          .total-row { font-weight: bold; font-size: 16px; margin-top: 5px; }
-          .footer { text-align: center; margin-top: 40px; font-size: 12px; color: #999; }
-          @media print { body { padding: 0; } }
+          @page {
+            size: 80mm auto;
+            margin: 0;
+          }
+          body { 
+            font-family: 'Courier New', Courier, monospace; 
+            width: 70mm; 
+            margin: 0 auto; 
+            padding: 5mm; 
+            color: #000; 
+            font-size: 12px;
+            line-height: 1.2;
+          }
+          .header { text-align: center; margin-bottom: 10px; border-bottom: 1px dashed #000; padding-bottom: 10px; }
+          .logo { max-width: 40mm; margin-bottom: 5px; filter: grayscale(100%); }
+          .shop-name { font-size: 16px; font-weight: bold; text-transform: uppercase; }
+          .shop-info { font-size: 10px; }
+          .invoice-meta { margin-bottom: 10px; font-size: 10px; border-bottom: 1px dashed #000; padding-bottom: 5px; }
+          table { width: 100%; border-collapse: collapse; margin-bottom: 10px; }
+          th { border-bottom: 1px solid #000; font-size: 10px; text-align: left; }
+          td { padding: 4px 0; font-size: 10px; vertical-align: top; }
+          .totals { text-align: right; border-top: 1px dashed #000; padding-top: 5px; font-size: 11px; }
+          .total-row { font-weight: bold; font-size: 13px; margin-top: 2px; border-top: 1px double #000; padding-top: 2px; }
+          .footer { text-align: center; margin-top: 15px; font-size: 9px; border-top: 1px dashed #000; padding-top: 10px; }
+          @media print {
+            body { width: 70mm; }
+            .no-print { display: none; }
+          }
         </style>
       </head>
       <body>
@@ -216,21 +258,19 @@ const printInvoice = (sale: Sale, settings: ShopSettings) => {
           ${settings.phone ? `<div class="shop-info">Phone: ${settings.phone}</div>` : ''}
         </div>
         <div class="invoice-meta">
-          <div>
-            <strong>Invoice:</strong> #${sale.id.slice(-6).toUpperCase()}<br>
-            <strong>Customer:</strong> ${sale.customerName || 'Walk-in'}
+          <div style="display: flex; justify-content: space-between;">
+            <span>Inv: #${sale.id.slice(-6).toUpperCase()}</span>
+            <span>${format(sale.timestamp.toDate(), 'dd/MM/yy hh:mm a')}</span>
           </div>
-          <div style="text-align: right;">
-            <strong>Date:</strong> ${format(sale.timestamp.toDate(), 'dd/MM/yyyy HH:mm')}
-          </div>
+          <div>Cust: ${sale.customerName || 'Walk-in'}</div>
         </div>
         <table>
           <thead>
-            <tr style="background: #f9fafb;">
-              <th style="padding: 8px; text-align: left; border-bottom: 2px solid #eee;">Product</th>
-              <th style="padding: 8px; text-align: center; border-bottom: 2px solid #eee;">Qty</th>
-              <th style="padding: 8px; text-align: right; border-bottom: 2px solid #eee;">Price</th>
-              <th style="padding: 8px; text-align: right; border-bottom: 2px solid #eee;">Total</th>
+            <tr>
+              <th style="width: 40%;">Item</th>
+              <th style="width: 15%; text-align: center;">Qty</th>
+              <th style="width: 20%; text-align: right;">Price</th>
+              <th style="width: 25%; text-align: right;">Total</th>
             </tr>
           </thead>
           <tbody>
@@ -241,8 +281,8 @@ const printInvoice = (sale: Sale, settings: ShopSettings) => {
           <div>Subtotal: TK ${(sale.totalAmount || 0).toFixed(2)}</div>
           <div>Discount: TK ${(sale.discount || 0).toFixed(2)}</div>
           <div class="total-row">Grand Total: TK ${(sale.finalAmount || 0).toFixed(2)}</div>
-          <div style="margin-top: 10px;">Paid: TK ${(sale.paidAmount || 0).toFixed(2)}</div>
-          <div style="color: #dc2626;">Due: TK ${(sale.dueAmount || 0).toFixed(2)}</div>
+          <div style="margin-top: 4px;">Paid: TK ${(sale.paidAmount || 0).toFixed(2)}</div>
+          <div style="font-weight: bold;">Due: TK ${(sale.dueAmount || 0).toFixed(2)}</div>
         </div>
         <div class="footer">
           Thank you for shopping with us!<br>
@@ -251,7 +291,7 @@ const printInvoice = (sale: Sale, settings: ShopSettings) => {
         <script>
           window.onload = () => {
             window.print();
-            window.onafterprint = () => window.close();
+            setTimeout(() => window.close(), 500);
           };
         </script>
       </body>
@@ -598,6 +638,9 @@ export default function App() {
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [appUsers, setAppUsers] = useState<AppUser[]>([]);
+  const [expenses, setExpenses] = useState<Expense[]>([]);
+  const [investments, setInvestments] = useState<Investment[]>([]);
+  const [staffSalaries, setStaffSalaries] = useState<StaffSalary[]>([]);
   const [shopSettings, setShopSettings] = useState<ShopSettings>({
     name: 'Bismillah Store',
     address: 'Your Shop Address',
@@ -647,6 +690,18 @@ export default function App() {
       }
     }, (err) => console.error("Settings sync error", err));
 
+    const unsubExpenses = onSnapshot(collection(db, 'expenses'), (snapshot) => {
+      setExpenses(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Expense)));
+    }, (err) => console.error("Expenses sync error", err));
+
+    const unsubInvestments = onSnapshot(collection(db, 'investments'), (snapshot) => {
+      setInvestments(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Investment)));
+    }, (err) => console.error("Investments sync error", err));
+
+    const unsubStaffSalaries = onSnapshot(collection(db, 'staff_salaries'), (snapshot) => {
+      setStaffSalaries(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as StaffSalary)));
+    }, (err) => console.error("Staff salaries sync error", err));
+
     return () => {
       unsubProducts();
       unsubSales();
@@ -654,6 +709,9 @@ export default function App() {
       unsubCategories();
       unsubUsers();
       unsubSettings();
+      unsubExpenses();
+      unsubInvestments();
+      unsubStaffSalaries();
     };
   }, [user]);
 
@@ -795,7 +853,8 @@ export default function App() {
           productName: item.name,
           quantity: item.quantity,
           price: item.discountedPrice,
-          originalPrice: item.originalPrice
+          originalPrice: item.originalPrice,
+          cost: item.cost || 0
         })),
         totalAmount: cartTotal,
         discount: discount,
@@ -940,6 +999,33 @@ export default function App() {
     }
   };
 
+  const handleAddExpense = async (newExpense: Omit<Expense, 'id'>) => {
+    try {
+      await addDoc(collection(db, 'expenses'), newExpense);
+      setNotification({ message: 'Expense added successfully', type: 'success' });
+    } catch (error) {
+      handleFirestoreError(error, OperationType.WRITE, 'expenses');
+    }
+  };
+
+  const handleAddInvestment = async (newInvestment: Omit<Investment, 'id'>) => {
+    try {
+      await addDoc(collection(db, 'investments'), newInvestment);
+      setNotification({ message: 'Investment added successfully', type: 'success' });
+    } catch (error) {
+      handleFirestoreError(error, OperationType.WRITE, 'investments');
+    }
+  };
+
+  const handleAddStaffSalary = async (newSalary: Omit<StaffSalary, 'id'>) => {
+    try {
+      await addDoc(collection(db, 'staff_salaries'), newSalary);
+      setNotification({ message: 'Salary payment recorded', type: 'success' });
+    } catch (error) {
+      handleFirestoreError(error, OperationType.WRITE, 'staff_salaries');
+    }
+  };
+
   const handleScan = (barcode: string) => {
     const product = products.find(p => p.barcode === barcode);
     if (product) {
@@ -1026,7 +1112,7 @@ export default function App() {
     <ErrorBoundary>
       <div className="min-h-screen bg-gray-50 flex flex-col lg:flex-row">
         {/* Mobile Header */}
-        <header className="lg:hidden bg-white border-b border-gray-200 px-4 py-3 flex items-center justify-between sticky top-0 z-40">
+        <header className="lg:hidden bg-white border-b border-gray-200 px-4 py-3 flex items-center justify-between sticky top-0 z-50 shadow-sm">
           <div className="flex items-center gap-2">
             <div className="w-8 h-8 bg-indigo-600 rounded-lg flex items-center justify-center">
               <Building2 className="w-5 h-5 text-white" />
@@ -1035,9 +1121,10 @@ export default function App() {
           </div>
           <button 
             onClick={() => setIsSidebarOpen(!isSidebarOpen)}
-            className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
+            className="p-2 hover:bg-gray-100 rounded-lg transition-colors bg-gray-50 border border-gray-200"
+            aria-label="Toggle Menu"
           >
-            {isSidebarOpen ? <X className="w-6 h-6" /> : <Menu className="w-6 h-6" />}
+            {isSidebarOpen ? <X className="w-6 h-6 text-indigo-600" /> : <Menu className="w-6 h-6 text-indigo-600" />}
           </button>
         </header>
 
@@ -1074,6 +1161,7 @@ export default function App() {
               { id: 'inventory', icon: Package, label: 'Inventory', roles: ['admin', 'manager', 'assistant_manager'] },
               { id: 'sales', icon: History, label: 'Sales History', roles: ['admin', 'manager', 'assistant_manager', 'sales_manager'] },
               { id: 'customers', icon: Users, label: 'Customers', roles: ['admin', 'manager', 'assistant_manager', 'sales_manager'] },
+              { id: 'accounting', icon: CalculatorIcon, label: 'Hishab Nikash', roles: ['admin', 'manager'] },
               { id: 'settings', icon: Settings, label: 'Settings', roles: ['admin'] },
             ].filter(item => item.roles.includes(user.role)).map(item => (
               <button
@@ -1171,6 +1259,19 @@ export default function App() {
               />
             )}
             {activeTab === 'customers' && <Customers customers={customers} sales={sales} />}
+            {activeTab === 'accounting' && (
+              <Accounting 
+                sales={sales} 
+                products={products} 
+                expenses={expenses} 
+                investments={investments} 
+                staffSalaries={staffSalaries}
+                customers={customers}
+                onAddExpense={handleAddExpense}
+                onAddInvestment={handleAddInvestment}
+                onAddSalary={handleAddStaffSalary}
+              />
+            )}
             {activeTab === 'settings' && (
               <SettingsPanel 
                 settings={shopSettings} 
@@ -2558,10 +2659,407 @@ function SalesHistory({ sales, onEdit, onDelete, settings }: { sales: Sale[], on
   );
 }
 
+function Accounting({ 
+  sales, 
+  products, 
+  expenses, 
+  investments, 
+  staffSalaries, 
+  customers,
+  onAddExpense,
+  onAddInvestment,
+  onAddSalary
+}: { 
+  sales: Sale[], 
+  products: Product[], 
+  expenses: Expense[], 
+  investments: Investment[], 
+  staffSalaries: StaffSalary[],
+  customers: Customer[],
+  onAddExpense: (e: Omit<Expense, 'id'>) => void,
+  onAddInvestment: (i: Omit<Investment, 'id'>) => void,
+  onAddSalary: (s: Omit<StaffSalary, 'id'>) => void
+}) {
+  const [activeTab, setActiveTab] = useState<'overview' | 'expenses' | 'investments' | 'salaries' | 'dues'>('overview');
+  const [isExpenseModalOpen, setIsExpenseModalOpen] = useState(false);
+  const [isInvestmentModalOpen, setIsInvestmentModalOpen] = useState(false);
+  const [isSalaryModalOpen, setIsSalaryModalOpen] = useState(false);
+
+  const totalSales = useMemo(() => sales.reduce((sum, s) => sum + (s.finalAmount || 0), 0), [sales]);
+  const totalCost = useMemo(() => {
+    return sales.reduce((sum, s) => {
+      return sum + s.items.reduce((itemSum, item) => {
+        return itemSum + ((item.cost || 0) * item.quantity);
+      }, 0);
+    }, 0);
+  }, [sales]);
+
+  const totalExpenses = useMemo(() => expenses.reduce((sum, e) => sum + (e.amount || 0), 0), [expenses]);
+  const totalInvestments = useMemo(() => investments.reduce((sum, i) => sum + (i.amount || 0), 0), [investments]);
+  const totalSalaries = useMemo(() => staffSalaries.reduce((sum, s) => sum + (s.amount || 0), 0), [staffSalaries]);
+  const totalMarketDue = useMemo(() => customers.reduce((sum, c) => sum + (c.currentDue || 0), 0), [customers]);
+  const netProfit = totalSales - totalCost - totalExpenses;
+
+  const highDueCustomers = useMemo(() => {
+    return customers.filter(c => (c.currentDue || 0) >= 5000)
+      .sort((a, b) => (b.currentDue || 0) - (a.currentDue || 0));
+  }, [customers]);
+
+  const handleExpenseSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    const form = e.target as HTMLFormElement;
+    const formData = new FormData(form);
+    onAddExpense({
+      category: formData.get('category') as any,
+      amount: Number(formData.get('amount')),
+      description: formData.get('description') as string,
+      timestamp: new Date()
+    });
+    setIsExpenseModalOpen(false);
+  };
+
+  const handleInvestmentSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    const form = e.target as HTMLFormElement;
+    const formData = new FormData(form);
+    onAddInvestment({
+      amount: Number(formData.get('amount')),
+      description: formData.get('description') as string,
+      timestamp: new Date()
+    });
+    setIsInvestmentModalOpen(false);
+  };
+
+  const handleSalarySubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    const form = e.target as HTMLFormElement;
+    const formData = new FormData(form);
+    onAddSalary({
+      staffName: formData.get('staffName') as string,
+      amount: Number(formData.get('amount')),
+      month: formData.get('month') as string,
+      timestamp: new Date()
+    });
+    setIsSalaryModalOpen(false);
+  };
+
+  const sendWhatsAppReminder = (customer: Customer) => {
+    const message = `Assalamu Alaikum ${customer.name}, this is a reminder regarding your outstanding due of TK ${customer.currentDue?.toFixed(2)}. ${customer.dueDate ? `Your promised date was ${customer.dueDate}.` : ''} Please settle the amount as soon as possible. Thank you!`;
+    const cleanPhone = customer.phone.replace(/\D/g, '');
+    window.open(`https://wa.me/${cleanPhone}?text=${encodeURIComponent(message)}`, '_blank');
+  };
+
+  return (
+    <motion.div 
+      initial={{ opacity: 0, y: 20 }}
+      animate={{ opacity: 1, y: 0 }}
+      className="space-y-6"
+    >
+      <header className="flex items-center justify-between">
+        <div>
+          <h2 className="text-3xl font-bold text-gray-900">Hishab Nikash</h2>
+          <p className="text-gray-500">Accounting and Financial Management</p>
+        </div>
+        <div className="flex gap-2">
+          <button onClick={() => setIsExpenseModalOpen(true)} className="px-4 py-2 bg-red-600 text-white rounded-xl text-sm font-bold flex items-center gap-2">
+            <Plus className="w-4 h-4" /> Add Expense
+          </button>
+          <button onClick={() => setIsInvestmentModalOpen(true)} className="px-4 py-2 bg-emerald-600 text-white rounded-xl text-sm font-bold flex items-center gap-2">
+            <Plus className="w-4 h-4" /> Add Investment
+          </button>
+          <button onClick={() => setIsSalaryModalOpen(true)} className="px-4 py-2 bg-indigo-600 text-white rounded-xl text-sm font-bold flex items-center gap-2">
+            <Plus className="w-4 h-4" /> Pay Salary
+          </button>
+        </div>
+      </header>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+        <div className="bg-white p-6 rounded-3xl shadow-sm border border-gray-100">
+          <p className="text-sm text-gray-500 mb-1">Net Profit/Loss</p>
+          <h3 className={`text-2xl font-black ${netProfit >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
+            TK {netProfit.toLocaleString()}
+          </h3>
+          <p className="text-xs text-gray-400 mt-2">After expenses & cost</p>
+        </div>
+        <div className="bg-white p-6 rounded-3xl shadow-sm border border-gray-100">
+          <p className="text-sm text-gray-500 mb-1">Total Expenses</p>
+          <h3 className="text-2xl font-black text-red-500">TK {totalExpenses.toLocaleString()}</h3>
+          <p className="text-xs text-gray-400 mt-2">Includes salaries & bills</p>
+        </div>
+        <div className="bg-white p-6 rounded-3xl shadow-sm border border-gray-100">
+          <p className="text-sm text-gray-500 mb-1">Total Market Due</p>
+          <h3 className="text-2xl font-black text-orange-500">TK {totalMarketDue.toLocaleString()}</h3>
+          <p className="text-xs text-gray-400 mt-2">Outstanding from customers</p>
+        </div>
+        <div className="bg-white p-6 rounded-3xl shadow-sm border border-gray-100">
+          <p className="text-sm text-gray-500 mb-1">Total Investments</p>
+          <h3 className="text-2xl font-black text-indigo-600">TK {totalInvestments.toLocaleString()}</h3>
+          <p className="text-xs text-gray-400 mt-2">Capital injected</p>
+        </div>
+      </div>
+
+      <div className="flex gap-4 border-b border-gray-100">
+        {(['overview', 'expenses', 'investments', 'salaries', 'dues'] as const).map(tab => (
+          <button
+            key={tab}
+            onClick={() => setActiveTab(tab)}
+            className={`pb-4 px-2 text-sm font-bold capitalize transition-all ${
+              activeTab === tab ? 'text-indigo-600 border-b-2 border-indigo-600' : 'text-gray-400'
+            }`}
+          >
+            {tab}
+          </button>
+        ))}
+      </div>
+
+      <div className="bg-white rounded-3xl shadow-sm border border-gray-100 overflow-hidden">
+        {activeTab === 'overview' && (
+          <div className="p-8">
+            <h3 className="text-lg font-bold mb-6">Financial Summary</h3>
+            <div className="space-y-4">
+              <div className="flex justify-between items-center p-4 bg-gray-50 rounded-2xl">
+                <span className="text-gray-600">Total Sales Revenue</span>
+                <span className="font-bold text-gray-900">TK {totalSales.toLocaleString()}</span>
+              </div>
+              <div className="flex justify-between items-center p-4 bg-gray-50 rounded-2xl">
+                <span className="text-gray-600">Total Product Cost</span>
+                <span className="font-bold text-gray-900">TK {totalCost.toLocaleString()}</span>
+              </div>
+              <div className="flex justify-between items-center p-4 bg-gray-50 rounded-2xl">
+                <span className="text-gray-600">Total Operating Expenses</span>
+                <span className="font-bold text-red-600">TK {totalExpenses.toLocaleString()}</span>
+              </div>
+              <div className="flex justify-between items-center p-6 bg-indigo-50 rounded-2xl border border-indigo-100">
+                <span className="text-indigo-900 font-bold">Net Profit</span>
+                <span className={`text-2xl font-black ${netProfit >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
+                  TK {netProfit.toLocaleString()}
+                </span>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {activeTab === 'expenses' && (
+          <table className="w-full text-left">
+            <thead className="bg-gray-50 border-b border-gray-100">
+              <tr>
+                <th className="px-6 py-4 text-sm font-semibold text-gray-600">Date</th>
+                <th className="px-6 py-4 text-sm font-semibold text-gray-600">Category</th>
+                <th className="px-6 py-4 text-sm font-semibold text-gray-600">Description</th>
+                <th className="px-6 py-4 text-sm font-semibold text-gray-600 text-right">Amount</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-100">
+              {expenses.map(exp => (
+                <tr key={exp.id}>
+                  <td className="px-6 py-4 text-sm text-gray-600">{format(exp.timestamp.toDate(), 'dd MMM yyyy')}</td>
+                  <td className="px-6 py-4">
+                    <span className="px-3 py-1 bg-red-50 text-red-600 rounded-full text-xs font-bold uppercase">
+                      {exp.category}
+                    </span>
+                  </td>
+                  <td className="px-6 py-4 text-sm text-gray-600">{exp.description}</td>
+                  <td className="px-6 py-4 text-sm font-bold text-gray-900 text-right">TK {exp.amount.toLocaleString()}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+
+        {activeTab === 'investments' && (
+          <table className="w-full text-left">
+            <thead className="bg-gray-50 border-b border-gray-100">
+              <tr>
+                <th className="px-6 py-4 text-sm font-semibold text-gray-600">Date</th>
+                <th className="px-6 py-4 text-sm font-semibold text-gray-600">Description</th>
+                <th className="px-6 py-4 text-sm font-semibold text-gray-600 text-right">Amount</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-100">
+              {investments.map(inv => (
+                <tr key={inv.id}>
+                  <td className="px-6 py-4 text-sm text-gray-600">{format(inv.timestamp.toDate(), 'dd MMM yyyy')}</td>
+                  <td className="px-6 py-4 text-sm text-gray-600">{inv.description}</td>
+                  <td className="px-6 py-4 text-sm font-bold text-emerald-600 text-right">TK {inv.amount.toLocaleString()}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+
+        {activeTab === 'salaries' && (
+          <table className="w-full text-left">
+            <thead className="bg-gray-50 border-b border-gray-100">
+              <tr>
+                <th className="px-6 py-4 text-sm font-semibold text-gray-600">Date</th>
+                <th className="px-6 py-4 text-sm font-semibold text-gray-600">Staff Name</th>
+                <th className="px-6 py-4 text-sm font-semibold text-gray-600">Month</th>
+                <th className="px-6 py-4 text-sm font-semibold text-gray-600 text-right">Amount</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-100">
+              {staffSalaries.map(sal => (
+                <tr key={sal.id}>
+                  <td className="px-6 py-4 text-sm text-gray-600">{format(sal.timestamp.toDate(), 'dd MMM yyyy')}</td>
+                  <td className="px-6 py-4 text-sm font-bold text-gray-900">{sal.staffName}</td>
+                  <td className="px-6 py-4 text-sm text-gray-600">{sal.month}</td>
+                  <td className="px-6 py-4 text-sm font-bold text-indigo-600 text-right">TK {sal.amount.toLocaleString()}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+
+        {activeTab === 'dues' && (
+          <div className="p-8 space-y-6">
+            <div className="flex items-center gap-3 p-4 bg-red-50 border border-red-100 rounded-2xl text-red-700">
+              <AlertTriangle className="w-6 h-6" />
+              <div>
+                <p className="font-bold">High Due Alert</p>
+                <p className="text-sm">Customers with dues over TK 5,000 require immediate attention.</p>
+              </div>
+            </div>
+            
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              {highDueCustomers.map(customer => (
+                <div 
+                  key={customer.id} 
+                  className={`p-6 rounded-3xl border-2 transition-all ${
+                    customer.currentDue >= 10000 
+                      ? 'bg-yellow-50 border-yellow-400' 
+                      : 'bg-red-50 border-red-400'
+                  }`}
+                >
+                  <div className="flex justify-between items-start mb-4">
+                    <div>
+                      <h4 className="font-bold text-gray-900">{customer.name}</h4>
+                      <p className="text-xs text-gray-500">{customer.phone}</p>
+                    </div>
+                    <span className={`px-2 py-1 rounded-lg text-[10px] font-black uppercase ${
+                      customer.currentDue >= 10000 ? 'bg-yellow-200 text-yellow-800' : 'bg-red-200 text-red-800'
+                    }`}>
+                      {customer.currentDue >= 10000 ? 'Critical' : 'Warning'}
+                    </span>
+                  </div>
+                  <div className="mb-4">
+                    <p className="text-xs text-gray-500 uppercase font-bold tracking-wider">Current Due</p>
+                    <p className="text-2xl font-black text-gray-900">TK {customer.currentDue.toLocaleString()}</p>
+                  </div>
+                  {customer.dueDate && (
+                    <div className="mb-4 flex items-center gap-2 text-xs text-gray-600">
+                      <Clock className="w-3 h-3" />
+                      <span>Promised: {format(new Date(customer.dueDate), 'dd MMM yyyy')}</span>
+                    </div>
+                  )}
+                  <button 
+                    onClick={() => sendWhatsAppReminder(customer)}
+                    className="w-full py-2 bg-emerald-600 text-white rounded-xl text-xs font-bold flex items-center justify-center gap-2 hover:bg-emerald-700 transition-all"
+                  >
+                    <MessageCircle className="w-4 h-4" />
+                    Send Reminder
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Modals */}
+      {isExpenseModalOpen && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
+          <motion.div initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} className="bg-white w-full max-w-md rounded-3xl shadow-2xl p-8">
+            <h3 className="text-xl font-bold mb-6">Add New Expense</h3>
+            <form onSubmit={handleExpenseSubmit} className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Category</label>
+                <select name="category" required className="w-full px-4 py-2 rounded-xl border border-gray-200 outline-none focus:ring-2 focus:ring-red-500">
+                  <option value="salary">Staff Salary</option>
+                  <option value="rent">Shop Rent</option>
+                  <option value="electricity">Electricity Bill</option>
+                  <option value="internet">Internet Bill</option>
+                  <option value="food">Food Expense</option>
+                  <option value="others">Others</option>
+                </select>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Amount</label>
+                <input name="amount" type="number" required className="w-full px-4 py-2 rounded-xl border border-gray-200 outline-none focus:ring-2 focus:ring-red-500" />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Description</label>
+                <textarea name="description" className="w-full px-4 py-2 rounded-xl border border-gray-200 outline-none focus:ring-2 focus:ring-red-500 h-24" />
+              </div>
+              <div className="flex gap-2 pt-4">
+                <button type="button" onClick={() => setIsExpenseModalOpen(false)} className="flex-1 py-2 bg-gray-100 text-gray-600 font-bold rounded-xl">Cancel</button>
+                <button type="submit" className="flex-1 py-2 bg-red-600 text-white font-bold rounded-xl">Save Expense</button>
+              </div>
+            </form>
+          </motion.div>
+        </div>
+      )}
+
+      {isInvestmentModalOpen && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
+          <motion.div initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} className="bg-white w-full max-w-md rounded-3xl shadow-2xl p-8">
+            <h3 className="text-xl font-bold mb-6">Add New Investment</h3>
+            <form onSubmit={handleInvestmentSubmit} className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Amount</label>
+                <input name="amount" type="number" required className="w-full px-4 py-2 rounded-xl border border-gray-200 outline-none focus:ring-2 focus:ring-emerald-500" />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Description</label>
+                <textarea name="description" className="w-full px-4 py-2 rounded-xl border border-gray-200 outline-none focus:ring-2 focus:ring-emerald-500 h-24" />
+              </div>
+              <div className="flex gap-2 pt-4">
+                <button type="button" onClick={() => setIsInvestmentModalOpen(false)} className="flex-1 py-2 bg-gray-100 text-gray-600 font-bold rounded-xl">Cancel</button>
+                <button type="submit" className="flex-1 py-2 bg-emerald-600 text-white font-bold rounded-xl">Save Investment</button>
+              </div>
+            </form>
+          </motion.div>
+        </div>
+      )}
+
+      {isSalaryModalOpen && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
+          <motion.div initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} className="bg-white w-full max-w-md rounded-3xl shadow-2xl p-8">
+            <h3 className="text-xl font-bold mb-6">Staff Salary Payment</h3>
+            <form onSubmit={handleSalarySubmit} className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Staff Name</label>
+                <input name="staffName" required className="w-full px-4 py-2 rounded-xl border border-gray-200 outline-none focus:ring-2 focus:ring-indigo-500" />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Month</label>
+                <input name="month" placeholder="e.g. March 2024" required className="w-full px-4 py-2 rounded-xl border border-gray-200 outline-none focus:ring-2 focus:ring-indigo-500" />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Amount</label>
+                <input name="amount" type="number" required className="w-full px-4 py-2 rounded-xl border border-gray-200 outline-none focus:ring-2 focus:ring-indigo-500" />
+              </div>
+              <div className="flex gap-2 pt-4">
+                <button type="button" onClick={() => setIsSalaryModalOpen(false)} className="flex-1 py-2 bg-gray-100 text-gray-600 font-bold rounded-xl">Cancel</button>
+                <button type="submit" className="flex-1 py-2 bg-indigo-600 text-white font-bold rounded-xl">Pay Salary</button>
+              </div>
+            </form>
+          </motion.div>
+        </div>
+      )}
+    </motion.div>
+  );
+}
+
 function Customers({ customers, sales }: { customers: Customer[], sales: Sale[] }) {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingCustomer, setEditingCustomer] = useState<Partial<Customer> | null>(null);
   const [selectedCustomerForHistory, setSelectedCustomerForHistory] = useState<Customer | null>(null);
+
+  const sendWhatsAppReminder = (customer: Customer) => {
+    const message = `Assalamu Alaikum ${customer.name}, this is a reminder regarding your outstanding due of TK ${customer.currentDue?.toFixed(2)}. ${customer.dueDate ? `Your promised date was ${customer.dueDate}.` : ''} Please settle the amount as soon as possible. Thank you!`;
+    const cleanPhone = customer.phone.replace(/\D/g, '');
+    window.open(`https://wa.me/${cleanPhone}?text=${encodeURIComponent(message)}`, '_blank');
+  };
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -2575,6 +3073,7 @@ function Customers({ customers, sales }: { customers: Customer[], sales: Sale[] 
       fatherName: formData.get('fatherName') as string,
       houseName: formData.get('houseName') as string,
       currentDue: Number(formData.get('currentDue')),
+      dueDate: formData.get('dueDate') as string,
       points: Number(formData.get('points') || 0),
       totalSpent: Number(formData.get('totalSpent') || 0),
     };
@@ -2618,70 +3117,81 @@ function Customers({ customers, sales }: { customers: Customer[], sales: Sale[] 
         </button>
       </header>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-        {customers.map(customer => (
-          <div key={customer.id} className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 hover:shadow-md transition-all relative group">
-            <div className="absolute top-4 right-4 flex gap-2">
-              <button 
-                onClick={() => openWhatsApp(customer.phone)}
-                className="p-2 text-emerald-500 hover:bg-emerald-50 rounded-lg transition-all"
-                title="WhatsApp Message"
-              >
-                <MessageCircle className="w-4 h-4" />
-              </button>
-              <button 
-                onClick={() => { setEditingCustomer(customer); setIsModalOpen(true); }}
-                className="p-2 text-gray-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-all"
-              >
-                <Edit className="w-4 h-4" />
-              </button>
-            </div>
-            <div className="flex items-center gap-4 mb-6">
-              <div className="w-12 h-12 bg-indigo-100 rounded-xl flex items-center justify-center">
-                <UserIcon className="w-6 h-6 text-indigo-600" />
-              </div>
-              <div>
-                <h3 className="font-bold text-gray-900">{customer.name}</h3>
-                <p className="text-xs text-gray-500">{customer.phone || 'No phone'}</p>
-              </div>
-            </div>
-            
-            <div className="space-y-2 mb-6">
-              {customer.fatherName && (
-                <p className="text-xs text-gray-500 flex items-center gap-2">
-                  <span className="font-bold text-gray-400">Father:</span> {customer.fatherName}
-                </p>
-              )}
-              {customer.houseName && (
-                <p className="text-xs text-gray-500 flex items-center gap-2">
-                  <span className="font-bold text-gray-400">House:</span> {customer.houseName}
-                </p>
-              )}
-              {customer.address && (
-                <p className="text-xs text-gray-500 flex items-center gap-2">
-                  <span className="font-bold text-gray-400">Addr:</span> {customer.address}
-                </p>
-              )}
-            </div>
-
-            <div className="grid grid-cols-2 gap-4 pt-4 border-t border-gray-50">
-              <button 
-                onClick={() => setSelectedCustomerForHistory(customer)}
-                className="text-left"
-              >
-                <p className="text-[10px] uppercase tracking-wider text-gray-400 font-bold mb-1">Current Due</p>
-                <p className={`font-bold ${customer.currentDue > 0 ? 'text-red-600' : 'text-emerald-600'} flex items-center gap-1`}>
-                  TK {customer.currentDue || 0}
-                  {customer.currentDue > 0 && <ArrowRight className="w-3 h-3" />}
-                </p>
-              </button>
-              <div>
-                <p className="text-[10px] uppercase tracking-wider text-gray-400 font-bold mb-1">Total Spent</p>
-                <p className="font-bold text-gray-900">TK {customer.totalSpent || 0}</p>
-              </div>
-            </div>
-          </div>
-        ))}
+      <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
+        <div className="overflow-x-auto">
+          <table className="w-full text-left min-w-[800px]">
+            <thead className="bg-gray-50 border-b border-gray-100">
+              <tr>
+                <th className="px-6 py-4 text-sm font-semibold text-gray-600">Customer</th>
+                <th className="px-6 py-4 text-sm font-semibold text-gray-600">Details</th>
+                <th className="px-6 py-4 text-sm font-semibold text-gray-600">Current Due</th>
+                <th className="px-6 py-4 text-sm font-semibold text-gray-600">Due Date</th>
+                <th className="px-6 py-4 text-sm font-semibold text-gray-600">Total Spent</th>
+                <th className="px-6 py-4 text-sm font-semibold text-gray-600 text-right">Actions</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-100">
+              {customers.map(customer => (
+                <tr key={customer.id} className="hover:bg-gray-50/50 transition-colors">
+                  <td className="px-6 py-4">
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 bg-indigo-100 rounded-lg flex items-center justify-center">
+                        <UserIcon className="w-5 h-5 text-indigo-600" />
+                      </div>
+                      <div>
+                        <p className="font-semibold text-gray-900">{customer.name}</p>
+                        <p className="text-xs text-gray-500">{customer.phone || 'No phone'}</p>
+                      </div>
+                    </div>
+                  </td>
+                  <td className="px-6 py-4">
+                    <div className="text-xs text-gray-500 space-y-1">
+                      {customer.fatherName && <p><span className="font-bold">Father:</span> {customer.fatherName}</p>}
+                      {customer.address && <p><span className="font-bold">Addr:</span> {customer.address}</p>}
+                    </div>
+                  </td>
+                  <td className="px-6 py-4">
+                    <button 
+                      onClick={() => setSelectedCustomerForHistory(customer)}
+                      className={`font-bold px-3 py-1 rounded-full text-xs ${
+                        (customer.currentDue || 0) >= 10000 ? 'bg-red-100 text-red-700' :
+                        (customer.currentDue || 0) >= 5000 ? 'bg-orange-100 text-orange-700' :
+                        (customer.currentDue || 0) > 0 ? 'bg-yellow-100 text-yellow-700' :
+                        'bg-emerald-100 text-emerald-700'
+                      } flex items-center gap-1 hover:opacity-80`}
+                    >
+                      TK {customer.currentDue || 0}
+                      {(customer.currentDue || 0) > 0 && <ArrowRight className="w-3 h-3" />}
+                    </button>
+                  </td>
+                  <td className="px-6 py-4">
+                    <span className="text-xs font-medium text-gray-600">
+                      {customer.dueDate || 'No date set'}
+                    </span>
+                  </td>
+                  <td className="px-6 py-4 font-bold text-gray-900">TK {customer.totalSpent || 0}</td>
+                  <td className="px-6 py-4 text-right">
+                    <div className="flex items-center justify-end gap-2">
+                      <button 
+                        onClick={() => sendWhatsAppReminder(customer)}
+                        className="p-2 text-emerald-500 hover:bg-emerald-50 rounded-lg transition-all"
+                        title="Send Reminder"
+                      >
+                        <MessageCircle className="w-4 h-4" />
+                      </button>
+                      <button 
+                        onClick={() => { setEditingCustomer(customer); setIsModalOpen(true); }}
+                        className="p-2 text-gray-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-all"
+                      >
+                        <Edit className="w-4 h-4" />
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       </div>
 
       <AnimatePresence>
@@ -2725,6 +3235,10 @@ function Customers({ customers, sales }: { customers: Customer[], sales: Sale[] 
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">Initial Due (TK)</label>
                   <input name="currentDue" type="number" defaultValue={editingCustomer?.currentDue || 0} className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-indigo-500 outline-none" />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Promised Due Date</label>
+                  <input name="dueDate" type="date" defaultValue={editingCustomer?.dueDate} className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-indigo-500 outline-none" />
                 </div>
                 <div className="flex justify-end gap-4 pt-4">
                   <button type="button" onClick={() => setIsModalOpen(false)} className="px-6 py-3 text-gray-600 font-semibold hover:bg-gray-100 rounded-xl transition-colors">Cancel</button>

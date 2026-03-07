@@ -11,7 +11,16 @@ service cloud.firestore {
     // Fields: customerId (string), items (list), totalAmount (number), discount (number), finalAmount (number), paymentMethod (string), timestamp (timestamp), sellerId (string)
     //
     // Collection: customers
-    // Fields: name (string), phone (string), email (string), points (number), totalSpent (number)
+    // Fields: name (string), phone (string), email (string), points (number), totalSpent (number), currentDue (number), dueDate (string)
+    //
+    // Collection: expenses
+    // Fields: category (string), amount (number), description (string), timestamp (timestamp), staffId (string)
+    //
+    // Collection: investments
+    // Fields: amount (number), description (string), timestamp (timestamp)
+    //
+    // Collection: staff_salaries
+    // Fields: staffName (string), amount (number), month (string), timestamp (timestamp)
     //
     // Collection: categories
     // Fields: name (string)
@@ -57,7 +66,25 @@ service cloud.firestore {
     function isValidCustomer(data) {
       return data.name is string && data.name.size() > 0 && data.name.size() < 100 &&
              (!('phone' in data) || (data.phone is string && data.phone.size() < 20)) &&
-             (!('email' in data) || (data.email is string && data.email.size() < 100));
+             (!('email' in data) || (data.email is string && data.email.size() < 100)) &&
+             (!('currentDue' in data) || (data.currentDue is number)) &&
+             (!('dueDate' in data) || (data.dueDate is string));
+    }
+
+    function isValidExpense(data) {
+      return data.category in ['salary', 'rent', 'electricity', 'internet', 'food', 'others'] &&
+             data.amount is number && data.amount >= 0 &&
+             data.timestamp is timestamp;
+    }
+
+    function isValidInvestment(data) {
+      return data.amount is number && data.amount >= 0 &&
+             data.timestamp is timestamp;
+    }
+
+    function isValidStaffSalary(data) {
+      return data.staffName is string && data.amount is number && data.amount >= 0 &&
+             data.month is string && data.timestamp is timestamp;
     }
 
     function isValidUser(data) {
@@ -69,8 +96,53 @@ service cloud.firestore {
     // Rules
     // ===============================================================
 
-    match /{document=**} {
-      allow read, write: if true;
+    match /products/{productId} {
+      allow read: if isAuthenticated();
+      allow write: if isAdmin();
+    }
+
+    match /sales/{saleId} {
+      allow read: if isAuthenticated();
+      allow create: if isStaff() && isValidSale(request.resource.data);
+      allow update, delete: if isAdmin();
+    }
+
+    match /customers/{customerId} {
+      allow read: if isAuthenticated();
+      allow write: if isStaff() && isValidCustomer(request.resource.data);
+    }
+
+    match /expenses/{expenseId} {
+      allow read: if isAdmin();
+      allow create: if isAdmin() && isValidExpense(request.resource.data);
+      allow update, delete: if isAdmin();
+    }
+
+    match /investments/{investmentId} {
+      allow read: if isAdmin();
+      allow create: if isAdmin() && isValidInvestment(request.resource.data);
+      allow update, delete: if isAdmin();
+    }
+
+    match /staff_salaries/{salaryId} {
+      allow read: if isAdmin();
+      allow create: if isAdmin() && isValidStaffSalary(request.resource.data);
+      allow update, delete: if isAdmin();
+    }
+
+    match /categories/{categoryId} {
+      allow read: if isAuthenticated();
+      allow write: if isAdmin();
+    }
+
+    match /users/{userId} {
+      allow read: if isAuthenticated();
+      allow write: if isAdmin() && isValidUser(request.resource.data);
+    }
+
+    match /settings/{settingId} {
+      allow read: if isAuthenticated();
+      allow write: if isAdmin();
     }
   }
 }

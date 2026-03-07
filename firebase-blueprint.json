@@ -55,9 +55,50 @@
         "phone": { "type": "string" },
         "email": { "type": "string" },
         "points": { "type": "number" },
-        "totalSpent": { "type": "number" }
+        "totalSpent": { "type": "number" },
+        "currentDue": { "type": "number" },
+        "dueDate": { "type": "string", "format": "date" }
       },
       "required": ["name"]
+    },
+    "Expense": {
+      "title": "Expense",
+      "description": "A shop expense",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "category": { "type": "string", "enum": ["salary", "rent", "electricity", "internet", "food", "others"] },
+        "amount": { "type": "number" },
+        "description": { "type": "string" },
+        "timestamp": { "type": "string", "format": "date-time" },
+        "staffId": { "type": "string" }
+      },
+      "required": ["category", "amount", "timestamp"]
+    },
+    "Investment": {
+      "title": "Investment",
+      "description": "A business investment",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "amount": { "type": "number" },
+        "description": { "type": "string" },
+        "timestamp": { "type": "string", "format": "date-time" }
+      },
+      "required": ["amount", "timestamp"]
+    },
+    "StaffSalary": {
+      "title": "StaffSalary",
+      "description": "Salary payment to staff",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "staffName": { "type": "string" },
+        "amount": { "type": "number" },
+        "month": { "type": "string" },
+        "timestamp": { "type": "string", "format": "date-time" }
+      },
+      "required": ["staffName", "amount", "month", "timestamp"]
     },
     "Category": {
       "title": "Category",
@@ -102,6 +143,18 @@
     "/users/{userId}": {
       "schema": "User",
       "description": "Collection of system users"
+    },
+    "/expenses/{expenseId}": {
+      "schema": "Expense",
+      "description": "Collection of shop expenses"
+    },
+    "/investments/{investmentId}": {
+      "schema": "Investment",
+      "description": "Collection of business investments"
+    },
+    "/staff_salaries/{salaryId}": {
+      "schema": "StaffSalary",
+      "description": "Collection of staff salary payments"
     }
   }
 }
