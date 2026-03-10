@@ -98,51 +98,56 @@ service cloud.firestore {
 
     match /products/{productId} {
       allow read: if isAuthenticated();
-      allow write: if isAdmin();
+      allow write: if isAuthenticated();
     }
 
     match /sales/{saleId} {
       allow read: if isAuthenticated();
-      allow create: if isStaff() && isValidSale(request.resource.data);
-      allow update, delete: if isAdmin();
+      allow create: if isAuthenticated() && isValidSale(request.resource.data);
+      allow update, delete: if isAuthenticated();
     }
 
     match /customers/{customerId} {
       allow read: if isAuthenticated();
-      allow write: if isStaff() && isValidCustomer(request.resource.data);
+      allow write: if isAuthenticated() && isValidCustomer(request.resource.data);
     }
 
     match /expenses/{expenseId} {
-      allow read: if isAdmin();
-      allow create: if isAdmin() && isValidExpense(request.resource.data);
-      allow update, delete: if isAdmin();
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated() && isValidExpense(request.resource.data);
+      allow update, delete: if isAuthenticated();
     }
 
     match /investments/{investmentId} {
-      allow read: if isAdmin();
-      allow create: if isAdmin() && isValidInvestment(request.resource.data);
-      allow update, delete: if isAdmin();
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated() && isValidInvestment(request.resource.data);
+      allow update, delete: if isAuthenticated();
     }
 
     match /staff_salaries/{salaryId} {
-      allow read: if isAdmin();
-      allow create: if isAdmin() && isValidStaffSalary(request.resource.data);
-      allow update, delete: if isAdmin();
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated() && isValidStaffSalary(request.resource.data);
+      allow update, delete: if isAuthenticated();
     }
 
     match /categories/{categoryId} {
       allow read: if isAuthenticated();
-      allow write: if isAdmin();
+      allow write: if isAuthenticated();
     }
 
     match /users/{userId} {
-      allow read: if isAuthenticated();
-      allow write: if isAdmin() && isValidUser(request.resource.data);
+      allow read: if true; // Allow public read for login verification
+      allow write: if isAuthenticated();
     }
 
     match /settings/{settingId} {
+      allow read: if true; // Allow public read for shop profile
+      allow write: if isAuthenticated();
+    }
+
+    match /daily_closings/{closingId} {
       allow read: if isAuthenticated();
-      allow write: if isAdmin();
+      allow write: if isAuthenticated();
     }
   }
 }

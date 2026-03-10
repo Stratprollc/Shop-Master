@@ -38,7 +38,8 @@ import {
   AlertTriangle,
   Calculator as CalculatorIcon,
   Image as ImageIcon,
-  Camera
+  Camera,
+  Banknote
 } from 'lucide-react';
 import { jsPDF } from 'jspdf';
 import 'jspdf-autotable';
@@ -104,6 +105,7 @@ interface ShopSettings {
 
 interface Product {
   id: string;
+  serialNumber: number;
   name: string;
   category: string;
   price: number;
@@ -142,6 +144,7 @@ interface Sale {
 
 interface Customer {
   id: string;
+  serialNumber: number;
   name: string;
   phone: string;
   address?: string;
@@ -151,6 +154,23 @@ interface Customer {
   totalSpent: number;
   currentDue: number;
   dueDate?: string;
+}
+
+interface DailyClosing {
+  id: string;
+  date: string;
+  totalSales: number;
+  cashSales: number;
+  dueSales: number;
+  collections: number;
+  totalExpenses: number;
+  cashInHand: number;
+  bkashBalance: number;
+  denominations: {
+    [key: string]: number;
+  };
+  notes?: string;
+  timestamp: any;
 }
 
 interface Expense {
@@ -624,12 +644,25 @@ export default function App() {
   const [password, setPassword] = useState('');
   const [authError, setAuthError] = useState<string | null>(null);
 
-  // Check local storage for session
+  // Auth State Sync
   useEffect(() => {
-    const savedUser = localStorage.getItem('shopmaster_user');
-    if (savedUser) {
-      setUser(JSON.parse(savedUser));
-    }
+    const unsubscribe = onAuthStateChanged(auth, (firebaseUser) => {
+      if (firebaseUser) {
+        // If we have a firebase user but no app user state, try to restore from localStorage
+        const savedUser = localStorage.getItem('shopmaster_user');
+        if (savedUser) {
+          const parsedUser = JSON.parse(savedUser);
+          setUser(parsedUser);
+        }
+      } else {
+        // If firebase user is gone, clear app user state
+        setUser(null);
+        localStorage.removeItem('shopmaster_user');
+      }
+      setLoading(false);
+    });
+
+    return () => unsubscribe();
   }, []);
 
   // Data States
@@ -641,6 +674,7 @@ export default function App() {
   const [expenses, setExpenses] = useState<Expense[]>([]);
   const [investments, setInvestments] = useState<Investment[]>([]);
   const [staffSalaries, setStaffSalaries] = useState<StaffSalary[]>([]);
+  const [dailyClosings, setDailyClosings] = useState<DailyClosing[]>([]);
   const [shopSettings, setShopSettings] = useState<ShopSettings>({
     name: 'Bismillah Store',
     address: 'Your Shop Address',
@@ -660,9 +694,30 @@ export default function App() {
     }
   }, [notification]);
 
-  // Real-time Data Sync
+  // Real-time Data Sync (Public/Auth-related)
   useEffect(() => {
-    if (!user) return;
+    // We sync these even without auth to allow the login screen to function
+    // Security is handled by allowing public read in firestore.rules
+    const unsubUsers = onSnapshot(collection(db, 'users'), (snapshot) => {
+      setAppUsers(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as AppUser)));
+    }, (err) => console.error("Users sync error", err));
+
+    const unsubSettings = onSnapshot(doc(db, 'settings', 'shop'), (snapshot) => {
+      if (snapshot.exists()) {
+        setShopSettings(snapshot.data() as ShopSettings);
+      }
+    }, (err) => console.error("Settings sync error", err));
+
+    return () => {
+      unsubUsers();
+      unsubSettings();
+    };
+  }, []);
+
+  // Real-time Data Sync (Private/App-related)
+  useEffect(() => {
+    // We need both the app user state AND the firebase auth to be ready
+    if (!user || !auth.currentUser) return;
 
     const unsubProducts = onSnapshot(collection(db, 'products'), (snapshot) => {
       setProducts(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Product)));
@@ -680,16 +735,6 @@ export default function App() {
       setCategories(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Category)));
     }, (err) => console.error("Categories sync error", err));
 
-    const unsubUsers = onSnapshot(collection(db, 'users'), (snapshot) => {
-      setAppUsers(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as AppUser)));
-    }, (err) => console.error("Users sync error", err));
-
-    const unsubSettings = onSnapshot(doc(db, 'settings', 'shop'), (snapshot) => {
-      if (snapshot.exists()) {
-        setShopSettings(snapshot.data() as ShopSettings);
-      }
-    }, (err) => console.error("Settings sync error", err));
-
     const unsubExpenses = onSnapshot(collection(db, 'expenses'), (snapshot) => {
       setExpenses(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Expense)));
     }, (err) => console.error("Expenses sync error", err));
@@ -702,20 +747,23 @@ export default function App() {
       setStaffSalaries(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as StaffSalary)));
     }, (err) => console.error("Staff salaries sync error", err));
 
+    const unsubDailyClosings = onSnapshot(collection(db, 'daily_closings'), (snapshot) => {
+      setDailyClosings(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as DailyClosing)));
+    }, (err) => console.error("Daily closing sync error", err));
+
     return () => {
       unsubProducts();
       unsubSales();
       unsubCustomers();
       unsubCategories();
-      unsubUsers();
-      unsubSettings();
       unsubExpenses();
       unsubInvestments();
       unsubStaffSalaries();
+      unsubDailyClosings();
     };
-  }, [user]);
+  }, [user, auth.currentUser]);
 
-  const handleAuth = (e: React.FormEvent) => {
+  const handleAuth = async (e: React.FormEvent) => {
     e.preventDefault();
     setAuthError(null);
     
@@ -727,7 +775,6 @@ export default function App() {
       setUser(userData);
       localStorage.setItem('shopmaster_user', JSON.stringify(userData));
     } else if (username === 'Admin' && password === 'Admin') {
-      // Fallback for initial setup if no users exist
       const mockUser = { uid: 'admin-id', email: 'admin@shop.com', displayName: 'Admin', role: 'admin' };
       setUser(mockUser);
       localStorage.setItem('shopmaster_user', JSON.stringify(mockUser));
@@ -1161,6 +1208,7 @@ export default function App() {
               { id: 'inventory', icon: Package, label: 'Inventory', roles: ['admin', 'manager', 'assistant_manager'] },
               { id: 'sales', icon: History, label: 'Sales History', roles: ['admin', 'manager', 'assistant_manager', 'sales_manager'] },
               { id: 'customers', icon: Users, label: 'Customers', roles: ['admin', 'manager', 'assistant_manager', 'sales_manager'] },
+              { id: 'daily_closing', icon: Clock, label: 'Daily Closing', roles: ['admin', 'manager'] },
               { id: 'accounting', icon: CalculatorIcon, label: 'Hishab Nikash', roles: ['admin', 'manager'] },
               { id: 'settings', icon: Settings, label: 'Settings', roles: ['admin'] },
             ].filter(item => item.roles.includes(user.role)).map(item => (
@@ -1259,6 +1307,13 @@ export default function App() {
               />
             )}
             {activeTab === 'customers' && <Customers customers={customers} sales={sales} />}
+            {activeTab === 'daily_closing' && (
+              <DailyClosingView 
+                sales={sales} 
+                expenses={expenses} 
+                dailyClosings={dailyClosings}
+              />
+            )}
             {activeTab === 'accounting' && (
               <Accounting 
                 sales={sales} 
@@ -2180,6 +2235,7 @@ function Inventory({ products, categories, onViewHistory }: { products: Product[
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingProduct, setEditingProduct] = useState<Partial<Product> | null>(null);
   const [productImage, setProductImage] = useState<string | null>(null);
+  const [isUploading, setIsUploading] = useState(false);
 
   useEffect(() => {
     if (editingProduct?.imageUrl) {
@@ -2188,6 +2244,82 @@ function Inventory({ products, categories, onViewHistory }: { products: Product[
       setProductImage(null);
     }
   }, [editingProduct]);
+
+  const handleDownloadCSV = () => {
+    const csvData = products.map(p => ({
+      'Serial Number': p.serialNumber,
+      'Name': p.name,
+      'Category': p.category,
+      'Price': p.price,
+      'Cost': p.cost,
+      'Stock': p.stock,
+      'Unit': p.unit,
+      'Barcode': p.barcode,
+      'Department': p.department,
+      'Warehouse': p.warehouse
+    }));
+    
+    // @ts-ignore
+    import('papaparse').then(Papa => {
+      const csv = Papa.unparse(csvData);
+      const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+      const link = document.createElement('a');
+      link.href = URL.createObjectURL(blob);
+      link.setAttribute('download', `inventory_${format(new Date(), 'yyyy-MM-dd')}.csv`);
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+    });
+  };
+
+  const handleUploadCSV = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      setIsUploading(true);
+      // @ts-ignore
+      import('papaparse').then(Papa => {
+        Papa.parse(file, {
+          header: true,
+          skipEmptyLines: true,
+          complete: async (results: any) => {
+            const data = results.data;
+            let count = 0;
+            for (const row of data) {
+              const name = row.Name || row.name;
+              const price = Number(row.Price || row.price);
+              if (!name || isNaN(price)) continue;
+              
+              const productData = {
+                name: name,
+                category: row.Category || row.category || 'General',
+                price: price,
+                cost: Number(row.Cost || row.cost || 0),
+                stock: Number(row.Stock || row.stock || 0),
+                unit: row.Unit || row.unit || 'unit',
+                barcode: row.Barcode || row.barcode || '',
+                department: row.Department || row.department || '',
+                warehouse: row.Warehouse || row.warehouse || ''
+              };
+
+              const existing = products.find(p => p.name === name || (p.barcode && p.barcode === productData.barcode));
+              if (existing) {
+                await updateDoc(doc(db, 'products', existing.id), productData);
+              } else {
+                const maxSerial = products.reduce((max, p) => Math.max(max, p.serialNumber || 0), 0);
+                await addDoc(collection(db, 'products'), {
+                  ...productData,
+                  serialNumber: maxSerial + 1 + count
+                });
+                count++;
+              }
+            }
+            setIsUploading(false);
+            alert('Inventory updated successfully from CSV');
+          }
+        });
+      });
+    }
+  };
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -2202,14 +2334,14 @@ function Inventory({ products, categories, onViewHistory }: { products: Product[
     
     const productData = {
       name: formData.get('name') as string,
-      category: formData.get('category') as string,
+      category: formData.get('category') as string || 'General',
       price: Number(formData.get('price')),
-      cost: Number(formData.get('cost')),
-      stock: Number(formData.get('stock')),
+      cost: Number(formData.get('cost') || 0),
+      stock: Number(formData.get('stock') || 0),
       unit: formData.get('unit') as string,
-      barcode: formData.get('barcode') as string,
-      department: formData.get('department') as string,
-      warehouse: formData.get('warehouse') as string,
+      barcode: formData.get('barcode') as string || '',
+      department: formData.get('department') as string || '',
+      warehouse: formData.get('warehouse') as string || '',
       imageUrl: imageUrl
     };
 
@@ -2222,7 +2354,13 @@ function Inventory({ products, categories, onViewHistory }: { products: Product[
       if (editingProduct?.id) {
         await updateDoc(doc(db, 'products', editingProduct.id), productData);
       } else {
-        await addDoc(collection(db, 'products'), productData);
+        // Generate serial number
+        const maxSerial = products.reduce((max, p) => Math.max(max, p.serialNumber || 0), 0);
+        const newProduct = {
+          ...productData,
+          serialNumber: maxSerial + 1
+        };
+        await addDoc(collection(db, 'products'), newProduct);
       }
       setIsModalOpen(false);
       setEditingProduct(null);
@@ -2253,13 +2391,29 @@ function Inventory({ products, categories, onViewHistory }: { products: Product[
           <h2 className="text-3xl font-bold text-gray-900">Inventory</h2>
           <p className="text-gray-500">Manage your products and stock levels.</p>
         </div>
-        <button 
-          onClick={() => { setEditingProduct(null); setProductImage(null); setIsModalOpen(true); }}
-          className="flex items-center gap-2 px-6 py-3 bg-indigo-600 text-white rounded-xl font-semibold hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-100"
-        >
-          <Plus className="w-5 h-5" />
-          Add Product
-        </button>
+        <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2">
+            <label className="cursor-pointer flex items-center gap-2 px-4 py-2 bg-emerald-50 text-emerald-600 rounded-xl font-semibold hover:bg-emerald-100 transition-all border border-emerald-100">
+              <Download className="w-4 h-4 rotate-180" />
+              Upload CSV
+              <input type="file" accept=".csv" className="hidden" onChange={handleUploadCSV} disabled={isUploading} />
+            </label>
+            <button 
+              onClick={handleDownloadCSV}
+              className="flex items-center gap-2 px-4 py-2 bg-blue-50 text-blue-600 rounded-xl font-semibold hover:bg-blue-100 transition-all border border-blue-100"
+            >
+              <Download className="w-4 h-4" />
+              Download CSV
+            </button>
+          </div>
+          <button 
+            onClick={() => { setEditingProduct(null); setProductImage(null); setIsModalOpen(true); }}
+            className="flex items-center gap-2 px-6 py-3 bg-indigo-600 text-white rounded-xl font-semibold hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-100"
+          >
+            <Plus className="w-5 h-5" />
+            Add Product
+          </button>
+        </div>
       </header>
 
       <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
@@ -2289,7 +2443,10 @@ function Inventory({ products, categories, onViewHistory }: { products: Product[
                       </div>
                       <div>
                         <p className="font-semibold text-gray-900">{product.name}</p>
-                        <p className="text-xs text-gray-500">Barcode: {product.barcode || 'N/A'}</p>
+                        <div className="flex items-center gap-2 text-[10px] text-gray-500">
+                          <span className="bg-gray-100 px-1.5 py-0.5 rounded font-mono">SN: {product.serialNumber}</span>
+                          <span>Barcode: {product.barcode || 'N/A'}</span>
+                        </div>
                       </div>
                     </div>
                   </td>
@@ -2396,16 +2553,16 @@ function Inventory({ products, categories, onViewHistory }: { products: Product[
                     <input name="barcode" defaultValue={editingProduct?.barcode} className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-indigo-500 outline-none" />
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">Price ($)</label>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">Price (TK)</label>
                     <input name="price" type="number" step="0.01" defaultValue={editingProduct?.price} required className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-indigo-500 outline-none" />
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">Cost ($)</label>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">Cost (TK)</label>
                     <input name="cost" type="number" step="0.01" defaultValue={editingProduct?.cost} className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-indigo-500 outline-none" />
                   </div>
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-2">Stock Level</label>
-                    <input name="stock" type="number" defaultValue={editingProduct?.stock} required className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-indigo-500 outline-none" />
+                    <input name="stock" type="number" defaultValue={editingProduct?.stock || 0} className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-indigo-500 outline-none" />
                   </div>
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-2">Unit</label>
@@ -3082,7 +3239,11 @@ function Customers({ customers, sales }: { customers: Customer[], sales: Sale[] 
       if (editingCustomer?.id) {
         await updateDoc(doc(db, 'customers', editingCustomer.id), customerData);
       } else {
-        await addDoc(collection(db, 'customers'), customerData);
+        const maxSerial = customers.reduce((max, c) => Math.max(max, c.serialNumber || 0), 0);
+        await addDoc(collection(db, 'customers'), {
+          ...customerData,
+          serialNumber: maxSerial + 1
+        });
       }
       setIsModalOpen(false);
       setEditingCustomer(null);
@@ -3140,6 +3301,7 @@ function Customers({ customers, sales }: { customers: Customer[], sales: Sale[] 
                       </div>
                       <div>
                         <p className="font-semibold text-gray-900">{customer.name}</p>
+                        <p className="text-[10px] font-mono text-indigo-400">SN: {customer.serialNumber || 'N/A'}</p>
                         <p className="text-xs text-gray-500">{customer.phone || 'No phone'}</p>
                       </div>
                     </div>
@@ -3310,6 +3472,209 @@ function Customers({ customers, sales }: { customers: Customer[], sales: Sale[] 
                   Close
                 </button>
               </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+    </motion.div>
+  );
+}
+
+function DailyClosingView({ sales, expenses, dailyClosings }: { sales: Sale[], expenses: Expense[], dailyClosings: DailyClosing[] }) {
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const today = format(new Date(), 'yyyy-MM-dd');
+  
+  // Calculate today's stats
+  const todaySales = sales.filter(s => format(s.timestamp.toDate(), 'yyyy-MM-dd') === today);
+  const totalSales = todaySales.reduce((sum, s) => sum + s.finalAmount, 0);
+  const cashSales = todaySales.filter(s => s.paymentMethod === 'cash').reduce((sum, s) => sum + s.paidAmount, 0);
+  const dueSales = todaySales.reduce((sum, s) => sum + s.dueAmount, 0);
+  const cashReceived = todaySales.reduce((sum, s) => sum + s.paidAmount, 0);
+  
+  const todayExpenses = expenses.filter(e => format(e.timestamp.toDate(), 'yyyy-MM-dd') === today).reduce((sum, e) => sum + e.amount, 0);
+
+  const [denominations, setDenominations] = useState<{ [key: string]: number }>({
+    '1000': 0, '500': 0, '200': 0, '100': 0, '50': 0, '20': 0, '10': 0, '5': 0, '2': 0, '1': 0
+  });
+  const [bkashBalance, setBkashBalance] = useState(0);
+  const [notes, setNotes] = useState('');
+
+  const totalCashInDrawer = Object.entries(denominations).reduce((sum, [val, count]) => sum + (parseInt(val) * (count as number)), 0);
+
+  const handleSaveClosing = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const closingData = {
+      date: today,
+      totalSales,
+      cashSales,
+      dueSales,
+      collections: cashReceived - cashSales,
+      totalExpenses: todayExpenses,
+      cashInHand: totalCashInDrawer,
+      bkashBalance,
+      denominations,
+      notes,
+      timestamp: new Date()
+    };
+
+    try {
+      await addDoc(collection(db, 'daily_closings'), closingData);
+      setIsModalOpen(false);
+      alert('Daily Closing Saved Successfully');
+    } catch (error) {
+      console.error("Error saving daily closing", error);
+    }
+  };
+
+  return (
+    <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} className="space-y-6">
+      <header className="flex items-center justify-between">
+        <div>
+          <h2 className="text-3xl font-bold text-gray-900">Daily Closing</h2>
+          <p className="text-gray-500">Summarize and close today's accounts.</p>
+        </div>
+        <button 
+          onClick={() => setIsModalOpen(true)}
+          className="flex items-center gap-2 px-6 py-3 bg-indigo-600 text-white rounded-xl font-semibold hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-100"
+        >
+          <Plus className="w-5 h-5" />
+          New Closing
+        </button>
+      </header>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+        <div className="bg-white p-6 rounded-3xl shadow-sm border border-gray-100">
+          <p className="text-sm text-gray-500 mb-1">Total Sales (Today)</p>
+          <p className="text-2xl font-black text-gray-900">{formatCurrency(totalSales)}</p>
+        </div>
+        <div className="bg-white p-6 rounded-3xl shadow-sm border border-gray-100">
+          <p className="text-sm text-gray-500 mb-1">Cash Received (Today)</p>
+          <p className="text-2xl font-black text-emerald-600">{formatCurrency(cashReceived)}</p>
+        </div>
+        <div className="bg-white p-6 rounded-3xl shadow-sm border border-gray-100">
+          <p className="text-sm text-gray-500 mb-1">Due Sales (Today)</p>
+          <p className="text-2xl font-black text-red-600">{formatCurrency(dueSales)}</p>
+        </div>
+        <div className="bg-white p-6 rounded-3xl shadow-sm border border-gray-100">
+          <p className="text-sm text-gray-500 mb-1">Expenses (Today)</p>
+          <p className="text-2xl font-black text-orange-600">{formatCurrency(todayExpenses)}</p>
+        </div>
+      </div>
+
+      <div className="bg-white rounded-3xl shadow-sm border border-gray-100 overflow-hidden">
+        <div className="p-6 border-b border-gray-100">
+          <h3 className="text-lg font-bold">Recent Closings</h3>
+        </div>
+        <div className="overflow-x-auto">
+          <table className="w-full text-left">
+            <thead className="bg-gray-50 border-b border-gray-100">
+              <tr>
+                <th className="px-6 py-4 text-sm font-semibold text-gray-600">Date</th>
+                <th className="px-6 py-4 text-sm font-semibold text-gray-600">Total Sales</th>
+                <th className="px-6 py-4 text-sm font-semibold text-gray-600">Cash in Hand</th>
+                <th className="px-6 py-4 text-sm font-semibold text-gray-600">bKash</th>
+                <th className="px-6 py-4 text-sm font-semibold text-gray-600">Status</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-100">
+              {dailyClosings.sort((a, b) => b.date.localeCompare(a.date)).map(closing => (
+                <tr key={closing.id} className="hover:bg-gray-50/50 transition-colors">
+                  <td className="px-6 py-4 font-medium">{format(new Date(closing.date), 'dd MMM yyyy')}</td>
+                  <td className="px-6 py-4">{formatCurrency(closing.totalSales)}</td>
+                  <td className="px-6 py-4 font-bold text-emerald-600">{formatCurrency(closing.cashInHand)}</td>
+                  <td className="px-6 py-4 text-pink-600 font-bold">{formatCurrency(closing.bkashBalance)}</td>
+                  <td className="px-6 py-4">
+                    <span className="px-3 py-1 bg-emerald-50 text-emerald-600 rounded-full text-xs font-bold">CLOSED</span>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <AnimatePresence>
+        {isModalOpen && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
+            <motion.div initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.9, opacity: 0 }} className="bg-white w-full max-w-4xl rounded-3xl shadow-2xl flex flex-col max-h-[90vh]">
+              <div className="p-6 border-b border-gray-100 flex items-center justify-between">
+                <h3 className="text-xl font-bold">Daily Cash Closing - {format(new Date(), 'dd MMM yyyy')}</h3>
+                <button onClick={() => setIsModalOpen(false)}><X className="w-6 h-6" /></button>
+              </div>
+              <form onSubmit={handleSaveClosing} className="flex-1 overflow-y-auto p-8 grid grid-cols-1 md:grid-cols-2 gap-8">
+                <div className="space-y-6">
+                  <h4 className="font-bold text-gray-400 uppercase text-xs tracking-widest">Denominations (Notes)</h4>
+                  <div className="grid grid-cols-2 gap-4">
+                    {Object.keys(denominations).sort((a, b) => Number(b) - Number(a)).map(val => (
+                      <div key={val} className="flex items-center gap-3 bg-gray-50 p-3 rounded-2xl border border-gray-100">
+                        <div className="w-12 text-right font-bold text-gray-600">{val}</div>
+                        <div className="text-gray-400">×</div>
+                        <input 
+                          type="number" 
+                          min="0"
+                          className="w-full bg-white border border-gray-200 rounded-lg px-2 py-1 outline-none focus:ring-2 focus:ring-indigo-500"
+                          value={denominations[val]}
+                          onChange={(e) => setDenominations({...denominations, [val]: Number(e.target.value)})}
+                        />
+                      </div>
+                    ))}
+                  </div>
+                  <div className="p-4 bg-indigo-600 rounded-2xl text-white">
+                    <p className="text-xs opacity-80 uppercase font-bold">Total Cash in Drawer</p>
+                    <p className="text-3xl font-black">{formatCurrency(totalCashInDrawer)}</p>
+                  </div>
+                </div>
+
+                <div className="space-y-6">
+                  <h4 className="font-bold text-gray-400 uppercase text-xs tracking-widest">Other Accounts</h4>
+                  <div className="space-y-4">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">bKash Balance</label>
+                      <div className="relative">
+                        <DollarSign className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400 w-4 h-4" />
+                        <input 
+                          type="number" 
+                          className="w-full pl-10 pr-4 py-3 rounded-xl border border-gray-200 outline-none focus:ring-2 focus:ring-pink-500"
+                          value={bkashBalance}
+                          onChange={(e) => setBkashBalance(Number(e.target.value))}
+                        />
+                      </div>
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Additional Notes</label>
+                      <textarea 
+                        className="w-full px-4 py-3 rounded-xl border border-gray-200 outline-none focus:ring-2 focus:ring-indigo-500 h-32"
+                        placeholder="Any discrepancies or notes for today..."
+                        value={notes}
+                        onChange={(e) => setNotes(e.target.value)}
+                      />
+                    </div>
+                  </div>
+
+                  <div className="p-6 bg-gray-50 rounded-3xl border border-gray-100 space-y-3">
+                    <div className="flex justify-between text-sm">
+                      <span className="text-gray-500">Total Sales:</span>
+                      <span className="font-bold">{formatCurrency(totalSales)}</span>
+                    </div>
+                    <div className="flex justify-between text-sm">
+                      <span className="text-gray-500">Cash Received:</span>
+                      <span className="font-bold text-emerald-600">{formatCurrency(cashReceived)}</span>
+                    </div>
+                    <div className="flex justify-between text-sm">
+                      <span className="text-gray-500">Expenses:</span>
+                      <span className="font-bold text-red-600">-{formatCurrency(todayExpenses)}</span>
+                    </div>
+                    <div className="pt-3 border-t border-gray-200 flex justify-between">
+                      <span className="font-bold">Expected Cash:</span>
+                      <span className="font-black text-indigo-600">{formatCurrency(cashReceived - todayExpenses)}</span>
+                    </div>
+                  </div>
+
+                  <button type="submit" className="w-full py-4 bg-indigo-600 text-white rounded-2xl font-bold hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-100">
+                    Confirm & Save Closing
+                  </button>
+                </div>
+              </form>
             </motion.div>
           </div>
         )}
