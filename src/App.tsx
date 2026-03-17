@@ -23,6 +23,7 @@ import {
   DollarSign, 
   Box, 
   User as UserIcon,
+  Briefcase,
   AlertCircle,
   CheckCircle2,
   Printer,
@@ -42,8 +43,9 @@ import {
   Banknote
 } from 'lucide-react';
 import { jsPDF } from 'jspdf';
-import 'jspdf-autotable';
-import { Html5QrcodeScanner } from 'html5-qrcode';
+import autoTable from 'jspdf-autotable';
+import Papa from 'papaparse';
+// import { Html5QrcodeScanner } from 'html5-qrcode';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
   db, 
@@ -101,6 +103,7 @@ interface ShopSettings {
   logoBase64?: string;
   phone?: string;
   whatsappSender?: string;
+  receiptWidth?: '58mm' | '80mm';
 }
 
 interface Product {
@@ -137,6 +140,7 @@ interface Sale {
   finalAmount: number;
   paidAmount: number;
   dueAmount: number;
+  previousBalance?: number;
   paymentMethod: 'cash' | 'due';
   timestamp: any;
   sellerId: string;
@@ -202,6 +206,27 @@ interface Category {
   name: string;
 }
 
+interface Employee {
+  id: string;
+  name: string;
+  designation: string;
+  phone: string;
+  email?: string;
+  salary: number;
+  joiningDate?: string;
+  schedule?: string;
+  status: 'active' | 'inactive';
+}
+
+import { FIXED_CATEGORIES } from './Categories'; //�. পশু স�. বিড়াল পরিচর্যা", " সরঞ্জাম", "৬৬. শিক্ষা সামগ্রী",
+//   "৬৭. পোশাক", "৬৮. পুরুষদের পোশাক", "৬৯. নারীদের পোশাক", "৭০. শিশুদের পোশাক", "৭১. ফ্যাশন আনুষঙ্গিক",
+//   "৭২. খেলনা ও বিনোদন", "৭৩. ক্রীড়া সামগ্রী", "৭৪. আউটডোর সামগ্রী",
+//   "৭৫. পোষা প্রাণী", "৭৬. কুকুর পরিচর্যা", "৭৭. বিড়াল পরিচর্যা", "৭৮. পাখি পরিচর্যা", "৭৯. মাছ পরিচর্যা",
+//   "৮০. গবাদি পশু", "৮১. গরু পরিচর্যা", "৮২. ছাগল পরিচর্যা", "৮৩. ভেড়া পরিচর্যা", "৮৪. হাঁস-মুরগি পরিচর্যা", "৮৫. পশু স্বাস্থ্য",
+//   "৮৬. কৃষি", "৮৭. বীজ ও চারা", "৮৮. সার ও মাটি উন্নয়ন", "৮৯. কৃষি সরঞ্জাম", "৯০. বাগান পরিচর্যা",
+//   "৯১. ভ্রমণ ও আউটডোর", "৯২. উপহার সামগ্রী", "৯৩. ধর্মীয় সামগ্রী", "৯৪. মৌসুমি পণ্য", "৯৫. উৎসব সামগ্রী", "৯৬. বিশেষ অফার বিভাগ", "৯৭. নতুন আগমন", "৯৮. জনপ্রিয় বিভাগ", "৯৯. স্থানীয় পণ্য", "১০০. আমদানিকৃত পন্য"
+// ];
+
 // --- Utilities ---
 const toBengaliNumber = (num: number | string): string => {
   const bengaliDigits = ['০', '১', '২', '৩', '৪', '৫', '৬', '৭', '৮', '৯'];
@@ -221,6 +246,92 @@ const fileToBase64 = (file: File): Promise<string> => {
     reader.onerror = error => reject(error);
   });
 };
+const printDailyClosing = (closing: DailyClosing, settings: ShopSettings) => {
+  const printWindow = window.open('', '_blank');
+  if (!printWindow) return;
+
+  const denominationsHtml = Object.entries(closing.denominations)
+    .filter(([_, count]) => count > 0)
+    .map(([val, count]) => `
+      <div style="display: flex; justify-content: space-between; font-size: 10px;">
+        <span>${val} x ${count}</span>
+        <span>= ${(parseInt(val) * count).toFixed(2)}</span>
+      </div>
+    `).join('');
+
+  printWindow.document.write(`
+    <!DOCTYPE html>
+    <html>
+      <head>
+        <title>Daily Closing - ${closing.date}</title>
+        <style>
+          * { margin: 0; padding: 0; box-sizing: border-box; }
+          @page { margin: 0; size: 80mm auto; }
+          html, body { width: 80mm; margin: 0; padding: 0; background: #fff; height: auto !important; }
+          body { 
+            font-family: 'Courier New', Courier, monospace; 
+            width: 72mm; 
+            margin: 0 auto; 
+            padding: 2mm 0; 
+            font-size: 11px; 
+            line-height: 1.1;
+          }
+          .header { text-align: center; margin-bottom: 5px; border-bottom: 1px dashed #000; padding-bottom: 3px; }
+          .title { font-size: 13px; font-weight: bold; margin-bottom: 2px; }
+          .row { display: flex; justify-content: space-between; margin-bottom: 2px; }
+          .section-title { font-weight: bold; border-bottom: 1px solid #000; margin: 6px 0 3px; font-size: 10px; }
+          .footer { text-align: center; margin-top: 10px; font-size: 8px; border-top: 1px dashed #000; padding-top: 3px; }
+          @media print {
+            body { width: 72mm; }
+            .no-print { display: none; }
+          }
+        </style>
+      </head>
+      <body>
+        <div class="header">
+          <div class="title">${settings.name}</div>
+          <div style="font-size: 10px; font-weight: bold;">DAILY CLOSING REPORT</div>
+          <div style="font-size: 9px;">Date: ${closing.date}</div>
+        </div>
+        
+        <div class="section-title">SALES SUMMARY</div>
+        <div class="row"><span>Total Sales:</span> <span>TK ${closing.totalSales.toFixed(2)}</span></div>
+        <div class="row"><span>Cash Sales:</span> <span>TK ${closing.cashSales.toFixed(2)}</span></div>
+        <div class="row"><span>Due Sales:</span> <span>TK ${closing.dueSales.toFixed(2)}</span></div>
+        <div class="row"><span>Collections:</span> <span>TK ${closing.collections.toFixed(2)}</span></div>
+        
+        <div class="section-title">EXPENSES</div>
+        <div class="row"><span>Total Expenses:</span> <span>TK ${closing.totalExpenses.toFixed(2)}</span></div>
+        
+        <div class="section-title">CASH IN HAND</div>
+        <div class="row" style="font-weight: bold;"><span>Total Cash:</span> <span>TK ${closing.cashInHand.toFixed(2)}</span></div>
+        <div style="margin-top: 3px; padding-left: 5px; border-left: 1px solid #eee;">
+          ${denominationsHtml}
+        </div>
+        
+        <div class="section-title">DIGITAL BALANCES</div>
+        <div class="row"><span>bKash:</span> <span>TK ${closing.bkashBalance.toFixed(2)}</span></div>
+        
+        ${closing.notes ? `
+          <div class="section-title">NOTES</div>
+          <div style="font-size: 9px;">${closing.notes}</div>
+        ` : ''}
+        
+        <div class="footer">
+          Report Generated: ${format(new Date(), 'dd/MM/yyyy HH:mm')}<br>
+          ShopMaster POS
+        </div>
+        <script>
+          window.onload = () => {
+            window.print();
+            setTimeout(() => window.close(), 100);
+          };
+        </script>
+      </body>
+    </html>
+  `);
+  printWindow.document.close();
+};
 
 const printInvoice = (sale: Sale, settings: ShopSettings) => {
   const printWindow = window.open('', '_blank');
@@ -228,44 +339,72 @@ const printInvoice = (sale: Sale, settings: ShopSettings) => {
 
   const itemsHtml = sale.items.map(item => `
     <tr>
-      <td style="padding: 4px 0;">${item.productName}</td>
-      <td style="padding: 4px 0; text-align: center;">${item.quantity}</td>
-      <td style="padding: 4px 0; text-align: right;">${(item.price || 0).toFixed(2)}</td>
-      <td style="padding: 4px 0; text-align: right;">${((item.price || 0) * (item.quantity || 0)).toFixed(2)}</td>
+      <td style="padding: 2px 0;">${item.productName}</td>
+      <td style="padding: 2px 0; text-align: center;">${item.quantity}</td>
+      <td style="padding: 2px 0; text-align: right;">${(item.price || 0).toFixed(2)}</td>
+      <td style="padding: 2px 0; text-align: right;">${((item.price || 0) * (item.quantity || 0)).toFixed(2)}</td>
     </tr>
   `).join('');
 
-  printWindow.document.write(`
+  const width = settings.receiptWidth || '58mm';
+  const printableWidth = width === '80mm' ? '72mm' : '48mm';
+
+  const changeAmount = Math.max(0, (sale.paidAmount || 0) - (sale.finalAmount || 0));
+  const previousBalance = sale.previousBalance || 0;
+  const newBalance = previousBalance + (sale.dueAmount || 0);
+
+  const html = `<!DOCTYPE html>
     <html>
       <head>
         <title>Invoice #${sale.id.slice(-6).toUpperCase()}</title>
         <style>
           @page {
-            size: 80mm auto;
             margin: 0;
+            size: ${width} auto;
           }
+          
+          * { 
+            margin: 0; 
+            padding: 0; 
+            box-sizing: border-box; 
+          }
+          
+          html, body {
+            width: ${width};
+            margin: 0;
+            padding: 0;
+            background: #fff;
+            height: auto !important;
+          }
+
           body { 
             font-family: 'Courier New', Courier, monospace; 
-            width: 70mm; 
-            margin: 0 auto; 
-            padding: 5mm; 
+            width: ${printableWidth}; 
+            margin: 0;
+            padding: 1mm; 
             color: #000; 
-            font-size: 12px;
-            line-height: 1.2;
+            font-size: 10px;
+            line-height: 1.1;
+            -webkit-print-color-adjust: exact;
           }
-          .header { text-align: center; margin-bottom: 10px; border-bottom: 1px dashed #000; padding-bottom: 10px; }
-          .logo { max-width: 40mm; margin-bottom: 5px; filter: grayscale(100%); }
-          .shop-name { font-size: 16px; font-weight: bold; text-transform: uppercase; }
-          .shop-info { font-size: 10px; }
-          .invoice-meta { margin-bottom: 10px; font-size: 10px; border-bottom: 1px dashed #000; padding-bottom: 5px; }
-          table { width: 100%; border-collapse: collapse; margin-bottom: 10px; }
-          th { border-bottom: 1px solid #000; font-size: 10px; text-align: left; }
-          td { padding: 4px 0; font-size: 10px; vertical-align: top; }
-          .totals { text-align: right; border-top: 1px dashed #000; padding-top: 5px; font-size: 11px; }
-          .total-row { font-weight: bold; font-size: 13px; margin-top: 2px; border-top: 1px double #000; padding-top: 2px; }
-          .footer { text-align: center; margin-top: 15px; font-size: 9px; border-top: 1px dashed #000; padding-top: 10px; }
+
+          .header { text-align: center; margin-bottom: 2px; border-bottom: 1px dashed #000; padding-bottom: 2px; }
+          .logo { max-width: 25mm; margin-bottom: 2px; filter: grayscale(100%); }
+          .shop-name { font-size: 12px; font-weight: bold; text-transform: uppercase; }
+          .shop-info { font-size: 8px; }
+          .invoice-meta { margin-bottom: 2px; font-size: 8px; border-bottom: 1px dashed #000; padding-bottom: 1px; }
+          
+          table { width: 100%; border-collapse: collapse; margin-bottom: 2px; table-layout: fixed; }
+          th { border-bottom: 1px solid #000; font-size: 8px; text-align: left; }
+          td { padding: 1px 0; font-size: 8px; vertical-align: top; word-wrap: break-word; }
+          
+          .totals { text-align: right; border-top: 1px dashed #000; padding-top: 2px; font-size: 9px; }
+          .total-row { font-weight: bold; font-size: 11px; margin-top: 1px; border-top: 1px double #000; padding-top: 1px; }
+          .balance-section { border-top: 1px solid #eee; margin-top: 2px; padding-top: 2px; font-size: 8px; text-align: right; }
+          .footer { text-align: center; margin-top: 4px; font-size: 7px; border-top: 1px dashed #000; padding-top: 2px; }
+          
           @media print {
-            body { width: 70mm; }
+            body { width: ${printableWidth}; }
             .no-print { display: none; }
           }
         </style>
@@ -280,15 +419,15 @@ const printInvoice = (sale: Sale, settings: ShopSettings) => {
         <div class="invoice-meta">
           <div style="display: flex; justify-content: space-between;">
             <span>Inv: #${sale.id.slice(-6).toUpperCase()}</span>
-            <span>${format(sale.timestamp.toDate(), 'dd/MM/yy hh:mm a')}</span>
+            <span>${format(sale.timestamp.toDate(), 'dd/MM/yy HH:mm')}</span>
           </div>
           <div>Cust: ${sale.customerName || 'Walk-in'}</div>
         </div>
         <table>
           <thead>
             <tr>
-              <th style="width: 40%;">Item</th>
-              <th style="width: 15%; text-align: center;">Qty</th>
+              <th style="width: 45%;">Item</th>
+              <th style="width: 10%; text-align: center;">Qty</th>
               <th style="width: 20%; text-align: right;">Price</th>
               <th style="width: 25%; text-align: right;">Total</th>
             </tr>
@@ -301,9 +440,21 @@ const printInvoice = (sale: Sale, settings: ShopSettings) => {
           <div>Subtotal: TK ${(sale.totalAmount || 0).toFixed(2)}</div>
           <div>Discount: TK ${(sale.discount || 0).toFixed(2)}</div>
           <div class="total-row">Grand Total: TK ${(sale.finalAmount || 0).toFixed(2)}</div>
-          <div style="margin-top: 4px;">Paid: TK ${(sale.paidAmount || 0).toFixed(2)}</div>
+          <div style="margin-top: 2px;">Paid: TK ${(sale.paidAmount || 0).toFixed(2)}</div>
+          ${changeAmount > 0 ? `<div>Change: TK ${changeAmount.toFixed(2)}</div>` : ''}
           <div style="font-weight: bold;">Due: TK ${(sale.dueAmount || 0).toFixed(2)}</div>
         </div>
+
+        ${sale.customerId ? `
+        <div class="balance-section">
+          <div>Previous Balance: TK ${previousBalance.toFixed(2)}</div>
+          <div>Current Transaction: TK ${(sale.dueAmount || 0).toFixed(2)}</div>
+          <div style="font-weight: bold; border-top: 1px solid #ccc; display: inline-block; padding-left: 10px;">
+            Total Balance: TK ${newBalance.toFixed(2)}
+          </div>
+        </div>
+        ` : ''}
+
         <div class="footer">
           Thank you for shopping with us!<br>
           Powered by ShopMaster
@@ -311,12 +462,14 @@ const printInvoice = (sale: Sale, settings: ShopSettings) => {
         <script>
           window.onload = () => {
             window.print();
-            setTimeout(() => window.close(), 500);
+            setTimeout(() => window.close(), 100);
           };
         </script>
       </body>
-    </html>
-  `);
+    </html>`;
+
+  printWindow.document.open();
+  printWindow.document.write(html.trim());
   printWindow.document.close();
 };
 
@@ -369,7 +522,7 @@ const downloadInvoicePDF = (sale: Sale, settings: ShopSettings) => {
     ((item.price || 0) * (item.quantity || 0)).toFixed(2)
   ]);
 
-  (doc as any).autoTable({
+  autoTable(doc, {
     startY: 75,
     head: [['Product', 'Qty', 'Price', 'Total']],
     body: tableData,
@@ -378,6 +531,9 @@ const downloadInvoicePDF = (sale: Sale, settings: ShopSettings) => {
   });
 
   const finalY = (doc as any).lastAutoTable.finalY + 10;
+  const changeAmount = Math.max(0, (sale.paidAmount || 0) - (sale.finalAmount || 0));
+  const previousBalance = sale.previousBalance || 0;
+  const newBalance = previousBalance + (sale.dueAmount || 0);
 
   // Totals
   doc.text(`Subtotal: TK ${(sale.totalAmount || 0).toFixed(2)}`, pageWidth - 20, finalY, { align: 'right' });
@@ -386,9 +542,23 @@ const downloadInvoicePDF = (sale: Sale, settings: ShopSettings) => {
   doc.text(`Grand Total: TK ${(sale.finalAmount || 0).toFixed(2)}`, pageWidth - 20, finalY + 14, { align: 'right' });
   doc.setFontSize(10);
   doc.text(`Paid: TK ${(sale.paidAmount || 0).toFixed(2)}`, pageWidth - 20, finalY + 20, { align: 'right' });
-  doc.text(`Due: TK ${(sale.dueAmount || 0).toFixed(2)}`, pageWidth - 20, finalY + 26, { align: 'right' });
+  if (changeAmount > 0) {
+    doc.text(`Change Given: TK ${changeAmount.toFixed(2)}`, pageWidth - 20, finalY + 26, { align: 'right' });
+  }
+  doc.text(`Due: TK ${(sale.dueAmount || 0).toFixed(2)}`, pageWidth - 20, finalY + (changeAmount > 0 ? 32 : 26), { align: 'right' });
 
-  doc.text('Thank you for shopping with us!', pageWidth / 2, finalY + 40, { align: 'center' });
+  if (sale.customerId) {
+    const balanceY = finalY + (changeAmount > 0 ? 42 : 36);
+    doc.setFontSize(11);
+    doc.text('Customer Balance Summary', pageWidth - 20, balanceY, { align: 'right' });
+    doc.setFontSize(9);
+    doc.text(`Previous Balance: TK ${previousBalance.toFixed(2)}`, pageWidth - 20, balanceY + 6, { align: 'right' });
+    doc.text(`Current Transaction: TK ${(sale.dueAmount || 0).toFixed(2)}`, pageWidth - 20, balanceY + 12, { align: 'right' });
+    doc.setFontSize(10);
+    doc.text(`New Total Balance: TK ${newBalance.toFixed(2)}`, pageWidth - 20, balanceY + 20, { align: 'right' });
+  }
+
+  doc.text('Thank you for shopping with us!', pageWidth / 2, finalY + 70, { align: 'center' });
 
   doc.save(`Invoice_${sale.id.slice(-6)}.pdf`);
 };
@@ -457,6 +627,7 @@ function SettingsPanel({ settings, onSaveSettings, users, onAddUser, onDeleteUse
       logoUrl: formData.get('logoUrl') as string,
       logoBase64: logoBase64,
       whatsappSender: formData.get('whatsappSender') as string,
+      receiptWidth: formData.get('receiptWidth') as '58mm' | '80mm',
     });
   };
 
@@ -545,6 +716,13 @@ function SettingsPanel({ settings, onSaveSettings, users, onAddUser, onDeleteUse
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">WhatsApp Sender Number (Optional)</label>
                 <input name="whatsappSender" defaultValue={settings.whatsappSender} className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-indigo-500 outline-none" placeholder="88017..." />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Receipt Width</label>
+                <select name="receiptWidth" defaultValue={settings.receiptWidth || '58mm'} className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-indigo-500 outline-none">
+                  <option value="58mm">58mm (Small Thermal)</option>
+                  <option value="80mm">80mm (Large Thermal)</option>
+                </select>
               </div>
             </div>
             <button type="submit" className="px-8 py-3 bg-indigo-600 text-white font-bold rounded-xl hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-100 flex items-center gap-2">
@@ -646,18 +824,24 @@ export default function App() {
 
   // Auth State Sync
   useEffect(() => {
+    // Try to sign in anonymously to satisfy security rules if enabled
+    import('firebase/auth').then(({ signInAnonymously }) => {
+      signInAnonymously(auth).catch(err => {
+        console.warn("Anonymous auth failed, falling back to public mode", err.message);
+      });
+    });
+
     const unsubscribe = onAuthStateChanged(auth, (firebaseUser) => {
-      if (firebaseUser) {
-        // If we have a firebase user but no app user state, try to restore from localStorage
-        const savedUser = localStorage.getItem('shopmaster_user');
-        if (savedUser) {
+      const savedUser = localStorage.getItem('shopmaster_user');
+      if (savedUser) {
+        try {
           const parsedUser = JSON.parse(savedUser);
           setUser(parsedUser);
+        } catch (e) {
+          console.error("Error parsing saved user", e);
         }
-      } else {
-        // If firebase user is gone, clear app user state
+      } else if (!firebaseUser) {
         setUser(null);
-        localStorage.removeItem('shopmaster_user');
       }
       setLoading(false);
     });
@@ -671,6 +855,7 @@ export default function App() {
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [appUsers, setAppUsers] = useState<AppUser[]>([]);
+  const [employees, setEmployees] = useState<Employee[]>([]);
   const [expenses, setExpenses] = useState<Expense[]>([]);
   const [investments, setInvestments] = useState<Investment[]>([]);
   const [staffSalaries, setStaffSalaries] = useState<StaffSalary[]>([]);
@@ -678,7 +863,8 @@ export default function App() {
   const [shopSettings, setShopSettings] = useState<ShopSettings>({
     name: 'Bismillah Store',
     address: 'Your Shop Address',
-    phone: '01XXXXXXXXX'
+    phone: '01XXXXXXXXX',
+    receiptWidth: '58mm'
   });
   
   // POS State
@@ -716,8 +902,8 @@ export default function App() {
 
   // Real-time Data Sync (Private/App-related)
   useEffect(() => {
-    // We need both the app user state AND the firebase auth to be ready
-    if (!user || !auth.currentUser) return;
+    // We need the app user state to be ready
+    if (!user) return;
 
     const unsubProducts = onSnapshot(collection(db, 'products'), (snapshot) => {
       setProducts(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Product)));
@@ -751,6 +937,10 @@ export default function App() {
       setDailyClosings(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as DailyClosing)));
     }, (err) => console.error("Daily closing sync error", err));
 
+    const unsubEmployees = onSnapshot(collection(db, 'employees'), (snapshot) => {
+      setEmployees(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Employee)));
+    }, (err) => console.error("Employees sync error", err));
+
     return () => {
       unsubProducts();
       unsubSales();
@@ -760,6 +950,7 @@ export default function App() {
       unsubInvestments();
       unsubStaffSalaries();
       unsubDailyClosings();
+      unsubEmployees();
     };
   }, [user, auth.currentUser]);
 
@@ -847,6 +1038,8 @@ export default function App() {
     setCart(prev => prev.map(item => {
       if (item.id === productId) {
         const newQty = Math.max(0.1, item.quantity + delta);
+        // Only auto-calculate price if it hasn't been manually overridden
+        // For simplicity, we'll re-calculate if delta is used, but allow manual override
         const newPrice = calculateItemPrice(item, newQty);
         return { ...item, quantity: newQty, discountedPrice: newPrice };
       }
@@ -854,14 +1047,45 @@ export default function App() {
     }));
   };
 
+  const updateCartQuantityManual = (productId: string, quantity: number) => {
+    setCart(prev => prev.map(item => {
+      if (item.id === productId) {
+        const newQty = Math.max(0, quantity);
+        return { ...item, quantity: newQty };
+      }
+      return item;
+    }));
+  };
+
+  const updateCartPriceManual = (productId: string, price: number) => {
+    setCart(prev => prev.map(item => {
+      if (item.id === productId) {
+        return { ...item, discountedPrice: Math.max(0, price) };
+      }
+      return item;
+    }));
+  };
+
+  const [showReceiptModal, setShowReceiptModal] = useState(false);
+  const [lastCompletedSale, setLastCompletedSale] = useState<Sale | null>(null);
+
   const cartTotal = useMemo(() => cart.reduce((sum, item) => sum + (item.discountedPrice * item.quantity), 0), [cart]);
   const finalTotal = Math.max(0, cartTotal - discount);
 
   const [checkoutData, setCheckoutData] = useState({
     customerId: '',
+    walkInName: '',
+    walkInPhone: '',
     paidAmount: 0,
     paymentMethod: 'cash' as 'cash' | 'due'
   });
+
+  // Auto-set paid amount for cash sales
+  useEffect(() => {
+    if (checkoutData.paymentMethod === 'cash' && finalTotal > 0) {
+      setCheckoutData(prev => ({ ...prev, paidAmount: finalTotal }));
+    }
+  }, [finalTotal, checkoutData.paymentMethod]);
 
   const handleCheckout = async () => {
     if (cart.length === 0) return;
@@ -891,10 +1115,9 @@ export default function App() {
         }
       }
 
-      const saleData: Omit<Sale, 'id'> = {
-        customerId: checkoutData.customerId || undefined,
-        customerName: selectedCustomer?.name || 'Walk-in Customer',
-        customerPhone: selectedCustomer?.phone,
+      const saleData: any = {
+        customerName: selectedCustomer?.name || checkoutData.walkInName || 'Walk-in Customer',
+        customerPhone: selectedCustomer?.phone || checkoutData.walkInPhone,
         items: cart.map(item => ({
           productId: item.id,
           productName: item.name,
@@ -908,10 +1131,17 @@ export default function App() {
         finalAmount: finalTotal,
         paidAmount: checkoutData.paymentMethod === 'cash' ? checkoutData.paidAmount : 0,
         dueAmount: dueAmount,
+        previousBalance: selectedCustomer?.currentDue || 0,
         paymentMethod: checkoutData.paymentMethod,
         timestamp: editingSale ? editingSale.timestamp : new Date(),
         sellerId: user.uid
       };
+
+      if (checkoutData.customerId) {
+        saleData.customerId = checkoutData.customerId;
+      } else {
+        saleData.customerId = null;
+      }
 
       let finalSale: Sale;
       if (editingSale) {
@@ -945,18 +1175,13 @@ export default function App() {
       }
 
       setLastSale(finalSale);
+      setLastCompletedSale(finalSale);
       setNotification({ message: editingSale ? "Order updated successfully!" : "Order completed successfully!", type: 'success' });
       setCart([]);
       setDiscount(0);
-      setCheckoutData({ customerId: '', paidAmount: 0, paymentMethod: 'cash' });
+      setCheckoutData({ customerId: '', walkInName: '', walkInPhone: '', paidAmount: 0, paymentMethod: 'cash' });
       setEditingSale(null);
-
-      // Receipt options
-      if (confirm("Order successful! Print receipt?")) {
-        printInvoice(finalSale, shopSettings);
-      } else if (saleData.customerPhone && confirm("Send receipt via WhatsApp?")) {
-        sendWhatsAppInvoice(finalSale, shopSettings);
-      }
+      setShowReceiptModal(true);
     } catch (error) {
       handleFirestoreError(error, OperationType.WRITE, 'sales');
     }
@@ -1018,6 +1243,12 @@ export default function App() {
     setNotification({ message: `Editing Invoice #${sale.id.slice(-6).toUpperCase()}`, type: 'info' });
   };
 
+  useEffect(() => {
+    if (showReceiptModal && lastCompletedSale) {
+      printInvoice(lastCompletedSale, shopSettings);
+    }
+  }, [showReceiptModal, lastCompletedSale]);
+
   const handleSaveSettings = async (newSettings: ShopSettings) => {
     try {
       await setDoc(doc(db, 'settings', 'shop'), newSettings);
@@ -1028,6 +1259,13 @@ export default function App() {
   };
 
   const handleAddUser = async (newUser: Omit<AppUser, 'id'>) => {
+    // Check if username already exists
+    const exists = appUsers.some(u => u.username.toLowerCase() === newUser.username.toLowerCase());
+    if (exists) {
+      setNotification({ message: 'Username already exists. Please choose another.', type: 'error' });
+      return;
+    }
+
     try {
       await addDoc(collection(db, 'users'), newUser);
       setNotification({ message: 'User added successfully', type: 'success' });
@@ -1043,6 +1281,34 @@ export default function App() {
       setNotification({ message: 'User deleted successfully', type: 'success' });
     } catch (error) {
       handleFirestoreError(error, OperationType.DELETE, 'users');
+    }
+  };
+
+  const handleAddEmployee = async (newEmployee: Omit<Employee, 'id'>) => {
+    try {
+      await addDoc(collection(db, 'employees'), newEmployee);
+      setNotification({ message: 'Employee added successfully', type: 'success' });
+    } catch (error) {
+      handleFirestoreError(error, OperationType.WRITE, 'employees');
+    }
+  };
+
+  const handleUpdateEmployee = async (id: string, updatedData: Partial<Employee>) => {
+    try {
+      await updateDoc(doc(db, 'employees', id), updatedData);
+      setNotification({ message: 'Employee updated successfully', type: 'success' });
+    } catch (error) {
+      handleFirestoreError(error, OperationType.UPDATE, 'employees');
+    }
+  };
+
+  const handleDeleteEmployee = async (id: string) => {
+    if (!confirm("Delete this employee?")) return;
+    try {
+      await deleteDoc(doc(db, 'employees', id));
+      setNotification({ message: 'Employee deleted successfully', type: 'success' });
+    } catch (error) {
+      handleFirestoreError(error, OperationType.DELETE, 'employees');
     }
   };
 
@@ -1208,6 +1474,7 @@ export default function App() {
               { id: 'inventory', icon: Package, label: 'Inventory', roles: ['admin', 'manager', 'assistant_manager'] },
               { id: 'sales', icon: History, label: 'Sales History', roles: ['admin', 'manager', 'assistant_manager', 'sales_manager'] },
               { id: 'customers', icon: Users, label: 'Customers', roles: ['admin', 'manager', 'assistant_manager', 'sales_manager'] },
+              { id: 'employees', icon: Briefcase, label: 'Employees', roles: ['admin', 'manager'] },
               { id: 'daily_closing', icon: Clock, label: 'Daily Closing', roles: ['admin', 'manager'] },
               { id: 'accounting', icon: CalculatorIcon, label: 'Hishab Nikash', roles: ['admin', 'manager'] },
               { id: 'settings', icon: Settings, label: 'Settings', roles: ['admin'] },
@@ -1258,6 +1525,7 @@ export default function App() {
                 products={products} 
                 sales={sales} 
                 customers={customers} 
+                expenses={expenses}
                 onViewProductHistory={(p) => {
                   setSelectedProductForHistory(p);
                 }}
@@ -1270,6 +1538,8 @@ export default function App() {
                 addToCart={addToCart} 
                 removeFromCart={removeFromCart} 
                 updateCartQuantity={updateCartQuantity}
+                updateCartQuantityManual={updateCartQuantityManual}
+                updateCartPriceManual={updateCartPriceManual}
                 handleCheckout={handleCheckout}
                 discount={discount}
                 setDiscount={setDiscount}
@@ -1307,11 +1577,20 @@ export default function App() {
               />
             )}
             {activeTab === 'customers' && <Customers customers={customers} sales={sales} />}
+            {activeTab === 'employees' && (
+              <EmployeeManagement 
+                employees={employees} 
+                onAdd={handleAddEmployee} 
+                onUpdate={handleUpdateEmployee} 
+                onDelete={handleDeleteEmployee} 
+              />
+            )}
             {activeTab === 'daily_closing' && (
               <DailyClosingView 
                 sales={sales} 
                 expenses={expenses} 
                 dailyClosings={dailyClosings}
+                settings={shopSettings}
               />
             )}
             {activeTab === 'accounting' && (
@@ -1346,6 +1625,53 @@ export default function App() {
             onScan={handleScan} 
             onClose={() => setIsScannerOpen(false)} 
           />
+        )}
+
+        {showReceiptModal && lastCompletedSale && (
+          <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+            <motion.div 
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              className="bg-white rounded-3xl shadow-2xl max-w-md w-full p-8 text-center"
+            >
+              <div className="w-20 h-20 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-6">
+                <CheckCircle2 className="w-10 h-10 text-green-600" />
+              </div>
+              <h2 className="text-2xl font-bold text-gray-900 mb-2">Order Successful!</h2>
+              <p className="text-gray-500 mb-8">Invoice #{lastCompletedSale.id.slice(-6).toUpperCase()} has been generated.</p>
+              
+              <div className="grid grid-cols-1 gap-3">
+                <button 
+                  onClick={() => {
+                    printInvoice(lastCompletedSale, shopSettings);
+                    setShowReceiptModal(false);
+                  }}
+                  className="w-full py-3 bg-indigo-600 text-white rounded-xl font-bold hover:bg-indigo-700 transition-all flex items-center justify-center gap-2"
+                >
+                  <Printer className="w-5 h-5" />
+                  Print Receipt
+                </button>
+                {lastCompletedSale.customerPhone && (
+                  <button 
+                    onClick={() => {
+                      sendWhatsAppInvoice(lastCompletedSale, shopSettings);
+                      setShowReceiptModal(false);
+                    }}
+                    className="w-full py-3 bg-emerald-600 text-white rounded-xl font-bold hover:bg-emerald-700 transition-all flex items-center justify-center gap-2"
+                  >
+                    <MessageCircle className="w-5 h-5" />
+                    Send via WhatsApp
+                  </button>
+                )}
+                <button 
+                  onClick={() => setShowReceiptModal(false)}
+                  className="w-full py-3 bg-gray-100 text-gray-600 rounded-xl font-bold hover:bg-gray-200 transition-all"
+                >
+                  Done
+                </button>
+              </div>
+            </motion.div>
+          </div>
         )}
 
         <AnimatePresence>
@@ -1501,24 +1827,24 @@ export default function App() {
 
 function BarcodeScanner({ onScan, onClose }: { onScan: (data: string) => void, onClose: () => void }) {
   useEffect(() => {
-    const scanner = new Html5QrcodeScanner(
-      "reader",
-      { 
-        fps: 10, 
-        qrbox: { width: 250, height: 250 },
-        videoConstraints: {
-          facingMode: "environment"
-        }
-      },
-      /* verbose= */ false
-    );
-    scanner.render(onScan, (err) => {
-      // console.warn(err);
-    });
-
-    return () => {
-      scanner.clear().catch(error => console.error("Failed to clear scanner", error));
-    };
+    // const scanner = new Html5QrcodeScanner(
+    //   "reader",
+    //   { 
+    //     fps: 10, 
+    //     qrbox: { width: 250, height: 250 },
+    //     videoConstraints: {
+    //       facingMode: "environment"
+    //     }
+    //   },
+    //   /* verbose= */ false
+    // );
+    // scanner.render(onScan, (err) => {
+    //   // console.warn(err);
+    // });
+    //
+    // return () => {
+    //   scanner.clear().catch(error => console.error("Failed to clear scanner", error));
+    // };
   }, [onScan]);
 
   return (
@@ -1542,7 +1868,7 @@ function BarcodeScanner({ onScan, onClose }: { onScan: (data: string) => void, o
   );
 }
 
-function Dashboard({ products, sales, customers, onViewProductHistory }: { products: Product[], sales: Sale[], customers: Customer[], onViewProductHistory: (p: Product) => void }) {
+function Dashboard({ products, sales, customers, expenses, onViewProductHistory }: { products: Product[], sales: Sale[], customers: Customer[], expenses: Expense[], onViewProductHistory: (p: Product) => void }) {
   const [period, setPeriod] = useState<'day' | 'week' | 'month' | 'year'>('day');
   const now = new Date();
 
@@ -1564,6 +1890,26 @@ function Dashboard({ products, sales, customers, onViewProductHistory }: { produ
   const totalSales = filteredSales.reduce((sum, s) => sum + s.finalAmount, 0);
   const totalOrders = filteredSales.length;
   const totalMarketDue = customers.reduce((sum, c) => sum + (c.currentDue || 0), 0);
+  
+  const totalCost = filteredSales.reduce((sum, s) => {
+    return sum + s.items.reduce((itemSum, item) => itemSum + ((item.cost || 0) * item.quantity), 0);
+  }, 0);
+
+  const totalExpensesInPeriod = expenses.filter(e => {
+    const expDate = e.timestamp.toDate();
+    if (period === 'day') return format(expDate, 'yyyy-MM-dd') === format(now, 'yyyy-MM-dd');
+    if (period === 'week') {
+      const weekAgo = new Date();
+      weekAgo.setDate(now.getDate() - 7);
+      return expDate >= weekAgo;
+    }
+    if (period === 'month') return format(expDate, 'yyyy-MM') === format(now, 'yyyy-MM');
+    if (period === 'year') return format(expDate, 'yyyy') === format(now, 'yyyy');
+    return true;
+  }).reduce((sum, e) => sum + e.amount, 0);
+
+  const grossProfit = totalSales - totalCost;
+  const netProfit = grossProfit - totalExpensesInPeriod;
   
   const lowStockProducts = products.filter(p => p.stock > 0 && p.stock < 10);
   const outOfStockProducts = products.filter(p => p.stock <= 0);
@@ -1653,9 +1999,75 @@ function Dashboard({ products, sales, customers, onViewProductHistory }: { produ
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
         <StatCard icon={DollarSign} label={`${period.charAt(0).toUpperCase() + period.slice(1)} Revenue`} value={formatCurrency(totalSales)} color="bg-emerald-50 text-emerald-600" />
+        <StatCard icon={TrendingUp} label={`${period.charAt(0).toUpperCase() + period.slice(1)} Net Profit`} value={formatCurrency(netProfit)} color="bg-indigo-50 text-indigo-600" />
         <StatCard icon={AlertCircle} label="Total Market Due" value={formatCurrency(totalMarketDue)} color="bg-red-50 text-red-600" />
         <StatCard icon={CheckCircle2} label={`${period.charAt(0).toUpperCase() + period.slice(1)} Cash`} value={formatCurrency(stats.periodCash)} color="bg-blue-50 text-blue-600" />
-        <StatCard icon={TrendingUp} label={`${period.charAt(0).toUpperCase() + period.slice(1)} Due`} value={formatCurrency(stats.periodDue)} color="bg-amber-50 text-amber-600" />
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+        <div className="bg-white p-6 rounded-3xl border border-gray-100 shadow-sm">
+          <h3 className="text-sm font-bold text-gray-400 uppercase mb-4">Financial Summary</h3>
+          <div className="space-y-4">
+            <div className="flex justify-between items-center">
+              <span className="text-gray-500">Gross Sales</span>
+              <span className="font-bold text-gray-900">{formatCurrency(totalSales)}</span>
+            </div>
+            <div className="flex justify-between items-center">
+              <span className="text-gray-500">Cost of Goods</span>
+              <span className="font-bold text-red-600">-{formatCurrency(totalCost)}</span>
+            </div>
+            <div className="flex justify-between items-center pt-2 border-t border-gray-50">
+              <span className="text-gray-900 font-bold">Gross Profit</span>
+              <span className="font-bold text-emerald-600">{formatCurrency(grossProfit)}</span>
+            </div>
+            <div className="flex justify-between items-center">
+              <span className="text-gray-500">Expenses</span>
+              <span className="font-bold text-red-600">-{formatCurrency(totalExpensesInPeriod)}</span>
+            </div>
+            <div className="flex justify-between items-center pt-2 border-t border-gray-50">
+              <span className="text-gray-900 font-bold">Net Profit</span>
+              <span className={`font-bold ${netProfit >= 0 ? 'text-indigo-600' : 'text-red-600'}`}>
+                {formatCurrency(netProfit)}
+              </span>
+            </div>
+          </div>
+        </div>
+
+        <div className="bg-white p-6 rounded-3xl border border-gray-100 shadow-sm">
+          <h3 className="text-sm font-bold text-gray-400 uppercase mb-4">Payment Stats</h3>
+          <div className="space-y-4">
+            <div className="flex justify-between items-center">
+              <span className="text-gray-500">Cash Received</span>
+              <span className="font-bold text-blue-600">{formatCurrency(stats.periodCash)}</span>
+            </div>
+            <div className="flex justify-between items-center">
+              <span className="text-gray-500">New Due</span>
+              <span className="font-bold text-amber-600">{formatCurrency(stats.periodDue)}</span>
+            </div>
+            <div className="flex justify-between items-center pt-2 border-t border-gray-50">
+              <span className="text-gray-900 font-bold">Total Orders</span>
+              <span className="font-bold text-gray-900">{totalOrders}</span>
+            </div>
+          </div>
+        </div>
+
+        <div className="bg-white p-6 rounded-3xl border border-gray-100 shadow-sm">
+          <h3 className="text-sm font-bold text-gray-400 uppercase mb-4">Inventory Health</h3>
+          <div className="space-y-4">
+            <div className="flex justify-between items-center">
+              <span className="text-gray-500">Low Stock Items</span>
+              <span className="px-2 py-1 bg-amber-50 text-amber-600 rounded-lg text-xs font-bold">{lowStockProducts.length}</span>
+            </div>
+            <div className="flex justify-between items-center">
+              <span className="text-gray-500">Out of Stock</span>
+              <span className="px-2 py-1 bg-red-50 text-red-600 rounded-lg text-xs font-bold">{outOfStockProducts.length}</span>
+            </div>
+            <div className="flex justify-between items-center">
+              <span className="text-gray-500">Expired Items</span>
+              <span className="px-2 py-1 bg-gray-100 text-gray-600 rounded-lg text-xs font-bold">{expiredProducts.length}</span>
+            </div>
+          </div>
+        </div>
       </div>
 
       {/* Alerts Section */}
@@ -1933,12 +2345,209 @@ function StatCard({ label, value, icon: Icon, color }: { label: string, value: s
   );
 }
 
+function EmployeeManagement({ employees, onAdd, onUpdate, onDelete }: { employees: Employee[], onAdd: (e: Omit<Employee, 'id'>) => void, onUpdate: (id: string, e: Partial<Employee>) => void, onDelete: (id: string) => void }) {
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [editingEmployee, setEditingEmployee] = useState<Employee | null>(null);
+  const [searchTerm, setSearchTerm] = useState('');
+
+  const filteredEmployees = employees.filter(e => 
+    e.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
+    e.designation.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    e.phone.includes(searchTerm)
+  );
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    const form = e.target as HTMLFormElement;
+    const formData = new FormData(form);
+    
+    const employeeData = {
+      name: formData.get('name') as string,
+      designation: formData.get('designation') as string,
+      phone: formData.get('phone') as string,
+      email: formData.get('email') as string,
+      salary: Number(formData.get('salary')),
+      joiningDate: formData.get('joiningDate') as string,
+      schedule: formData.get('schedule') as string,
+      status: formData.get('status') as 'active' | 'inactive'
+    };
+
+    if (editingEmployee) {
+      onUpdate(editingEmployee.id, employeeData);
+    } else {
+      onAdd(employeeData);
+    }
+    setIsModalOpen(false);
+    setEditingEmployee(null);
+  };
+
+  return (
+    <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} className="space-y-6">
+      <header className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <div>
+          <h2 className="text-3xl font-bold text-gray-900">Employee Management</h2>
+          <p className="text-gray-500">Manage your shop staff and their schedules.</p>
+        </div>
+        <button 
+          onClick={() => { setEditingEmployee(null); setIsModalOpen(true); }}
+          className="flex items-center gap-2 px-6 py-3 bg-indigo-600 text-white rounded-xl font-semibold hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-100"
+        >
+          <Plus className="w-5 h-5" />
+          Add Employee
+        </button>
+      </header>
+
+      <div className="relative">
+        <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400 w-5 h-5" />
+        <input 
+          type="text"
+          placeholder="Search employees by name, designation or phone..."
+          className="w-full pl-12 pr-4 py-3 bg-white border border-gray-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none shadow-sm"
+          value={searchTerm}
+          onChange={(e) => setSearchTerm(e.target.value)}
+        />
+      </div>
+
+      <div className="bg-white rounded-3xl shadow-sm border border-gray-100 overflow-hidden">
+        <div className="overflow-x-auto">
+          <table className="w-full text-left">
+            <thead className="bg-gray-50 border-b border-gray-100">
+              <tr>
+                <th className="px-6 py-4 text-sm font-semibold text-gray-600">Employee</th>
+                <th className="px-6 py-4 text-sm font-semibold text-gray-600">Contact</th>
+                <th className="px-6 py-4 text-sm font-semibold text-gray-600">Salary & Schedule</th>
+                <th className="px-6 py-4 text-sm font-semibold text-gray-600">Status</th>
+                <th className="px-6 py-4 text-sm font-semibold text-gray-600 text-right">Actions</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-100">
+              {filteredEmployees.map(emp => (
+                <tr key={emp.id} className="hover:bg-gray-50/50 transition-colors">
+                  <td className="px-6 py-4">
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 bg-indigo-100 rounded-full flex items-center justify-center text-indigo-600 font-bold">
+                        {emp.name.charAt(0)}
+                      </div>
+                      <div>
+                        <p className="font-bold text-gray-900">{emp.name}</p>
+                        <p className="text-xs text-gray-500">{emp.designation}</p>
+                      </div>
+                    </div>
+                  </td>
+                  <td className="px-6 py-4">
+                    <p className="text-sm text-gray-900">{emp.phone}</p>
+                    <p className="text-xs text-gray-500">{emp.email || 'No email'}</p>
+                  </td>
+                  <td className="px-6 py-4">
+                    <p className="text-sm font-bold text-gray-900">TK {emp.salary}</p>
+                    <p className="text-xs text-gray-500">{emp.schedule || 'Not set'}</p>
+                  </td>
+                  <td className="px-6 py-4">
+                    <span className={`px-3 py-1 rounded-full text-[10px] font-bold uppercase ${
+                      emp.status === 'active' ? 'bg-emerald-50 text-emerald-600' : 'bg-gray-100 text-gray-500'
+                    }`}>
+                      {emp.status}
+                    </span>
+                  </td>
+                  <td className="px-6 py-4 text-right">
+                    <div className="flex items-center justify-end gap-2">
+                      <button 
+                        onClick={() => { setEditingEmployee(emp); setIsModalOpen(true); }}
+                        className="p-2 text-gray-400 hover:text-indigo-600 transition-colors"
+                      >
+                        <Edit className="w-4 h-4" />
+                      </button>
+                      <button 
+                        onClick={() => onDelete(emp.id)}
+                        className="p-2 text-gray-400 hover:text-red-600 transition-colors"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <AnimatePresence>
+        {isModalOpen && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="bg-white w-full max-w-2xl rounded-3xl shadow-2xl overflow-hidden"
+            >
+              <div className="p-6 border-b border-gray-100 flex items-center justify-between bg-gray-50/50">
+                <h3 className="text-xl font-bold text-gray-900">{editingEmployee ? 'Edit Employee' : 'Add New Employee'}</h3>
+                <button onClick={() => setIsModalOpen(false)} className="p-2 hover:bg-gray-200 rounded-full transition-colors">
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+              <form onSubmit={handleSubmit} className="p-6 space-y-6">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  <div>
+                    <label className="block text-sm font-bold text-gray-700 mb-2">Full Name *</label>
+                    <input name="name" defaultValue={editingEmployee?.name} required className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-indigo-500 outline-none" />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-bold text-gray-700 mb-2">Designation *</label>
+                    <input name="designation" defaultValue={editingEmployee?.designation} required className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-indigo-500 outline-none" />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-bold text-gray-700 mb-2">Phone Number *</label>
+                    <input name="phone" defaultValue={editingEmployee?.phone} required className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-indigo-500 outline-none" />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-bold text-gray-700 mb-2">Email Address</label>
+                    <input name="email" type="email" defaultValue={editingEmployee?.email} className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-indigo-500 outline-none" />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-bold text-gray-700 mb-2">Monthly Salary *</label>
+                    <input name="salary" type="number" defaultValue={editingEmployee?.salary} required className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-indigo-500 outline-none" />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-bold text-gray-700 mb-2">Joining Date</label>
+                    <input name="joiningDate" type="date" defaultValue={editingEmployee?.joiningDate} className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-indigo-500 outline-none" />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-bold text-gray-700 mb-2">Work Schedule</label>
+                    <input name="schedule" defaultValue={editingEmployee?.schedule} placeholder="e.g. 9 AM - 6 PM" className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-indigo-500 outline-none" />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-bold text-gray-700 mb-2">Status</label>
+                    <select name="status" defaultValue={editingEmployee?.status || 'active'} className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-indigo-500 outline-none">
+                      <option value="active">Active</option>
+                      <option value="inactive">Inactive</option>
+                    </select>
+                  </div>
+                </div>
+                <div className="flex justify-end gap-4 pt-4">
+                  <button type="button" onClick={() => setIsModalOpen(false)} className="px-6 py-3 text-gray-600 font-semibold hover:bg-gray-100 rounded-xl transition-colors">Cancel</button>
+                  <button type="submit" className="px-8 py-3 bg-indigo-600 text-white font-bold rounded-xl hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-100">
+                    {editingEmployee ? 'Update Employee' : 'Save Employee'}
+                  </button>
+                </div>
+              </form>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+    </motion.div>
+  );
+}
+
 function POS({ 
   products, 
   cart, 
   addToCart, 
   removeFromCart, 
   updateCartQuantity, 
+  updateCartQuantityManual,
+  updateCartPriceManual,
   handleCheckout,
   discount,
   setDiscount,
@@ -1997,16 +2606,36 @@ function POS({
               <Scan className="w-5 h-5" />
               <span className="hidden sm:inline">Scan</span>
             </button>
-            <select 
-              className="w-full sm:w-64 px-4 py-4 bg-white border border-gray-200 rounded-2xl focus:ring-2 focus:ring-indigo-500 outline-none shadow-sm"
-              value={checkoutData.customerId}
-              onChange={(e) => setCheckoutData({ ...checkoutData, customerId: e.target.value })}
-            >
-              <option value="">Walk-in Customer</option>
-              {customers.map((c: Customer) => (
-                <option key={c.id} value={c.id}>{c.name} ({c.phone})</option>
-              ))}
-            </select>
+            <div className="flex flex-col sm:flex-row gap-2 flex-1">
+              <select 
+                className="w-full sm:w-64 px-4 py-4 bg-white border border-gray-200 rounded-2xl focus:ring-2 focus:ring-indigo-500 outline-none shadow-sm"
+                value={checkoutData.customerId}
+                onChange={(e) => setCheckoutData({ ...checkoutData, customerId: e.target.value })}
+              >
+                <option value="">Walk-in Customer</option>
+                {customers.map((c: Customer) => (
+                  <option key={c.id} value={c.id}>{c.name} ({c.phone})</option>
+                ))}
+              </select>
+              {!checkoutData.customerId && (
+                <div className="flex gap-2 flex-1">
+                  <input 
+                    type="text"
+                    placeholder="Walk-in Name (Optional)"
+                    className="flex-1 px-4 py-4 bg-white border border-gray-200 rounded-2xl focus:ring-2 focus:ring-indigo-500 outline-none shadow-sm text-sm"
+                    value={checkoutData.walkInName}
+                    onChange={(e) => setCheckoutData({ ...checkoutData, walkInName: e.target.value })}
+                  />
+                  <input 
+                    type="text"
+                    placeholder="Phone (Optional)"
+                    className="w-32 px-4 py-4 bg-white border border-gray-200 rounded-2xl focus:ring-2 focus:ring-indigo-500 outline-none shadow-sm text-sm"
+                    value={checkoutData.walkInPhone}
+                    onChange={(e) => setCheckoutData({ ...checkoutData, walkInPhone: e.target.value })}
+                  />
+                </div>
+              )}
+            </div>
           </div>
         </div>
 
@@ -2070,8 +2699,8 @@ function POS({
         </div>
       </div>
 
-      <div className="bg-white rounded-3xl shadow-xl border border-gray-100 flex flex-col overflow-hidden">
-        <div className="p-6 border-b border-gray-100 bg-gray-50/50">
+      <div className="bg-white rounded-3xl shadow-xl border border-gray-100 flex flex-col overflow-hidden h-full">
+        <div className="p-4 border-b border-gray-100 bg-gray-50/50">
           <div className="flex items-center justify-between">
             <h3 className="text-xl font-bold text-gray-900 flex items-center gap-2">
               <ShoppingCart className="w-6 h-6 text-indigo-600" />
@@ -2137,7 +2766,7 @@ function POS({
           )}
         </div>
 
-        <div className="flex-1 overflow-y-auto p-6 space-y-4">
+        <div className="flex-1 overflow-y-auto p-4 space-y-3">
           {cart.length === 0 ? (
             <div className="h-full flex flex-col items-center justify-center text-gray-400">
               <ShoppingCart className="w-12 h-12 mb-4 opacity-20" />
@@ -2145,73 +2774,128 @@ function POS({
             </div>
           ) : (
             cart.map((item: CartItem) => (
-              <div key={item.id} className="flex items-center gap-4 group">
-                <div className="flex-1 min-w-0">
-                  <p className="font-semibold text-gray-900 truncate">{item.name}</p>
-                  <p className="text-xs text-gray-500">
-                    {item.discountedPrice < item.originalPrice ? (
-                      <span className="line-through mr-1 text-gray-300">{formatCurrency(item.originalPrice)}</span>
-                    ) : null}
-                    {formatCurrency(item.discountedPrice)} / {item.unit}
-                  </p>
+              <div key={item.id} className="flex flex-col gap-2 p-3 bg-white rounded-2xl border border-gray-100 shadow-sm group">
+                <div className="flex justify-between items-start">
+                  <div className="flex-1 min-w-0">
+                    <p className="font-bold text-gray-900 truncate text-sm">{item.name}</p>
+                    <p className="text-[10px] text-gray-500">
+                      {item.discountedPrice < item.originalPrice ? (
+                        <span className="line-through mr-1 text-gray-300">{formatCurrency(item.originalPrice)}</span>
+                      ) : null}
+                      {formatCurrency(item.discountedPrice)} / {item.unit}
+                    </p>
+                  </div>
+                  <button 
+                    onClick={() => removeFromCart(item.id)}
+                    className="p-1.5 text-gray-300 hover:text-red-500 hover:bg-red-50 rounded-lg transition-all"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </button>
                 </div>
-                <div className="flex items-center gap-2 bg-gray-50 rounded-lg p-1">
-                  <button onClick={() => updateCartQuantity(item.id, -0.25)} className="p-1 hover:bg-white rounded shadow-sm transition-all"><Minus className="w-3 h-3" /></button>
-                  <span className="w-10 text-center font-bold text-sm">{item.quantity}</span>
-                  <button onClick={() => updateCartQuantity(item.id, 0.25)} className="p-1 hover:bg-white rounded shadow-sm transition-all"><Plus className="w-3 h-3" /></button>
-                </div>
-                <div className="text-right min-w-[70px]">
-                  <p className="font-bold text-gray-900">{formatCurrency(item.discountedPrice * item.quantity)}</p>
+
+                <div className="flex items-center justify-between gap-2">
+                  <div className="flex flex-col gap-1">
+                    <div className="flex items-center gap-1 bg-gray-100 rounded-xl p-0.5">
+                      <button onClick={() => updateCartQuantity(item.id, -1)} className="p-1.5 hover:bg-white rounded-lg shadow-sm transition-all"><Minus className="w-3 h-3" /></button>
+                      <input 
+                        type="number" 
+                        step="0.01"
+                        value={item.quantity} 
+                        onChange={(e) => updateCartQuantityManual(item.id, Number(e.target.value))}
+                        className="w-12 text-center font-bold text-gray-900 bg-transparent outline-none text-xs"
+                      />
+                      <button onClick={() => updateCartQuantity(item.id, 1)} className="p-1.5 hover:bg-white rounded-lg shadow-sm transition-all"><Plus className="w-3 h-3" /></button>
+                    </div>
+                    {item.unit === 'kg' && (
+                      <div className="flex gap-1">
+                        {[0.25, 0.5, 1, 2, 5].map(q => (
+                          <button 
+                            key={q}
+                            onClick={() => updateCartQuantityManual(item.id, q)}
+                            className="px-1.5 py-0.5 bg-gray-50 text-[9px] font-bold text-gray-500 rounded-md hover:bg-indigo-50 hover:text-indigo-600 transition-all"
+                          >
+                            {q}kg
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="flex flex-col items-end gap-0.5">
+                    <div className="flex items-center gap-2">
+                      <input 
+                        type="number" 
+                        step="0.01"
+                        value={item.discountedPrice}
+                        onChange={(e) => updateCartPriceManual(item.id, Number(e.target.value))}
+                        className="w-16 px-2 py-1 border border-gray-200 rounded-lg bg-white text-right font-bold text-indigo-600 outline-none focus:ring-2 focus:ring-indigo-500 text-xs"
+                      />
+                      <div className="text-right">
+                        <p className="font-bold text-gray-900 text-sm">{formatCurrency(item.discountedPrice * item.quantity)}</p>
+                      </div>
+                    </div>
+                  </div>
                 </div>
               </div>
             ))
           )}
         </div>
 
-        <div className="p-6 bg-gray-50 border-t border-gray-100 space-y-4">
-          <div className="space-y-2">
-            <div className="flex justify-between text-gray-600">
+        <div className="p-4 bg-gray-50 border-t border-gray-100 space-y-3">
+          <div className="space-y-1.5">
+            <div className="flex justify-between text-gray-600 text-sm">
               <span>Subtotal</span>
               <span>{formatCurrency(cartTotal)}</span>
             </div>
-            <div className="flex justify-between items-center text-gray-600">
+            <div className="flex justify-between items-center text-gray-600 text-sm">
               <span>Discount</span>
               <input 
                 type="number" 
                 value={discount} 
                 onChange={(e) => setDiscount(Number(e.target.value))}
-                className="w-20 bg-white border border-gray-200 rounded px-2 py-1 text-right text-sm outline-none focus:ring-1 focus:ring-indigo-500"
+                className="w-16 bg-white border border-gray-200 rounded px-2 py-1 text-right text-xs outline-none focus:ring-1 focus:ring-indigo-500"
               />
             </div>
-            <div className="flex justify-between text-lg font-bold text-gray-900 pt-2 border-t border-gray-200">
+            <div className="flex justify-between text-base font-bold text-gray-900 pt-1.5 border-t border-gray-200">
               <span>Total</span>
               <span className="text-indigo-600">{formatCurrency(finalTotal)}</span>
             </div>
           </div>
 
-          <div className="space-y-3 pt-2">
+          <div className="space-y-2 pt-1">
             <div className="flex gap-2">
               <button 
                 onClick={() => setCheckoutData({ ...checkoutData, paymentMethod: 'cash' })}
-                className={`flex-1 py-2 rounded-xl text-sm font-bold transition-all ${checkoutData.paymentMethod === 'cash' ? 'bg-indigo-600 text-white' : 'bg-white text-gray-500 border border-gray-200'}`}
+                className={`flex-1 py-1.5 rounded-xl text-xs font-bold transition-all ${checkoutData.paymentMethod === 'cash' ? 'bg-indigo-600 text-white' : 'bg-white text-gray-500 border border-gray-200'}`}
               >Cash</button>
               <button 
                 onClick={() => setCheckoutData({ ...checkoutData, paymentMethod: 'due' })}
-                className={`flex-1 py-2 rounded-xl text-sm font-bold transition-all ${checkoutData.paymentMethod === 'due' ? 'bg-amber-600 text-white' : 'bg-white text-gray-500 border border-gray-200'}`}
+                className={`flex-1 py-1.5 rounded-xl text-xs font-bold transition-all ${checkoutData.paymentMethod === 'due' ? 'bg-amber-600 text-white' : 'bg-white text-gray-500 border border-gray-200'}`}
               >Due</button>
             </div>
             
             {checkoutData.paymentMethod === 'cash' && (
               <div>
-                <label className="block text-[10px] font-bold text-gray-400 uppercase mb-1">Paid Amount</label>
+                <div className="flex justify-between items-center mb-0.5">
+                  <label className="block text-[9px] font-bold text-gray-400 uppercase">Paid Amount</label>
+                  <button 
+                    onClick={() => setCheckoutData({ ...checkoutData, paidAmount: finalTotal })}
+                    className="text-[9px] text-indigo-600 font-bold hover:underline"
+                  >
+                    Full Paid
+                  </button>
+                </div>
                 <input 
                   type="number" 
                   value={checkoutData.paidAmount}
                   onChange={(e) => setCheckoutData({ ...checkoutData, paidAmount: Number(e.target.value) })}
-                  className="w-full px-4 py-2 bg-white border border-gray-200 rounded-xl outline-none focus:ring-2 focus:ring-indigo-500"
+                  className="w-full px-3 py-1.5 bg-white border border-gray-200 rounded-xl outline-none focus:ring-2 focus:ring-indigo-500 text-sm"
                 />
                 {checkoutData.paidAmount < finalTotal && (
-                  <p className="text-[10px] text-amber-600 mt-1">Remaining TK {finalTotal - checkoutData.paidAmount} will be added to Due</p>
+                  <p className="text-[9px] text-amber-600 mt-0.5">Remaining TK {finalTotal - checkoutData.paidAmount} will be added to Due</p>
+                )}
+                {checkoutData.paidAmount > finalTotal && (
+                  <p className="text-[9px] text-emerald-600 mt-0.5">Change: TK {checkoutData.paidAmount - finalTotal}</p>
                 )}
               </div>
             )}
@@ -2220,9 +2904,9 @@ function POS({
           <button 
             onClick={handleCheckout}
             disabled={cart.length === 0}
-            className={`w-full py-4 text-white rounded-2xl font-bold transition-all shadow-lg disabled:opacity-50 disabled:shadow-none flex items-center justify-center gap-2 ${editingSale ? 'bg-indigo-700 hover:bg-indigo-800 shadow-indigo-200' : 'bg-indigo-600 hover:bg-indigo-700 shadow-indigo-200'}`}
+            className={`w-full py-3 text-white rounded-2xl font-bold transition-all shadow-lg disabled:opacity-50 disabled:shadow-none flex items-center justify-center gap-2 text-sm ${editingSale ? 'bg-indigo-700 hover:bg-indigo-800 shadow-indigo-200' : 'bg-indigo-600 hover:bg-indigo-700 shadow-indigo-200'}`}
           >
-            <CheckCircle2 className="w-5 h-5" />
+            <CheckCircle2 className="w-4 h-4" />
             {editingSale ? 'Update Order' : 'Complete Order'}
           </button>
         </div>
@@ -2236,6 +2920,19 @@ function Inventory({ products, categories, onViewHistory }: { products: Product[
   const [editingProduct, setEditingProduct] = useState<Partial<Product> | null>(null);
   const [productImage, setProductImage] = useState<string | null>(null);
   const [isUploading, setIsUploading] = useState(false);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [categorySearch, setCategorySearch] = useState('');
+
+  const filteredCategories = FIXED_CATEGORIES.filter(cat => 
+    cat.toLowerCase().includes(categorySearch.toLowerCase())
+  );
+
+  const filteredProducts = products.filter(p => 
+    p.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
+    p.barcode?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    p.serialNumber.toString().includes(searchTerm) ||
+    p.category.toLowerCase().includes(searchTerm.toLowerCase())
+  );
 
   useEffect(() => {
     if (editingProduct?.imageUrl) {
@@ -2255,68 +2952,78 @@ function Inventory({ products, categories, onViewHistory }: { products: Product[
       'Stock': p.stock,
       'Unit': p.unit,
       'Barcode': p.barcode,
-      'Department': p.department,
-      'Warehouse': p.warehouse
+      'Expiry Date': p.expiryDate || '',
+      'Location': p.location || '',
+      'Department': p.department || '',
+      'Warehouse': p.warehouse || ''
     }));
     
-    // @ts-ignore
-    import('papaparse').then(Papa => {
-      const csv = Papa.unparse(csvData);
-      const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
-      const link = document.createElement('a');
-      link.href = URL.createObjectURL(blob);
-      link.setAttribute('download', `inventory_${format(new Date(), 'yyyy-MM-dd')}.csv`);
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-    });
+    // // @ts-ignore
+    // import('papaparse').then(Papa => {
+    //   const csv = Papa.unparse(csvData);
+    //   const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    //   const link = document.createElement('a');
+    //   link.href = URL.createObjectURL(blob);
+    //   link.setAttribute('download', `inventory_${format(new Date(), 'yyyy-MM-dd')}.csv`);
+    //   document.body.appendChild(link);
+    //   link.click();
+    //   document.body.removeChild(link);
+    // });
   };
 
   const handleUploadCSV = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
       setIsUploading(true);
-      // @ts-ignore
-      import('papaparse').then(Papa => {
-        Papa.parse(file, {
-          header: true,
-          skipEmptyLines: true,
-          complete: async (results: any) => {
-            const data = results.data;
-            let count = 0;
-            for (const row of data) {
-              const name = row.Name || row.name;
-              const price = Number(row.Price || row.price);
-              if (!name || isNaN(price)) continue;
-              
-              const productData = {
-                name: name,
-                category: row.Category || row.category || 'General',
-                price: price,
-                cost: Number(row.Cost || row.cost || 0),
-                stock: Number(row.Stock || row.stock || 0),
-                unit: row.Unit || row.unit || 'unit',
-                barcode: row.Barcode || row.barcode || '',
-                department: row.Department || row.department || '',
-                warehouse: row.Warehouse || row.warehouse || ''
-              };
+      Papa.parse(file, {
+        header: true,
+        skipEmptyLines: true,
+        complete: async (results: any) => {
+          const data = results.data;
+          let newProductsCount = 0;
+          const maxSerial = products.reduce((max, p) => Math.max(max, p.serialNumber || 0), 0);
 
-              const existing = products.find(p => p.name === name || (p.barcode && p.barcode === productData.barcode));
-              if (existing) {
-                await updateDoc(doc(db, 'products', existing.id), productData);
-              } else {
-                const maxSerial = products.reduce((max, p) => Math.max(max, p.serialNumber || 0), 0);
-                await addDoc(collection(db, 'products'), {
-                  ...productData,
-                  serialNumber: maxSerial + 1 + count
-                });
-                count++;
-              }
+          for (const row of data) {
+            const name = row.Name || row.name || row['Product Name'];
+            const price = Number(row.Price || row.price || row['Selling Price']);
+            const serialFromCSV = Number(row['Serial Number'] || row.serialNumber);
+            
+            if (!name || isNaN(price)) continue;
+            
+            const productData = {
+              name: name,
+              category: row.Category || row.category || 'General',
+              price: price,
+              cost: Number(row.Cost || row.cost || row['Buying Price'] || 0),
+              stock: Number(row.Stock || row.stock || row['Initial Stock'] || 0),
+              unit: (row.Unit || row.unit || 'unit').toLowerCase() === 'kg' ? 'kg' : 'unit',
+              barcode: row.Barcode || row.barcode || '',
+              expiryDate: row['Expiry Date'] || row.expiryDate || '',
+              location: row.Location || row.location || '',
+              department: row.Department || row.department || '',
+              warehouse: row.Warehouse || row.warehouse || ''
+            };
+
+            // Try to find existing product by Serial Number first, then Barcode, then Name
+            const existing = products.find(p => 
+              (serialFromCSV && p.serialNumber === serialFromCSV) ||
+              (productData.barcode && p.barcode === productData.barcode) ||
+              (p.name.toLowerCase() === name.toLowerCase())
+            );
+
+            if (existing) {
+              await updateDoc(doc(db, 'products', existing.id), productData);
+            } else {
+              await addDoc(collection(db, 'products'), {
+                ...productData,
+                serialNumber: maxSerial + 1 + newProductsCount
+              });
+              newProductsCount++;
             }
-            setIsUploading(false);
-            alert('Inventory updated successfully from CSV');
           }
-        });
+          setIsUploading(false);
+          alert(`Inventory updated: ${data.length} rows processed.`);
+        }
       });
     }
   };
@@ -2334,23 +3041,25 @@ function Inventory({ products, categories, onViewHistory }: { products: Product[
     
     const productData = {
       name: formData.get('name') as string,
-      category: formData.get('category') as string || 'General',
+      category: formData.get('category') as string,
       price: Number(formData.get('price')),
       cost: Number(formData.get('cost') || 0),
       stock: Number(formData.get('stock') || 0),
-      unit: formData.get('unit') as string,
+      unit: formData.get('unit') as 'kg' | 'unit',
       barcode: formData.get('barcode') as string || '',
       department: formData.get('department') as string || '',
       warehouse: formData.get('warehouse') as string || '',
+      expiryDate: formData.get('expiryDate') as string || '',
+      location: formData.get('location') as string || '',
       imageUrl: imageUrl
     };
 
-    try {
-      // Add category if it doesn't exist
-      if (productData.category && !categories.find(c => c.name === productData.category)) {
-        await addDoc(collection(db, 'categories'), { name: productData.category });
-      }
+    if (!productData.name || isNaN(productData.price) || productData.price < 0) {
+      alert("Please enter a valid product name and price.");
+      return;
+    }
 
+    try {
       if (editingProduct?.id) {
         await updateDoc(doc(db, 'products', editingProduct.id), productData);
       } else {
@@ -2386,10 +3095,16 @@ function Inventory({ products, categories, onViewHistory }: { products: Product[
       exit={{ opacity: 0, x: -20 }}
       className="space-y-6"
     >
-      <header className="flex items-center justify-between">
-        <div>
-          <h2 className="text-3xl font-bold text-gray-900">Inventory</h2>
-          <p className="text-gray-500">Manage your products and stock levels.</p>
+      <div className="flex flex-col md:flex-row gap-4">
+        <div className="relative flex-1">
+          <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400 w-5 h-5" />
+          <input 
+            type="text"
+            placeholder="Search products by name, barcode, SN or category..."
+            className="w-full pl-12 pr-4 py-3 bg-white border border-gray-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none shadow-sm"
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+          />
         </div>
         <div className="flex items-center gap-3">
           <div className="flex items-center gap-2">
@@ -2414,7 +3129,7 @@ function Inventory({ products, categories, onViewHistory }: { products: Product[
             Add Product
           </button>
         </div>
-      </header>
+      </div>
 
       <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
         <div className="overflow-x-auto">
@@ -2425,12 +3140,13 @@ function Inventory({ products, categories, onViewHistory }: { products: Product[
                 <th className="px-6 py-4 text-sm font-semibold text-gray-600">Category</th>
                 <th className="px-6 py-4 text-sm font-semibold text-gray-600">Dept/Wh</th>
                 <th className="px-6 py-4 text-sm font-semibold text-gray-600">Price</th>
+                <th className="px-6 py-4 text-sm font-semibold text-gray-600">Margin</th>
                 <th className="px-6 py-4 text-sm font-semibold text-gray-600">Stock</th>
                 <th className="px-6 py-4 text-sm font-semibold text-gray-600 text-right">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
-              {products.map(product => (
+              {filteredProducts.map(product => (
                 <tr key={product.id} className="hover:bg-gray-50/50 transition-colors">
                   <td className="px-6 py-4">
                     <div className="flex items-center gap-3">
@@ -2458,6 +3174,16 @@ function Inventory({ products, categories, onViewHistory }: { products: Product[
                     </div>
                   </td>
                   <td className="px-6 py-4 font-semibold text-gray-900">{formatCurrency(product.price)}</td>
+                  <td className="px-6 py-4">
+                    <div className="flex flex-col">
+                      <span className="text-xs font-bold text-emerald-600">
+                        {formatCurrency(product.price - (product.cost || 0))}
+                      </span>
+                      <span className="text-[10px] text-gray-400">
+                        {product.price > 0 ? Math.round(((product.price - (product.cost || 0)) / product.price) * 100) : 0}%
+                      </span>
+                    </div>
+                  </td>
                   <td className="px-6 py-4">
                     <span className={`px-3 py-1 rounded-full text-xs font-medium ${
                       product.stock < 10 ? 'bg-red-50 text-red-600' : 'bg-emerald-50 text-emerald-600'
@@ -2541,43 +3267,60 @@ function Inventory({ products, categories, onViewHistory }: { products: Product[
                 </div>
                 <div className="grid grid-cols-2 gap-6">
                   <div className="col-span-2">
-                    <label className="block text-sm font-medium text-gray-700 mb-2">Product Name</label>
-                    <input name="name" defaultValue={editingProduct?.name} required className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-indigo-500 outline-none" />
+                    <label className="block text-sm font-bold text-gray-700 mb-2">Product Name *</label>
+                    <input name="name" defaultValue={editingProduct?.name} required className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-indigo-500 outline-none" placeholder="Enter product name" />
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">Category</label>
-                    <input name="category" defaultValue={editingProduct?.category} className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-indigo-500 outline-none" />
+                    <label className="block text-sm font-bold text-gray-700 mb-2">Category *</label>
+                    <div className="space-y-2">
+                      <div className="relative">
+                        <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 w-4 h-4" />
+                        <input 
+                          type="text" 
+                          placeholder="Search category..." 
+                          value={categorySearch}
+                          onChange={(e) => setCategorySearch(e.target.value)}
+                          className="w-full pl-9 pr-4 py-2 text-sm rounded-xl border border-gray-200 focus:ring-2 focus:ring-indigo-500 outline-none"
+                        />
+                      </div>
+                      <select name="category" defaultValue={editingProduct?.category} required className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-indigo-500 outline-none">
+                        <option value="">Select Category</option>
+                        {filteredCategories.map(cat => (
+                          <option key={cat} value={cat}>{cat}</option>
+                        ))}
+                      </select>
+                    </div>
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">Barcode</label>
-                    <input name="barcode" defaultValue={editingProduct?.barcode} className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-indigo-500 outline-none" />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">Price (TK)</label>
-                    <input name="price" type="number" step="0.01" defaultValue={editingProduct?.price} required className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-indigo-500 outline-none" />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">Cost (TK)</label>
-                    <input name="cost" type="number" step="0.01" defaultValue={editingProduct?.cost} className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-indigo-500 outline-none" />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">Stock Level</label>
-                    <input name="stock" type="number" defaultValue={editingProduct?.stock || 0} className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-indigo-500 outline-none" />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">Unit</label>
-                    <select name="unit" defaultValue={editingProduct?.unit} className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-indigo-500 outline-none">
-                      <option value="unit">Unit/Piece</option>
+                    <label className="block text-sm font-bold text-gray-700 mb-2">Unit *</label>
+                    <select name="unit" defaultValue={editingProduct?.unit || 'unit'} required className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-indigo-500 outline-none">
+                      <option value="unit">Unit (pcs)</option>
                       <option value="kg">KG</option>
                     </select>
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">Expiry Date</label>
+                    <label className="block text-sm font-bold text-gray-700 mb-2">Selling Price *</label>
+                    <input name="price" type="number" step="0.01" defaultValue={editingProduct?.price} required className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-indigo-500 outline-none" placeholder="0.00" />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-bold text-gray-700 mb-2">Buying Price (Cost)</label>
+                    <input name="cost" type="number" step="0.01" defaultValue={editingProduct?.cost} className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-indigo-500 outline-none" placeholder="0.00" />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-bold text-gray-700 mb-2">Initial Stock</label>
+                    <input name="stock" type="number" defaultValue={editingProduct?.stock || 0} className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-indigo-500 outline-none" placeholder="0" />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-bold text-gray-700 mb-2">Barcode</label>
+                    <input name="barcode" defaultValue={editingProduct?.barcode} className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-indigo-500 outline-none" placeholder="Scan or enter barcode" />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-bold text-gray-700 mb-2">Expiry Date</label>
                     <input name="expiryDate" type="date" defaultValue={editingProduct?.expiryDate} className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-indigo-500 outline-none" />
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">Location (Shelf/Aisle)</label>
-                    <input name="location" defaultValue={editingProduct?.location} className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-indigo-500 outline-none" />
+                    <label className="block text-sm font-bold text-gray-700 mb-2">Location (Shelf/Aisle)</label>
+                    <input name="location" defaultValue={editingProduct?.location} className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-indigo-500 outline-none" placeholder="e.g. Shelf A1" />
                   </div>
                 </div>
                 <div className="flex justify-end gap-4 pt-4">
@@ -3480,7 +4223,7 @@ function Customers({ customers, sales }: { customers: Customer[], sales: Sale[] 
   );
 }
 
-function DailyClosingView({ sales, expenses, dailyClosings }: { sales: Sale[], expenses: Expense[], dailyClosings: DailyClosing[] }) {
+function DailyClosingView({ sales, expenses, dailyClosings, settings }: { sales: Sale[], expenses: Expense[], dailyClosings: DailyClosing[], settings: ShopSettings }) {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const today = format(new Date(), 'yyyy-MM-dd');
   
@@ -3494,7 +4237,7 @@ function DailyClosingView({ sales, expenses, dailyClosings }: { sales: Sale[], e
   const todayExpenses = expenses.filter(e => format(e.timestamp.toDate(), 'yyyy-MM-dd') === today).reduce((sum, e) => sum + e.amount, 0);
 
   const [denominations, setDenominations] = useState<{ [key: string]: number }>({
-    '1000': 0, '500': 0, '200': 0, '100': 0, '50': 0, '20': 0, '10': 0, '5': 0, '2': 0, '1': 0
+    '1000': 0, '500': 0, '200': 0, '100': 0, '50': 0, '20': 0, '10': 0, '5': 0
   });
   const [bkashBalance, setBkashBalance] = useState(0);
   const [notes, setNotes] = useState('');
@@ -3584,7 +4327,16 @@ function DailyClosingView({ sales, expenses, dailyClosings }: { sales: Sale[], e
                   <td className="px-6 py-4 font-bold text-emerald-600">{formatCurrency(closing.cashInHand)}</td>
                   <td className="px-6 py-4 text-pink-600 font-bold">{formatCurrency(closing.bkashBalance)}</td>
                   <td className="px-6 py-4">
-                    <span className="px-3 py-1 bg-emerald-50 text-emerald-600 rounded-full text-xs font-bold">CLOSED</span>
+                    <div className="flex items-center gap-2">
+                      <span className="px-3 py-1 bg-emerald-50 text-emerald-600 rounded-full text-xs font-bold">CLOSED</span>
+                      <button 
+                        onClick={() => printDailyClosing(closing, settings)}
+                        className="p-2 text-gray-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-all"
+                        title="Print Report"
+                      >
+                        <Printer className="w-4 h-4" />
+                      </button>
+                    </div>
                   </td>
                 </tr>
               ))}

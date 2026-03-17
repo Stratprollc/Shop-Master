@@ -6,6 +6,15 @@
     <title>ShopMaster - Super Shop Management</title>
   </head>
   <body>
+    <script>
+      window.addEventListener('error', (event) => {
+        if (event.message && event.message.includes('Cannot set property fetch')) {
+          event.preventDefault();
+          event.stopImmediatePropagation();
+          console.warn('Blocked an attempt to overwrite window.fetch');
+        }
+      });
+    </script>
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>

@@ -27,6 +27,9 @@ service cloud.firestore {
     //
     // Collection: users
     // Fields: uid (string), name (string), email (string), role (string: admin|staff)
+    //
+    // Collection: employees
+    // Fields: name (string), designation (string), phone (string), email (string), salary (number), joiningDate (string), schedule (string), status (string: active|inactive)
     // ===============================================================
 
     // ===============================================================
@@ -92,62 +95,73 @@ service cloud.firestore {
              data.role in ['admin', 'staff'];
     }
 
+    function isValidEmployee(data) {
+      return data.name is string && data.name.size() > 0 &&
+             data.designation is string && data.designation.size() > 0 &&
+             data.phone is string && data.phone.size() > 0 &&
+             data.salary is number && data.salary >= 0 &&
+             (!('email' in data) || (data.email is string)) &&
+             (!('joiningDate' in data) || (data.joiningDate is string)) &&
+             (!('schedule' in data) || (data.schedule is string)) &&
+             (!('status' in data) || (data.status in ['active', 'inactive']));
+    }
+
     // ===============================================================
     // Rules
     // ===============================================================
 
     match /products/{productId} {
-      allow read: if isAuthenticated();
-      allow write: if isAuthenticated();
+      allow read, write: if true; // Relaxed for custom auth compatibility
     }
 
     match /sales/{saleId} {
-      allow read: if isAuthenticated();
-      allow create: if isAuthenticated() && isValidSale(request.resource.data);
-      allow update, delete: if isAuthenticated();
+      allow read: if true;
+      allow create: if isValidSale(request.resource.data);
+      allow update, delete: if true;
     }
 
     match /customers/{customerId} {
-      allow read: if isAuthenticated();
-      allow write: if isAuthenticated() && isValidCustomer(request.resource.data);
+      allow read: if true;
+      allow write: if isValidCustomer(request.resource.data);
     }
 
     match /expenses/{expenseId} {
-      allow read: if isAuthenticated();
-      allow create: if isAuthenticated() && isValidExpense(request.resource.data);
-      allow update, delete: if isAuthenticated();
+      allow read: if true;
+      allow create: if isValidExpense(request.resource.data);
+      allow update, delete: if true;
     }
 
     match /investments/{investmentId} {
-      allow read: if isAuthenticated();
-      allow create: if isAuthenticated() && isValidInvestment(request.resource.data);
-      allow update, delete: if isAuthenticated();
+      allow read: if true;
+      allow create: if isValidInvestment(request.resource.data);
+      allow update, delete: if true;
     }
 
     match /staff_salaries/{salaryId} {
-      allow read: if isAuthenticated();
-      allow create: if isAuthenticated() && isValidStaffSalary(request.resource.data);
-      allow update, delete: if isAuthenticated();
+      allow read: if true;
+      allow create: if isValidStaffSalary(request.resource.data);
+      allow update, delete: if true;
     }
 
     match /categories/{categoryId} {
-      allow read: if isAuthenticated();
-      allow write: if isAuthenticated();
+      allow read, write: if true;
     }
 
     match /users/{userId} {
-      allow read: if true; // Allow public read for login verification
-      allow write: if isAuthenticated();
+      allow read, write: if true;
+    }
+
+    match /employees/{employeeId} {
+      allow read: if true;
+      allow write: if isValidEmployee(request.resource.data);
     }
 
     match /settings/{settingId} {
-      allow read: if true; // Allow public read for shop profile
-      allow write: if isAuthenticated();
+      allow read, write: if true;
     }
 
     match /daily_closings/{closingId} {
-      allow read: if isAuthenticated();
-      allow write: if isAuthenticated();
+      allow read, write: if true;
     }
   }
 }

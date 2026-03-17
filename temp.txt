@@ -1,0 +1,2 @@
+import { FIXED_CATEGORIES } from './Categories';�. পশু স্বাস্থ্য",
+  const filteredCategories = FIXED_CATEGORIES.filter(cat => 

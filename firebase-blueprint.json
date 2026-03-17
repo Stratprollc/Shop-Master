@@ -121,6 +121,23 @@
         "role": { "type": "string", "enum": ["admin", "staff"] }
       },
       "required": ["uid", "email", "role"]
+    },
+    "Employee": {
+      "title": "Employee",
+      "description": "A shop employee",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "designation": { "type": "string" },
+        "phone": { "type": "string" },
+        "email": { "type": "string" },
+        "salary": { "type": "number" },
+        "joiningDate": { "type": "string", "format": "date" },
+        "schedule": { "type": "string" },
+        "status": { "type": "string", "enum": ["active", "inactive"] }
+      },
+      "required": ["name", "designation", "phone", "salary"]
     }
   },
   "firestore": {
@@ -143,6 +160,10 @@
     "/users/{userId}": {
       "schema": "User",
       "description": "Collection of system users"
+    },
+    "/employees/{employeeId}": {
+      "schema": "Employee",
+      "description": "Collection of shop employees"
     },
     "/expenses/{expenseId}": {
       "schema": "Expense",
