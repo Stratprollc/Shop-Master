@@ -481,13 +481,23 @@ const sendWhatsAppInvoice = (sale: Sale, settings: ShopSettings) => {
   
   const itemsText = sale.items.map(item => `• ${item.productName}: ${item.quantity} x ${item.price} = ${item.price * item.quantity}`).join('\n');
   
+  const previousBalance = sale.previousBalance || 0;
+  const currentDue = sale.dueAmount || 0;
+  const totalBalance = previousBalance + currentDue;
+
   const message = `*Invoice from ${settings.name}*\n` +
     `Invoice: #${sale.id.slice(-6).toUpperCase()}\n` +
-    `Date: ${format(sale.timestamp.toDate(), 'dd/MM/yyyy')}\n\n` +
+    `Date: ${format(sale.timestamp.toDate ? sale.timestamp.toDate() : new Date(sale.timestamp), 'dd/MM/yyyy')}\n\n` +
     `*Items:*\n${itemsText}\n\n` +
-    `*Total:* TK ${sale.finalAmount}\n` +
-    `*Paid:* TK ${sale.paidAmount}\n` +
-    `*Due:* TK ${sale.dueAmount}\n\n` +
+    `--------------------------\n` +
+    `*Subtotal:* TK ${sale.totalAmount}\n` +
+    `*Discount:* TK ${sale.discount}\n` +
+    `*Grand Total:* TK ${sale.finalAmount}\n` +
+    `*Paid Amount:* TK ${sale.paidAmount}\n` +
+    `--------------------------\n` +
+    `*Previous Balance:* TK ${previousBalance}\n` +
+    `*Current Due:* TK ${currentDue}\n` +
+    `*Total Balance:* TK ${totalBalance}\n\n` +
     `Thank you for your purchase!`;
 
   window.open(`https://wa.me/${formattedPhone}?text=${encodeURIComponent(message)}`, '_blank');
@@ -1182,6 +1192,11 @@ export default function App() {
       setCheckoutData({ customerId: '', walkInName: '', walkInPhone: '', paidAmount: 0, paymentMethod: 'cash' });
       setEditingSale(null);
       setShowReceiptModal(true);
+
+      // Auto Send WhatsApp if customer has phone
+      if (finalSale.customerPhone) {
+        sendWhatsAppInvoice(finalSale, shopSettings);
+      }
     } catch (error) {
       handleFirestoreError(error, OperationType.WRITE, 'sales');
     }

@@ -7,11 +7,32 @@
   </head>
   <body>
     <script>
+      // Fix for "Uncaught TypeError: Cannot set property fetch of #<Window> which has only a getter"
+      (function() {
+        try {
+          const originalFetch = window.fetch;
+          if (originalFetch) {
+            Object.defineProperty(window, 'fetch', {
+              configurable: true,
+              enumerable: true,
+              get: function() {
+                return originalFetch;
+              },
+              set: function(v) {
+                console.warn('Attempted to overwrite window.fetch, ignoring.');
+              }
+            });
+          }
+        } catch (e) {
+          console.error('Failed to patch window.fetch', e);
+        }
+      })();
+
       window.addEventListener('error', (event) => {
         if (event.message && event.message.includes('Cannot set property fetch')) {
           event.preventDefault();
           event.stopImmediatePropagation();
-          console.warn('Blocked an attempt to overwrite window.fetch');
+          console.warn('Caught and blocked fetch overwrite error');
         }
       });
     </script>
