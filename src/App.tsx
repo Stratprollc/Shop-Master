@@ -15,6 +15,7 @@ import {
   Trash2, 
   Edit, 
   Save, 
+  Send,
   X, 
   Menu,
   LogOut, 
@@ -104,6 +105,12 @@ interface ShopSettings {
   phone?: string;
   whatsappSender?: string;
   receiptWidth?: '58mm' | '80mm';
+  waGatewayType: 'manual' | 'metacloud' | 'generic';
+  waApiUrl?: string;
+  waToken?: string;
+  waInstanceId?: string;
+  waPhoneNumberId?: string;
+  autoSendWhatsApp?: boolean;
 }
 
 interface Product {
@@ -473,7 +480,7 @@ const printInvoice = (sale: Sale, settings: ShopSettings) => {
   printWindow.document.close();
 };
 
-const sendWhatsAppInvoice = (sale: Sale, settings: ShopSettings) => {
+const sendWhatsAppInvoice = async (sale: Sale, settings: ShopSettings) => {
   if (!sale.customerPhone) return;
   
   const cleanPhone = sale.customerPhone.replace(/\D/g, '');
@@ -500,7 +507,76 @@ const sendWhatsAppInvoice = (sale: Sale, settings: ShopSettings) => {
     `*Total Balance:* TK ${totalBalance}\n\n` +
     `Thank you for your purchase!`;
 
-  window.open(`https://wa.me/${formattedPhone}?text=${encodeURIComponent(message)}`, '_blank');
+  const isAuto = settings.autoSendWhatsApp;
+  const method = settings.waGatewayType || 'manual';
+
+  // If Gateway settings are provided AND auto-send is enabled, send in the background
+  if (isAuto && settings.waToken && (settings.waPhoneNumberId || settings.waApiUrl)) {
+    try {
+      console.log('Initiating automatic background WhatsApp delivery...');
+      const response = await fetch('/api/whatsapp/send', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          method: method,
+          apiUrl: settings.waApiUrl,
+          token: settings.waToken,
+          instanceId: settings.waInstanceId,
+          phoneNumberId: settings.waPhoneNumberId,
+          phone: formattedPhone,
+          message: message
+        }),
+      });
+      
+      const result = await response.json();
+      if (result.success) {
+        console.log('✅ WhatsApp message sent automatically through server gateway.');
+      } else {
+        console.error('❌ Automatic delivery failed:', result.data || result.error);
+      }
+    } catch (error) {
+      console.error('❌ Network error during automatic WhatsApp delivery:', error);
+    }
+  } else if (!isAuto) {
+    // Manual or fallback: ONLY open window if auto-send is strictly disabled
+    window.open(`https://wa.me/${formattedPhone}?text=${encodeURIComponent(message)}`, '_blank');
+  } else {
+    console.warn('Auto-send is enabled but settings are incomplete. Skipping automatic message to avoid popups.');
+  }
+};
+
+const testWhatsAppConnection = async (settings: ShopSettings) => {
+  if (!settings.waToken) {
+    alert('Please enter an API Token first!');
+    return;
+  }
+  
+  const testPhone = prompt('Enter a WhatsApp number to test (with country code, e.g., 88017...):');
+  if (!testPhone) return;
+
+  try {
+    const response = await fetch('/api/whatsapp/send', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        method: settings.waGatewayType || 'metacloud',
+        apiUrl: settings.waApiUrl,
+        token: settings.waToken,
+        instanceId: settings.waInstanceId,
+        phoneNumberId: settings.waPhoneNumberId,
+        phone: testPhone.replace(/\D/g, ''),
+        message: 'MasterShop WhatsApp Automation Test Message. Connection successful! ✅'
+      }),
+    });
+    const result = await response.json();
+    if (result.success) {
+      alert('Test Message Sent Successfully!');
+    } else {
+      alert('Failed to send test message: ' + JSON.stringify(result.data || result.error));
+    }
+  } catch (error) {
+    alert('Error connecting to automation gateway.');
+  }
 };
 
 const downloadInvoicePDF = (sale: Sale, settings: ShopSettings) => {
@@ -637,6 +713,12 @@ function SettingsPanel({ settings, onSaveSettings, users, onAddUser, onDeleteUse
       logoUrl: formData.get('logoUrl') as string,
       logoBase64: logoBase64,
       whatsappSender: formData.get('whatsappSender') as string,
+      waGatewayType: formData.get('waGatewayType') as any,
+      waApiUrl: formData.get('waApiUrl') as string,
+      waInstanceId: formData.get('waInstanceId') as string,
+      waPhoneNumberId: formData.get('waPhoneNumberId') as string,
+      waToken: formData.get('waToken') as string,
+      autoSendWhatsApp: formData.get('autoSendWhatsApp') === 'on',
       receiptWidth: formData.get('receiptWidth') as '58mm' | '80mm',
     });
   };
@@ -727,6 +809,72 @@ function SettingsPanel({ settings, onSaveSettings, users, onAddUser, onDeleteUse
                 <label className="block text-sm font-medium text-gray-700 mb-2">WhatsApp Sender Number (Optional)</label>
                 <input name="whatsappSender" defaultValue={settings.whatsappSender} className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-indigo-500 outline-none" placeholder="88017..." />
               </div>
+              <div className="bg-indigo-50 p-6 rounded-2xl border border-indigo-100 space-y-4">
+                <h4 className="font-bold text-indigo-900 flex items-center gap-2">
+                  <Info className="w-5 h-5" />
+                  Free Automation Guide (বিনা খরচে অটোমেশন)
+                </h4>
+                <div className="space-y-4 text-sm text-indigo-800">
+                  <div className="bg-white/50 p-3 rounded-lg border border-indigo-100">
+                    <p className="font-bold mb-1">১. মেটা ক্লাউড এপিআই (Official Free):</p>
+                    <p className="text-xs">মেটার নিজস্ব সার্ভিস। মাসে ১,০০০ মেসেজ ফ্রি। সেটআপ করতে <a href="https://developers.facebook.com/" target="_blank" className="underline text-indigo-600 font-bold">Meta Developers</a> এ যান।</p>
+                  </div>
+                  <div className="bg-white/50 p-3 rounded-lg border border-indigo-100">
+                    <p className="font-bold mb-1">২. নিজের ফোন ব্যবহার (Self-Hosted):</p>
+                    <p className="text-xs">আপনার অ্যান্ড্রয়েড ফোনে "WhatsApp Gateway" অ্যাপ ব্যবহার করে আপনার নাম্বার থেকেই অটোমেটিক মেসেজ পাঠাতে পারবেন।</p>
+                  </div>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">WhatsApp Sending Method</label>
+                <select name="waGatewayType" defaultValue={settings.waGatewayType || 'manual'} className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-indigo-500 outline-none">
+                  <option value="manual">Manual (Free, requires 1-Click)</option>
+                  <option value="metacloud">Meta Cloud API (Official, 1000 Free/Month, Automatic)</option>
+                  <option value="generic">Third-Party Gateway (Paid, Automatic)</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">WhatsApp API Token / Key</label>
+                <p className="text-[10px] text-gray-400 mb-2">Access Token for Meta or Token for Gateway</p>
+                <input name="waToken" defaultValue={settings.waToken} className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-indigo-500 outline-none" />
+              </div>
+              
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Phone Number ID (Meta Cloud Only)</label>
+                <input name="waPhoneNumberId" defaultValue={settings.waPhoneNumberId} className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-indigo-500 outline-none" />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">API URL (Generic Only)</label>
+                <input name="waApiUrl" defaultValue={settings.waApiUrl} className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-indigo-500 outline-none" placeholder="https://..." />
+              </div>
+              <div className="flex items-center gap-3">
+                <input 
+                  type="checkbox" 
+                  name="autoSendWhatsApp" 
+                  id="autoSendWhatsApp"
+                  defaultChecked={settings.autoSendWhatsApp} 
+                  className="w-5 h-5 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500" 
+                />
+                <label htmlFor="autoSendWhatsApp" className="text-sm font-bold text-gray-700">Enable Fully Automatic WhatsApp Invoicing</label>
+              </div>
+              <div className="md:col-span-2 flex items-center justify-between bg-gray-50 p-6 rounded-2xl border border-gray-100">
+                <div>
+                  <h4 className="font-bold text-gray-900">Test Your Setup</h4>
+                  <p className="text-xs text-gray-500">Send a test message to verify your settings.</p>
+                </div>
+                <button 
+                  type="button"
+                  onClick={() => testWhatsAppConnection(settings)}
+                  className="px-6 py-2 bg-white text-indigo-600 font-bold rounded-xl border border-indigo-100 hover:bg-indigo-50 transition-all shadow-sm flex items-center gap-2"
+                >
+                  <Send className="w-4 h-4" />
+                  Send Test Message
+                </button>
+              </div>
+
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">Receipt Width</label>
                 <select name="receiptWidth" defaultValue={settings.receiptWidth || '58mm'} className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-indigo-500 outline-none">
@@ -1885,6 +2033,7 @@ function BarcodeScanner({ onScan, onClose }: { onScan: (data: string) => void, o
 
 function Dashboard({ products, sales, customers, expenses, onViewProductHistory }: { products: Product[], sales: Sale[], customers: Customer[], expenses: Expense[], onViewProductHistory: (p: Product) => void }) {
   const [period, setPeriod] = useState<'day' | 'week' | 'month' | 'year'>('day');
+  const [viewMetric, setViewMetric] = useState<'revenue' | 'profit'>('revenue');
   const now = new Date();
 
   const filteredSales = useMemo(() => {
@@ -1978,11 +2127,18 @@ function Dashboard({ products, sales, customers, expenses, onViewProductHistory 
         if (period === 'year') return format(saleDate, 'MMM') === label;
         return format(saleDate, 'MMM dd') === label;
       });
+
+      const totalRevenue = periodSales.reduce((sum, s) => sum + s.finalAmount, 0);
+      const totalCost = periodSales.reduce((sum, s) => {
+        return sum + s.items.reduce((itemSum, item) => itemSum + ((item.cost || 0) * item.quantity), 0);
+      }, 0);
+
       return {
         name: label,
-        sales: periodSales.reduce((sum, s) => sum + s.finalAmount, 0),
+        sales: totalRevenue,
         cash: periodSales.reduce((sum, s) => sum + s.paidAmount, 0),
-        due: periodSales.reduce((sum, s) => sum + s.dueAmount, 0)
+        due: periodSales.reduce((sum, s) => sum + s.dueAmount, 0),
+        profit: totalRevenue - totalCost
       };
     });
   }, [sales, period]);
@@ -2127,18 +2283,67 @@ function Dashboard({ products, sales, customers, expenses, onViewProductHistory 
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
         <div className="lg:col-span-2 bg-white p-6 rounded-2xl shadow-sm border border-gray-100">
-          <h3 className="text-lg font-bold mb-6">Sales Overview (Last 7 Days)</h3>
-          <div className="h-80">
-            <ResponsiveContainer width="100%" height="100%">
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6">
+            <h3 className="text-lg font-bold">Sales Overview ({period === 'year' ? 'By Month' : 'Last 7 Days'})</h3>
+            <div className="flex bg-gray-50 p-1 rounded-xl border border-gray-100">
+              <button
+                onClick={() => setViewMetric('revenue')}
+                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${viewMetric === 'revenue' ? 'bg-white text-indigo-600 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+              >
+                Revenue
+              </button>
+              <button
+                onClick={() => setViewMetric('profit')}
+                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${viewMetric === 'profit' ? 'bg-white text-emerald-600 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+              >
+                Profit Margin
+              </button>
+            </div>
+          </div>
+
+          <div className="h-80 min-h-[320px] w-full">
+            <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0}>
               <BarChart data={chartData}>
                 <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
                 <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fill: '#64748b', fontSize: 12 }} />
-                <YAxis axisLine={false} tickLine={false} tick={{ fill: '#64748b', fontSize: 12 }} />
-                <Tooltip 
-                  contentStyle={{ backgroundColor: '#fff', borderRadius: '12px', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)' }}
+                <YAxis 
+                  axisLine={false} 
+                  tickLine={false} 
+                  tick={{ fill: '#64748b', fontSize: 12 }}
+                  tickFormatter={(value) => `TK ${value}`}
                 />
-                <Bar dataKey="cash" name="Cash" fill="#10b981" radius={[4, 4, 0, 0]} />
-                <Bar dataKey="due" name="Due" fill="#f59e0b" radius={[4, 4, 0, 0]} />
+                <Tooltip 
+                  cursor={{ fill: '#f8fafc' }}
+                  content={({ active, payload, label }) => {
+                    if (active && payload && payload.length) {
+                      return (
+                        <div className="bg-white p-4 rounded-xl shadow-xl border border-gray-50">
+                          <p className="text-xs font-bold text-gray-400 uppercase mb-2">{label}</p>
+                          <div className="space-y-1">
+                            {payload.map((entry: any, index: number) => (
+                              <div key={index} className="flex items-center justify-between gap-8">
+                                <span className="text-sm text-gray-500 flex items-center gap-2">
+                                  <div className="w-2 h-2 rounded-full" style={{ backgroundColor: entry.color }} />
+                                  {entry.name}
+                                </span>
+                                <span className="text-sm font-bold text-gray-900">TK {entry.value.toLocaleString()}</span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      );
+                    }
+                    return null;
+                  }}
+                />
+                {viewMetric === 'revenue' ? (
+                  <>
+                    <Bar dataKey="cash" name="Cash Collected" stackId="a" fill="#10b981" radius={[0, 0, 0, 0]} />
+                    <Bar dataKey="due" name="New Due" stackId="a" fill="#f59e0b" radius={[4, 4, 0, 0]} />
+                  </>
+                ) : (
+                  <Bar dataKey="profit" name="Net Profit" fill="#6366f1" radius={[4, 4, 0, 0]} />
+                )}
               </BarChart>
             </ResponsiveContainer>
           </div>
