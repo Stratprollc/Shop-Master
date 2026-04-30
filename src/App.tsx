@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { useVoiceSearch } from './hooks/useVoiceSearch';
-import { standardizeBn, toPhonetic, parseVoiceCommandQuantity, isPhoneticMatch } from './utils/voiceUtils';
+import { standardizeBn, toPhonetic, parseVoiceCommandQuantity, isPhoneticMatch, parseNewProductVoiceCommand } from './utils/voiceUtils';
 import { 
   LayoutDashboard, 
   Package, 
@@ -9,6 +9,7 @@ import {
   Users, 
   Settings, 
   Download,
+  Upload,
   Shield,
   Building2,
   Warehouse as WarehouseIcon,
@@ -76,7 +77,8 @@ import {
   limit,
   OperationType,
   handleFirestoreError,
-  increment
+  increment,
+  serverTimestamp
 } from './firebase';
 
 import { 
@@ -303,6 +305,29 @@ interface Customer {
   totalSpent: number;
   currentDue: number;
   dueDate?: string;
+}
+
+interface CustomerLog {
+  id: string;
+  customerId: string;
+  type: 'profile_edit' | 'manual_due' | 'csv_import';
+  oldData?: any;
+  newData?: any;
+  timestamp: any;
+  performedBy: string;
+  performedByRole: string;
+}
+
+interface DuePayment {
+  id: string;
+  customerId: string;
+  amount: number;
+  previousDue: number;
+  remainingDue: number;
+  method: 'cash' | 'bkash' | 'nagad' | 'bank';
+  timestamp: any;
+  receivedBy: string;
+  note?: string;
 }
 
 interface DailyClosing {
@@ -776,6 +801,104 @@ const printInvoice = (sale: Sale, settings: ShopSettings) => {
       </script>
     </html>
   `;
+  printWindow.document.write(html);
+  printWindow.document.close();
+};
+
+const printPaymentReceipt = (payment: DuePayment, customerName: string, settings: ShopSettings) => {
+  const lang = settings.printLanguage || 'bn';
+  const t = PRINT_TRANSLATIONS[lang];
+  const printWindow = window.open('', '_blank');
+  if (!printWindow) return;
+
+  const formatVal = (num: number) => lang === 'bn' ? toBengaliNumber((num || 0).toFixed(2)) : (num || 0).toFixed(2);
+  const formatDate = (date: Date) => lang === 'bn' ? toBengaliNumber(format(date, 'dd/MM/yy')) : format(date, 'dd/MM/yy');
+  const formatTime = (date: Date) => lang === 'bn' ? toBengaliNumber(format(date, 'HH:mm')) : format(date, 'HH:mm');
+
+  const width = settings.receiptWidth || '58mm';
+  const timestamp = safeDate(payment.timestamp);
+
+  const html = `<!DOCTYPE html>
+    <html>
+      <head>
+        <title>Payment Receipt #${payment.id}</title>
+        <style>
+          @import url('https://fonts.googleapis.com/css2?family=Hind+Siliguri:wght@400;500;600;700&family=Inter:wght@400;600;700&display=swap');
+          * { margin: 0; padding: 0; box-sizing: border-box; }
+          body { 
+            font-family: ${lang === 'bn' ? "'Hind Siliguri', sans-serif" : "'Inter', sans-serif"};
+            width: ${width}; 
+            max-width: 100%;
+            margin: 0 auto; 
+            padding: 2mm 0; 
+            font-size: 11px; 
+            line-height: 1.2;
+            color: #000;
+          }
+          .header { text-align: center; margin-bottom: 2px; }
+          .logo { max-width: 25mm; max-height: 15mm; margin: 0 auto 2px auto; display: block; }
+          .shop-name { font-size: 18px; font-weight: 800; margin-bottom: 1px; color: #000 !important; }
+          .shop-info { font-size: 13px; margin-bottom: 0px; color: #000 !important; font-weight: 600; line-height: 1.3; }
+          .divider { border-bottom: 1.5px solid #000; margin: 2px 0; }
+          .meta-grid { display: flex; justify-content: space-between; font-size: 12px; margin: 2px 0; font-weight: 500; color: #000 !important; }
+          .row { display: flex; justify-content: space-between; padding: 2px 0; font-size: 11px; color: #000 !important; }
+          .total-row { display: flex; justify-content: space-between; padding: 4px 0; font-size: 13px; font-weight: 800; border-top: 1px dashed #000; margin-top: 2px; color: #000 !important; }
+          .footer { text-align: center; margin-top: 6px; font-size: 10px; font-style: italic; color: #000 !important; }
+        </style>
+      </head>
+      <body>
+        <div class="header">
+          ${settings.logoBase64 ? `<img src="${settings.logoBase64}" class="logo" />` : ''}
+          <div class="shop-name">${settings.name}</div>
+          <div class="shop-info">${settings.address}</div>
+          ${settings.phone ? `<div class="shop-info">${t.phone}: ${lang === 'bn' ? toBengaliNumber(settings.phone) : settings.phone}</div>` : ''}
+        </div>
+        
+        <div class="divider"></div>
+        <div style="text-align: center; font-weight: 800; font-size: 14px; margin: 2px 0; letter-spacing: 1px;">PAYMENT RECEIPT</div>
+        <div class="divider"></div>
+
+        <div class="meta-grid">
+          <span>${t.date}: ${formatDate(timestamp)}</span>
+          <span>${t.time}: ${formatTime(timestamp)}</span>
+        </div>
+        <div class="meta-grid">
+          <span>${t.customer}: ${customerName}</span>
+        </div>
+
+        <div class="divider"></div>
+
+        <div class="row">
+          <span>${t.prevBalance}</span>
+          <span>TK ${formatVal(payment.previousDue)}</span>
+        </div>
+        <div class="row" style="font-weight: 700; font-size: 13px;">
+          <span>${t.todayPaid} (${payment.method.toUpperCase()})</span>
+          <span>TK ${formatVal(payment.amount)}</span>
+        </div>
+        
+        <div class="total-row">
+          <span>${t.currentBalance}</span>
+          <span>TK ${formatVal(payment.remainingDue)}</span>
+        </div>
+
+        ${payment.note ? `<div style="margin-top: 4px; font-size: 10px; color: #000;"><b>Note:</b> ${payment.note}</div>` : ''}
+
+        <div class="divider"></div>
+        <div class="footer">${settings.receiptFooter || t.footer}</div>
+        <div style="text-align: center; font-size: 8px; margin-top: 4px; color: #000; font-weight: 500;">
+          ${t.collectedBy}: ${payment.receivedBy} | Software by StratPro Solutions
+        </div>
+
+        <script>
+          window.onload = () => {
+             window.print();
+             setTimeout(() => window.close(), 500);
+          };
+        </script>
+      </body>
+    </html>`;
+
   printWindow.document.write(html);
   printWindow.document.close();
 };
@@ -1376,10 +1499,8 @@ function RecycleBin({ items, onRestore }: { items: RecycleItem[], onRestore: (it
   const [searchTerm, setSearchTerm] = useState('');
   
   const filteredItems = items.filter(item => {
-    const searchStr = searchTerm.toLowerCase();
-    const typeStr = item.entityType.toLowerCase();
-    const dataStr = JSON.stringify(item.data).toLowerCase();
-    return typeStr.includes(searchStr) || dataStr.includes(searchStr);
+    const dataStr = JSON.stringify(item.data);
+    return isPhoneticMatch(item.entityType, searchTerm) || isPhoneticMatch(dataStr, searchTerm);
   });
 
   return (
@@ -1538,6 +1659,8 @@ export default function App() {
   const [staffSalaries, setStaffSalaries] = useState<StaffSalary[]>([]);
   const [dailyClosings, setDailyClosings] = useState<DailyClosing[]>([]);
   const [recycleBin, setRecycleBin] = useState<RecycleItem[]>([]);
+  const [customerLogs, setCustomerLogs] = useState<CustomerLog[]>([]);
+  const [duePayments, setDuePayments] = useState<DuePayment[]>([]);
   const [shopSettings, setShopSettings] = useState<ShopSettings>({
     name: 'Bismillah Store',
     address: 'Your Shop Address',
@@ -1550,6 +1673,27 @@ export default function App() {
     waTemplateBengali: "প্রিয় *{{customerName}}*, *{{shopName}}*-এ কেনাকাটা করার জন্য ধন্যবাদ! আপনার ইনভয়েস #{{invoiceId}} এর মোট পরিমাণ {{totalAmount}} টাকা।",
     printLanguage: 'bn'
   });
+
+  const handleDownloadCustomersCSV = () => {
+    const csvData = customers.map(c => ({
+      'Name': c.name,
+      'Mobile Number': c.phone,
+      'Address': c.address || '',
+      'Father Name': c.fatherName || '',
+      'Home Address': c.houseName || '',
+      'House Number': c.serialNumber || '',
+      'Current Due': c.currentDue || 0
+    }));
+    
+    const csv = Papa.unparse(csvData);
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(blob);
+    link.setAttribute('download', `customers_records_${format(new Date(), 'yyyy-MM-dd')}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
   
   // POS State
   const [cart, setCart] = useState<CartItem[]>([]);
@@ -1657,6 +1801,14 @@ export default function App() {
       setRecycleBin(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as RecycleItem)));
     }, (err) => console.error("Recycle bin sync error", err));
 
+    const unsubCustomerLogs = onSnapshot(collection(db, 'customer_logs'), (snapshot) => {
+      setCustomerLogs(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as CustomerLog)));
+    }, (err) => console.error("Customer logs sync error", err));
+
+    const unsubDuePayments = onSnapshot(collection(db, 'due_payments'), (snapshot) => {
+      setDuePayments(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as DuePayment)));
+    }, (err) => console.error("Due payments sync error", err));
+
     return () => {
       unsubProducts();
       unsubSales();
@@ -1668,6 +1820,9 @@ export default function App() {
       unsubStaffSalaries();
       unsubDailyClosings();
       unsubEmployees();
+      unsubRecycleBin();
+      unsubCustomerLogs();
+      unsubDuePayments();
     };
   }, [user, auth.currentUser]);
 
@@ -1925,10 +2080,28 @@ export default function App() {
 
       if (checkoutData.customerId) {
         const customerRef = doc(db, 'customers', checkoutData.customerId);
+        const overpayment = checkoutData.paidAmount - finalTotal;
+
         await updateDoc(customerRef, {
           currentDue: increment(finalTotal - checkoutData.paidAmount),
           totalSpent: increment(finalTotal)
         });
+
+        // Record overpayment in due_payments for history visibility
+        if (overpayment > 0) {
+          const prevDue = selectedCustomer?.currentDue || 0;
+          const remainingDue = prevDue - overpayment;
+          await addDoc(collection(db, 'due_payments'), {
+            customerId: checkoutData.customerId,
+            amount: overpayment,
+            previousDue: prevDue,
+            remainingDue: remainingDue,
+            method: checkoutData.paymentMethod,
+            timestamp: serverTimestamp(),
+            receivedBy: user?.displayName || user?.username || 'POS',
+            note: `Extra payment from Invoice #${finalSale.id}`
+          });
+        }
       }
 
       setLastSale(finalSale);
@@ -2525,6 +2698,11 @@ export default function App() {
                 sales={sales} 
                 setNotification={setNotification}
                 shopSettings={shopSettings}
+                user={user}
+                onDownloadCSV={handleDownloadCustomersCSV}
+                customerLogs={customerLogs}
+                duePayments={duePayments}
+                recycleBin={recycleBin}
               />
             )}
             {activeTab === 'employees' && (
@@ -2540,6 +2718,7 @@ export default function App() {
                 sales={sales} 
                 expenses={expenses} 
                 dailyClosings={dailyClosings}
+                duePayments={duePayments}
                 settings={shopSettings}
                 user={user}
                 onDelete={handleDeleteDailyClosing}
@@ -3831,16 +4010,13 @@ function POS({
     }
   };
 
-  const { isListening, voiceFeedback, toggleVoiceSearch, startListening } = useVoiceSearch(handleVoiceCommand);
-
-  useEffect(() => {
-    // Try auto-starting when POS loads
-    startListening();
-  }, [startListening]);
+  const { isListening, voiceFeedback, toggleVoiceSearch } = useVoiceSearch(handleVoiceCommand);
 
   const filteredProducts = products.filter((p: Product) => 
     isPhoneticMatch(p.name, searchTerm) || 
-    (p.barcode && p.barcode.includes(searchTerm))
+    (p.barcode && p.barcode.includes(searchTerm)) ||
+    (p.serialNumber && p.serialNumber.toString().includes(searchTerm)) ||
+    isPhoneticMatch(p.category, searchTerm)
   );
 
   const filteredCustomers = customers.filter((c: Customer) => 
@@ -4397,33 +4573,16 @@ function Inventory({ products, categories, stockRecords, onViewHistory, setNotif
     let lower = rawText.toLowerCase().trim();
     
     // Check for "new product" triggers
-    if (lower.includes('নতুন প্রোডাক্ট') || lower.includes('নতুন ইনভেন্টরি') || lower.includes('new product') || lower.includes('প্রোডাক্ট অ্যাড')) {
+    if (lower.includes('নতুন প্রোডাক্ট') || lower.includes('নতুন ইনভেন্টরি') || lower.includes('new product') || lower.includes('প্রোডাক্ট অ্যাড') || lower.includes('নতুন ফোডাক্ট')) {
        // Optional: try to extract name, price, stock
-       const productPrefixes = ['নতুন প্রোডাক্ট', 'নতুন ইনভেন্টরি', 'new product', 'প্রোডাক্ট অ্যাড'];
-       let remainder = rawText;
-       for (const p of productPrefixes) {
-         if (lower.includes(p)) {
-           const idx = lower.indexOf(p);
-           remainder = rawText.substring(idx + p.length).trim();
-           break;
-         }
-       }
-       
-       const priceMatch = remainder.match(/(?:দাম|price)\s*(\d+(\.\d+)?)/i);
-       const stockMatch = remainder.match(/(?:স্টক|স্টোক|stock)\s*(\d+(\.\d+)?)/i);
-       
-       let nameEndIdx = remainder.length;
-       if (priceMatch && priceMatch.index !== undefined && priceMatch.index < nameEndIdx) nameEndIdx = priceMatch.index;
-       if (stockMatch && stockMatch.index !== undefined && stockMatch.index < nameEndIdx) nameEndIdx = stockMatch.index;
-       
-       const extractedName = remainder.substring(0, nameEndIdx).trim();
+       const { name, price, stock, unit } = parseNewProductVoiceCommand(rawText);
 
        setIsModalOpen(true);
        setEditingProduct({
-         name: extractedName,
-         price: priceMatch ? parseFloat(priceMatch[1]) : 0,
-         stock: stockMatch ? parseFloat(stockMatch[1]) : 0,
-         unit: 'unit',
+         name: name,
+         price: price || 0,
+         stock: stock || 0,
+         unit: unit || 'unit',
          cost: 0,
          barcode: '',
          category: 'General',
@@ -4450,7 +4609,7 @@ function Inventory({ products, categories, stockRecords, onViewHistory, setNotif
   }, []);
 
   const filteredCategories = FIXED_CATEGORIES.filter(cat => 
-    cat.toLowerCase().includes(categorySearch.toLowerCase())
+    isPhoneticMatch(cat, categorySearch)
   );
 
   const filteredProducts = products.filter(p => 
@@ -4530,17 +4689,15 @@ function Inventory({ products, categories, stockRecords, onViewHistory, setNotif
       'Warehouse': p.warehouse || ''
     }));
     
-    // // @ts-ignore
-    // import('papaparse').then(Papa => {
-    //   const csv = Papa.unparse(csvData);
-    //   const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
-    //   const link = document.createElement('a');
-    //   link.href = URL.createObjectURL(blob);
-    //   link.setAttribute('download', `inventory_${format(new Date(), 'yyyy-MM-dd')}.csv`);
-    //   document.body.appendChild(link);
-    //   link.click();
-    //   document.body.removeChild(link);
-    // });
+    // We already have Papa imported at the top
+    const csv = Papa.unparse(csvData);
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(blob);
+    link.setAttribute('download', `inventory_${format(new Date(), 'yyyy-MM-dd')}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
   };
 
   const handleUploadCSV = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -4551,50 +4708,65 @@ function Inventory({ products, categories, stockRecords, onViewHistory, setNotif
         header: true,
         skipEmptyLines: true,
         complete: async (results: any) => {
-          const data = results.data;
-          let newProductsCount = 0;
-          const maxSerial = products.reduce((max, p) => Math.max(max, p.serialNumber || 0), 0);
+          try {
+            const data = results.data;
+            let newProductsCount = 0;
+            let updatedProductsCount = 0;
+            const maxSerial = products.reduce((max, p) => Math.max(max, p.serialNumber || 0), 0);
 
-          for (const row of data) {
-            const name = row.Name || row.name || row['Product Name'];
-            const price = Number(row.Price || row.price || row['Selling Price']);
-            const serialFromCSV = Number(row['Serial Number'] || row.serialNumber);
-            
-            if (!name || isNaN(price)) continue;
-            
-            const productData = {
-              name: name,
-              category: row.Category || row.category || 'General',
-              price: price,
-              cost: Number(row.Cost || row.cost || row['Buying Price'] || 0),
-              stock: Number(row.Stock || row.stock || row['Initial Stock'] || 0),
-              unit: (row.Unit || row.unit || 'unit').toLowerCase() === 'kg' ? 'kg' : 'unit',
-              barcode: row.Barcode || row.barcode || '',
-              expiryDate: row['Expiry Date'] || row.expiryDate || '',
-              location: row.Location || row.location || '',
-              department: row.Department || row.department || '',
-              warehouse: row.Warehouse || row.warehouse || ''
-            };
+            for (const row of data) {
+              const name = row.Name || row.name || row['Product Name'];
+              const price = Number(row.Price || row.price || row['Selling Price']);
+              const serialFromCSV = Number(row['Serial Number'] || row.serialNumber);
+              
+              if (!name || isNaN(price)) continue;
+              
+              const productData = {
+                name: name,
+                category: row.Category || row.category || 'General',
+                price: price,
+                cost: Number(row.Cost || row.cost || row['Buying Price'] || 0),
+                stock: Number(row.Stock || row.stock || row['Initial Stock'] || 0),
+                unit: (row.Unit || row.unit || 'unit').toLowerCase() === 'kg' ? 'kg' : 'unit',
+                barcode: row.Barcode || row.barcode || '',
+                expiryDate: row['Expiry Date'] || row.expiryDate || '',
+                location: row.Location || row.location || '',
+                department: row.Department || row.department || '',
+                warehouse: row.Warehouse || row.warehouse || ''
+              };
 
-            // Try to find existing product by Serial Number first, then Barcode, then Name
-            const existing = products.find(p => 
-              (serialFromCSV && p.serialNumber === serialFromCSV) ||
-              (productData.barcode && p.barcode === productData.barcode) ||
-              (p.name.toLowerCase() === name.toLowerCase())
-            );
+              // Try to find existing product by Serial Number first, then Barcode, then Name
+              const existing = products.find(p => 
+                (serialFromCSV && p.serialNumber === serialFromCSV) ||
+                (productData.barcode && p.barcode === productData.barcode) ||
+                (p.name.toLowerCase() === name.toLowerCase())
+              );
 
-            if (existing) {
-              await updateDoc(doc(db, 'products', existing.id), productData);
-            } else {
-              await addDoc(collection(db, 'products'), {
-                ...productData,
-                serialNumber: maxSerial + 1 + newProductsCount
-              });
-              newProductsCount++;
+              if (existing) {
+                await updateDoc(doc(db, 'products', existing.id), productData);
+                updatedProductsCount++;
+              } else {
+                await addDoc(collection(db, 'products'), {
+                  ...productData,
+                  serialNumber: maxSerial + 1 + newProductsCount
+                });
+                newProductsCount++;
+              }
             }
+            setNotification({ type: 'success', message: `Inventory updated: ${newProductsCount} added, ${updatedProductsCount} updated.` });
+          } catch (error) {
+            setNotification({ type: 'error', message: 'Failed to upload inventory.' });
+            handleFirestoreError(error, OperationType.WRITE, 'products');
+          } finally {
+            setIsUploading(false);
+            if (e.target) e.target.value = '';
           }
-          setIsUploading(false);
-          alert(`Inventory updated: ${data.length} rows processed.`);
+        },
+        error: (error) => {
+           setNotification({ type: 'error', message: 'Failed to parse CSV file.' });
+           setIsUploading(false);
+           if (e.target) e.target.value = '';
+           handleFirestoreError(error instanceof Error ? error : new Error(String(error)), OperationType.WRITE, 'products');
         }
       });
     }
@@ -5757,23 +5929,44 @@ function Accounting({
   );
 }
 
-function Customers({ customers, sales, setNotification, shopSettings }: { 
+function Customers({ 
+  customers, 
+  sales, 
+  setNotification, 
+  shopSettings,
+  user,
+  onDownloadCSV,
+  customerLogs,
+  duePayments,
+  recycleBin
+}: { 
   customers: Customer[], 
   sales: Sale[],
   setNotification: (n: { message: string, type: 'success' | 'error' | 'info' } | null) => void,
-  shopSettings: ShopSettings
+  shopSettings: ShopSettings,
+  user: any,
+  onDownloadCSV: () => void,
+  customerLogs: CustomerLog[],
+  duePayments: DuePayment[],
+  recycleBin: RecycleItem[]
 }) {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingCustomer, setEditingCustomer] = useState<Partial<Customer> | null>(null);
   const [selectedCustomerForHistory, setSelectedCustomerForHistory] = useState<Customer | null>(null);
-  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [isPaymentModalOpen, setIsPaymentModalOpen] = useState(false);
+  const [historyTab, setHistoryTab] = useState<'transactions' | 'payments' | 'edits'>('transactions');
+  const [dateFilter, setDateFilter] = useState<'3m' | '6m' | '1y' | '2y' | 'all'>('all');
 
-  // Clear confirmation state if user clicks elsewhere
-  useEffect(() => {
-    const handleClick = () => setConfirmDeleteId(null);
-    window.addEventListener('click', handleClick);
-    return () => window.removeEventListener('click', handleClick);
-  }, []);
+  const filteredCustomers = useMemo(() => {
+    if (!searchTerm) return customers;
+    return customers.filter(c => 
+      isPhoneticMatch(c.name, searchTerm) || 
+      (c.phone && c.phone.includes(searchTerm)) || 
+      isPhoneticMatch(c.address, searchTerm) ||
+      isPhoneticMatch(c.fatherName, searchTerm)
+    );
+  }, [customers, searchTerm]);
 
   const sendCustomerWhatsApp = (customer: Customer, lang: 'en' | 'bn') => {
     const template = lang === 'bn' 
@@ -5809,18 +6002,101 @@ function Customers({ customers, sales, setNotification, shopSettings }: {
 
     try {
       if (editingCustomer?.id) {
+        // Record log for edit
+        const oldData = customers.find(c => c.id === editingCustomer.id);
+        await addDoc(collection(db, 'customer_logs'), {
+          customerId: editingCustomer.id,
+          type: 'profile_edit',
+          oldData: oldData,
+          newData: customerData,
+          timestamp: serverTimestamp(),
+          performedBy: user?.displayName || user?.username || 'Admin',
+          performedByRole: user?.role || 'admin'
+        });
         await updateDoc(doc(db, 'customers', editingCustomer.id), customerData);
       } else {
         const maxSerial = customers.reduce((max, c) => Math.max(max, c.serialNumber || 0), 0);
-        await addDoc(collection(db, 'customers'), {
+        const docRef = await addDoc(collection(db, 'customers'), {
           ...customerData,
           serialNumber: maxSerial + 1
+        });
+        await addDoc(collection(db, 'customer_logs'), {
+          customerId: docRef.id,
+          type: 'profile_edit',
+          newData: customerData,
+          timestamp: serverTimestamp(),
+          performedBy: user?.displayName || user?.username || 'Admin',
+          performedByRole: user?.role || 'admin'
         });
       }
       setIsModalOpen(false);
       setEditingCustomer(null);
+      setNotification({ message: "Customer saved successfully", type: 'success' });
     } catch (error) {
       console.error("Customer save error", error);
+      setNotification({ message: "Failed to save customer", type: 'error' });
+    }
+  };
+
+  const handleCollectDue = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedCustomerForHistory) return;
+    
+    const form = e.target as HTMLFormElement;
+    const formData = new FormData(form);
+    const amount = Number(formData.get('amount'));
+    const method = formData.get('method') as DuePayment['method'];
+    const note = formData.get('note') as string;
+
+    if (amount <= 0) return;
+
+    try {
+      const prevDue = selectedCustomerForHistory.currentDue;
+      const remainingDue = prevDue - amount;
+
+      const paymentData = {
+        customerId: selectedCustomerForHistory.id,
+        amount,
+        previousDue: prevDue,
+        remainingDue,
+        method,
+        receivedBy: user?.displayName || user?.username || 'Admin',
+        note
+      };
+
+      const docRef = await addDoc(collection(db, 'due_payments'), {
+        ...paymentData,
+        timestamp: serverTimestamp()
+      });
+
+      // Auto-print receipt
+      printPaymentReceipt({ ...paymentData, id: docRef.id, timestamp: new Date() } as DuePayment, selectedCustomerForHistory.name, shopSettings);
+
+      await updateDoc(doc(db, 'customers', selectedCustomerForHistory.id), {
+        currentDue: increment(-amount)
+      });
+
+      // Also log it
+      await addDoc(collection(db, 'customer_logs'), {
+        customerId: selectedCustomerForHistory.id,
+        type: 'manual_due',
+        oldData: { currentDue: prevDue },
+        newData: { currentDue: remainingDue, paymentAmount: amount },
+        timestamp: serverTimestamp(),
+        performedBy: user?.displayName || user?.username || 'Admin',
+        performedByRole: user?.role || 'admin'
+      });
+
+      setIsPaymentModalOpen(false);
+      setNotification({ message: `TK ${amount} collected from ${selectedCustomerForHistory.name}`, type: 'success' });
+      // Update local state for modal immediately if possible, or it will refresh from snapshot
+      setSelectedCustomerForHistory({
+        ...selectedCustomerForHistory,
+        currentDue: remainingDue
+      });
+    } catch (error) {
+      handleFirestoreError(error, OperationType.WRITE, 'due_payments');
+      setNotification({ message: "Failed to collect payment", type: 'error' });
     }
   };
 
@@ -5829,19 +6105,86 @@ function Customers({ customers, sales, setNotification, shopSettings }: {
     window.open(`https://wa.me/${cleanPhone}`, '_blank');
   };
 
-  const handleDelete = async (id: string) => {
-    try {
-      const customerToDelete = customers.find(c => c.id === id);
-      if (customerToDelete) {
-        await moveToRecycleBin('customer', id, customerToDelete);
-      }
-      await deleteDoc(doc(db, 'customers', id));
-      setNotification({ message: "Customer moved to Recycle Bin", type: 'success' });
-      setConfirmDeleteId(null);
-    } catch (error) {
-      handleFirestoreError(error, OperationType.DELETE, 'customers');
-      setNotification({ message: "Failed to move customer to Recycle Bin", type: 'error' });
-    }
+  const getFilteredData = (data: any[]) => {
+    if (dateFilter === 'all') return data;
+    const now = new Date();
+    let cutoff = new Date();
+    if (dateFilter === '3m') cutoff.setMonth(now.getMonth() - 3);
+    else if (dateFilter === '6m') cutoff.setMonth(now.getMonth() - 6);
+    else if (dateFilter === '1y') cutoff.setFullYear(now.getFullYear() - 1);
+    else if (dateFilter === '2y') cutoff.setFullYear(now.getFullYear() - 2);
+    
+    return data.filter(item => safeDate(item.timestamp) >= cutoff);
+  };
+
+  const printHistory = (type: 'sales' | 'payments', data: any[]) => {
+    const lang = shopSettings.printLanguage || 'bn';
+    const t = PRINT_TRANSLATIONS[lang];
+    const printWindow = window.open('', '_blank');
+    if (!printWindow) return;
+
+    const formatVal = (num: number) => lang === 'bn' ? toBengaliNumber((num || 0).toLocaleString()) : (num || 0).toLocaleString();
+    const formatDate = (date: any) => lang === 'bn' ? toBengaliNumber(format(safeDate(date), 'dd/MM/yy HH:mm')) : format(safeDate(date), 'dd/MM/yy HH:mm');
+
+    const html = `
+      <html>
+        <head>
+          <title>${type === 'sales' ? 'Sale' : 'Payment'} History - ${selectedCustomerForHistory?.name}</title>
+          <style>
+            @import url('https://fonts.googleapis.com/css2?family=Hind+Siliguri:wght@400;700&family=Inter:wght@400;700&display=swap');
+            body { font-family: ${lang === 'bn' ? "'Hind Siliguri', sans-serif" : "'Inter', sans-serif"}; padding: 20px; color: #333; }
+            h1 { text-align: center; margin-bottom: 5px; }
+            .shop-info { text-align: center; font-size: 14px; margin-bottom: 20px; color: #666; }
+            table { width: 100%; border-collapse: collapse; margin-top: 20px; font-size: 12px; }
+            th, td { border-bottom: 1px solid #eee; padding: 10px; text-align: left; }
+            th { background: #f9fafb; color: #666; text-transform: uppercase; font-size: 10px; }
+            .text-right { text-align: right; }
+            .font-bold { font-weight: 700; }
+            .footer { margin-top: 30px; text-align: center; font-size: 10px; color: #999; }
+          </style>
+        </head>
+        <body>
+          <h1>${shopSettings.name}</h1>
+          <div class="shop-info">${shopSettings.address} | ${shopSettings.phone}</div>
+          <div style="margin-bottom: 15px;">
+            <p><strong>Customer:</strong> ${selectedCustomerForHistory?.name}</p>
+            <p><strong>Type:</strong> ${type === 'sales' ? 'Transaction' : 'Payment'} History (${dateFilter === 'all' ? 'All Time' : 'Last ' + dateFilter})</p>
+            <p><strong>Date Filter:</strong> ${dateFilter === 'all' ? 'All' : dateFilter}</p>
+          </div>
+          <table>
+            <thead>
+              <tr>
+                <th>Date</th>
+                ${type === 'sales' ? '<th>Invoice #</th><th>Total</th><th>Paid</th><th>Due</th>' : '<th>Amount</th><th>Method</th><th>Prev Due</th><th>New Due</th>'}
+              </tr>
+            </thead>
+            <tbody>
+              ${data.map(item => `
+                <tr>
+                  <td>${formatDate(item.timestamp)}</td>
+                  ${type === 'sales' ? `
+                    <td>#${item.id}</td>
+                    <td class="text-right">TK ${formatVal(item.finalAmount)}</td>
+                    <td class="text-right">TK ${formatVal(item.paidAmount)}</td>
+                    <td class="text-right">TK ${formatVal(item.dueAmount)}</td>
+                  ` : `
+                    <td class="text-right font-bold">TK ${formatVal(item.amount)}</td>
+                    <td>${item.method.toUpperCase()}</td>
+                    <td class="text-right">TK ${formatVal(item.previousDue)}</td>
+                    <td class="text-right font-bold">TK ${formatVal(item.remainingDue)}</td>
+                  `}
+                </tr>
+              `).join('')}
+            </tbody>
+          </table>
+          <div class="footer">Software by StratPro Solutions | Printed on ${new Date().toLocaleString()}</div>
+          <script>window.onload = () => { window.print(); setTimeout(() => window.close(), 500); };</script>
+        </body>
+      </html>
+    `;
+
+    printWindow.document.write(html);
+    printWindow.document.close();
   };
 
   return (
@@ -5851,18 +6194,40 @@ function Customers({ customers, sales, setNotification, shopSettings }: {
       exit={{ opacity: 0, x: -20 }}
       className="space-y-6"
     >
-      <header className="flex items-center justify-between">
+      <header className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
           <h2 className="text-3xl font-bold text-gray-900">Customers</h2>
           <p className="text-gray-500">Manage customer relationships and dues.</p>
         </div>
-        <button 
-          onClick={() => { setEditingCustomer(null); setIsModalOpen(true); }}
-          className="flex items-center gap-2 px-6 py-3 bg-indigo-600 text-white rounded-xl font-semibold hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-100"
-        >
-          <Plus className="w-5 h-5" />
-          Add Customer
-        </button>
+        <div className="flex flex-wrap items-center gap-3">
+          <div className="relative">
+            <Search className="w-5 h-5 absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+            <input
+              type="text"
+              placeholder="Search by name, phone or address..."
+              className="pl-10 pr-4 py-3 bg-white border border-gray-200 rounded-xl outline-none focus:ring-2 focus:ring-indigo-500 w-full md:w-64"
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+            />
+          </div>
+          
+          <button 
+            onClick={onDownloadCSV}
+            className="flex items-center gap-2 px-4 py-3 bg-white border border-gray-200 text-gray-700 rounded-xl font-semibold hover:bg-gray-50 transition-all shadow-sm"
+            title="Download CSV"
+          >
+            <Download className="w-5 h-5 text-indigo-600" />
+            <span className="hidden sm:inline">Export</span>
+          </button>
+
+          <button 
+            onClick={() => { setEditingCustomer(null); setIsModalOpen(true); }}
+            className="flex items-center gap-2 px-6 py-3 bg-indigo-600 text-white rounded-xl font-semibold hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-100 whitespace-nowrap"
+          >
+            <Plus className="w-5 h-5" />
+            Add Customer
+          </button>
+        </div>
       </header>
 
       <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
@@ -5879,7 +6244,14 @@ function Customers({ customers, sales, setNotification, shopSettings }: {
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
-              {customers.map(customer => (
+              {filteredCustomers.length === 0 ? (
+                <tr>
+                  <td colSpan={6} className="px-6 py-8 text-center text-gray-500">
+                    No customers found.
+                  </td>
+                </tr>
+              ) : (
+                filteredCustomers.map(customer => (
                 <tr key={customer.id} className="hover:bg-gray-50/50 transition-colors">
                   <td className="px-6 py-4">
                     <div className="flex items-center gap-3">
@@ -5971,32 +6343,10 @@ function Customers({ customers, sales, setNotification, shopSettings }: {
                       >
                         <Edit className="w-4 h-4" />
                       </button>
-                      <button 
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          if (confirmDeleteId === customer.id) {
-                            handleDelete(customer.id);
-                          } else {
-                            setConfirmDeleteId(customer.id);
-                          }
-                        }}
-                        className={`p-2 rounded-lg transition-all relative ${
-                          confirmDeleteId === customer.id 
-                            ? "bg-red-600 text-white hover:bg-red-700 shadow-lg scale-110" 
-                            : "text-gray-400 hover:text-red-600 hover:bg-red-50"
-                        }`}
-                        title={confirmDeleteId === customer.id ? "Click again to confirm" : "Delete Customer"}
-                      >
-                        {confirmDeleteId === customer.id ? (
-                          <span className="text-[10px] font-bold px-1 animate-pulse">Confirm?</span>
-                        ) : (
-                          <Trash2 className="w-4 h-4" />
-                        )}
-                      </button>
                     </div>
                   </td>
                 </tr>
-              ))}
+              )))}
             </tbody>
           </table>
         </div>
@@ -6067,7 +6417,7 @@ function Customers({ customers, sales, setNotification, shopSettings }: {
               initial={{ opacity: 0, scale: 0.95 }}
               animate={{ opacity: 1, scale: 1 }}
               exit={{ opacity: 0, scale: 0.95 }}
-              className="bg-white w-full max-w-2xl rounded-3xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh]"
+              className="bg-white w-full max-w-4xl rounded-3xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh]"
             >
               <div className="p-6 border-b border-gray-100 flex items-center justify-between bg-gray-50/50">
                 <div className="flex items-center gap-3">
@@ -6075,60 +6425,332 @@ function Customers({ customers, sales, setNotification, shopSettings }: {
                     <HistoryIcon className="w-6 h-6 text-indigo-600" />
                   </div>
                   <div>
-                    <h3 className="text-xl font-bold text-gray-900">{selectedCustomerForHistory.name} - Transaction History</h3>
-                    <p className="text-xs text-gray-500">Total Outstanding: TK {selectedCustomerForHistory.currentDue}</p>
+                    <h3 className="text-xl font-bold text-gray-900">{selectedCustomerForHistory.name} - Record & History</h3>
+                    <div className="flex items-center gap-1.5 mt-1">
+                      <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase ${selectedCustomerForHistory.currentDue > 0 ? 'bg-red-100 text-red-700' : 'bg-emerald-100 text-emerald-700'}`}>
+                        {selectedCustomerForHistory.currentDue > 0 ? `Due: TK ${selectedCustomerForHistory.currentDue.toLocaleString()}` : "No Balance"}
+                      </span>
+                      <span className="text-[10px] text-gray-400">|</span>
+                      <span className="text-[10px] text-gray-500">Points: {selectedCustomerForHistory.points}</span>
+                    </div>
                   </div>
                 </div>
-                <button onClick={() => setSelectedCustomerForHistory(null)} className="p-2 hover:bg-gray-200 rounded-full transition-colors">
+                <div className="flex items-center gap-2">
+                  <button 
+                    onClick={() => setIsPaymentModalOpen(true)}
+                    className="px-4 py-2 bg-emerald-600 text-white rounded-lg text-sm font-bold shadow-md hover:bg-emerald-700 transition-all flex items-center gap-2"
+                  >
+                    <Banknote className="w-4 h-4" />
+                    Collect Payment
+                  </button>
+                  <button onClick={() => setSelectedCustomerForHistory(null)} className="p-2 hover:bg-gray-200 rounded-full transition-colors">
+                    <X className="w-5 h-5" />
+                  </button>
+                </div>
+              </div>
+
+              <div className="flex border-b border-gray-100 px-6 bg-gray-50/30 items-center justify-between">
+                <div className="flex">
+                  {(['transactions', 'payments', 'edits'] as const).map(tab => (
+                    <button
+                      key={tab}
+                      onClick={() => setHistoryTab(tab)}
+                      className={`px-6 py-3 text-sm font-bold transition-all relative ${historyTab === tab ? 'text-indigo-600' : 'text-gray-400 hover:text-gray-600'}`}
+                    >
+                      {tab.charAt(0).toUpperCase() + tab.slice(1)}
+                      {historyTab === tab && <motion.div layoutId="histTab" className="absolute bottom-0 left-0 right-0 h-0.5 bg-indigo-600" />}
+                    </button>
+                  ))}
+                </div>
+                <div className="flex items-center gap-2 py-2">
+                  <div className="flex bg-gray-100 p-1 rounded-lg">
+                    {(['all', '3m', '6m', '1y', '2y'] as const).map(f => (
+                      <button
+                        key={f}
+                        onClick={() => setDateFilter(f)}
+                        className={`px-3 py-1 rounded-md text-[10px] font-bold transition-all ${dateFilter === f ? 'bg-white text-indigo-600 shadow-sm' : 'text-gray-400 hover:text-gray-600'}`}
+                      >
+                        {f === 'all' ? 'All' : f.toUpperCase()}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex-1 overflow-y-auto p-6">
+                {historyTab === 'transactions' && (
+                  <div className="space-y-4">
+                    {(() => {
+                      const rawSales = [
+                        ...sales.filter(s => s.customerId === selectedCustomerForHistory.id).map(s => ({ ...s, isDeleted: false })),
+                        ...recycleBin
+                          .filter(item => item.entityType === 'sale' && (item.data as Sale).customerId === selectedCustomerForHistory.id)
+                          .map(item => ({ ...(item.data as Sale), isDeleted: true }))
+                      ];
+                      
+                      const filteredSales = getFilteredData(rawSales).sort((a,b) => safeDate(b.timestamp).getTime() - safeDate(a.timestamp).getTime());
+
+                      if (filteredSales.length === 0) {
+                        return <p className="text-center text-gray-400 py-12 italic">No purchase transactions found for this period.</p>;
+                      }
+
+                      return (
+                        <>
+                          <div className="flex justify-end mb-2">
+                            <button 
+                              onClick={() => printHistory('sales', filteredSales)}
+                              className="flex items-center gap-1.5 text-[10px] font-bold text-indigo-600 hover:bg-indigo-50 px-3 py-1.5 rounded-lg transition-all"
+                            >
+                              <Printer className="w-3.5 h-3.5" />
+                              Print Statement
+                            </button>
+                          </div>
+                          <table className="w-full text-sm text-left">
+                            <thead className="text-gray-400 uppercase text-[10px] font-bold border-b border-gray-100">
+                              <tr>
+                                <th className="py-3">Date</th>
+                                <th className="py-3">Invoice #</th>
+                                <th className="py-3 text-right">Total</th>
+                                <th className="py-3 text-right">Paid</th>
+                                <th className="py-3 text-right">Due</th>
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-gray-50">
+                              {filteredSales.map(sale => (
+                                  <tr key={sale.id} className={`group hover:bg-gray-50/50 transition-colors ${sale.isDeleted ? 'opacity-60 bg-red-50/20' : ''}`}>
+                                    <td className="py-3 text-xs text-gray-500">
+                                      {format(safeDate(sale.timestamp), 'dd MMM yy HH:mm')}
+                                      {sale.isDeleted && <span className="ml-2 text-[8px] font-bold text-red-500 uppercase px-1 border border-red-200 rounded">Deleted</span>}
+                                    </td>
+                                    <td 
+                                      className={`py-3 font-bold cursor-pointer group-hover:text-indigo-600 ${sale.isDeleted ? 'text-gray-400 line-through' : 'text-gray-900'}`}
+                                      onClick={() => printInvoice(sale, shopSettings)}
+                                    >
+                                      #{sale.id}
+                                    </td>
+                                    <td className="py-3 text-right font-medium">TK {sale.finalAmount.toLocaleString()}</td>
+                                    <td className="py-3 text-right text-emerald-600 font-bold">TK {sale.paidAmount.toLocaleString()}</td>
+                                    <td className="py-3 text-right text-red-600 font-bold">TK {sale.dueAmount.toLocaleString()}</td>
+                                  </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </>
+                      );
+                    })()}
+                  </div>
+                )}
+
+                {historyTab === 'payments' && (
+                  <div className="space-y-4">
+                    {(() => {
+                      const filteredPay = getFilteredData(duePayments.filter(p => p.customerId === selectedCustomerForHistory.id))
+                        .sort((a,b) => safeDate(b.timestamp).getTime() - safeDate(a.timestamp).getTime());
+
+                      if (filteredPay.length === 0) {
+                        return <p className="text-center text-gray-400 py-12 italic">No payment records found for this period.</p>;
+                      }
+
+                      return (
+                        <>
+                          <div className="flex justify-end mb-2">
+                             <button 
+                               onClick={() => printHistory('payments', filteredPay)}
+                               className="flex items-center gap-1.5 text-[10px] font-bold text-emerald-600 hover:bg-emerald-50 px-3 py-1.5 rounded-lg transition-all"
+                             >
+                               <Printer className="w-3.5 h-3.5" />
+                               Print Payment List
+                             </button>
+                           </div>
+                          <table className="w-full text-sm text-left">
+                            <thead className="text-gray-400 uppercase text-[10px] font-bold border-b border-gray-100">
+                              <tr>
+                                <th className="py-3">Date</th>
+                                <th className="py-3">Amount</th>
+                                <th className="py-3">Method</th>
+                                <th className="py-3 text-right">Prev Due</th>
+                                <th className="py-3 text-right">New Due</th>
+                                <th className="py-3 text-right">Print</th>
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-gray-50">
+                              {filteredPay.map(pay => (
+                                  <tr key={pay.id} className="group hover:bg-gray-50/50 transition-colors">
+                                    <td className="py-3 text-xs text-gray-500">{format(safeDate(pay.timestamp), 'dd MMM yy HH:mm')}</td>
+                                    <td className="py-3">
+                                      <div className="flex flex-col">
+                                        <span className="font-black text-emerald-600 text-lg">TK {pay.amount.toLocaleString()}</span>
+                                        {pay.note && <span className="text-[10px] text-gray-500 italic truncate max-w-[150px]">{pay.note}</span>}
+                                      </div>
+                                    </td>
+                                    <td className="py-3">
+                                      <span className="px-2 py-0.5 bg-gray-100 rounded text-[10px] font-bold uppercase text-gray-600">{pay.method}</span>
+                                    </td>
+                                    <td className="py-3 text-right text-gray-400 line-through">TK {pay.previousDue.toLocaleString()}</td>
+                                    <td className="py-3 text-right font-bold text-gray-900">TK {pay.remainingDue.toLocaleString()}</td>
+                                    <td className="py-3 text-right">
+                                      <button 
+                                        onClick={() => printPaymentReceipt(pay, selectedCustomerForHistory.name, shopSettings)}
+                                        className="p-2 hover:bg-emerald-50 text-emerald-600 rounded-lg transition-colors opacity-0 group-hover:opacity-100"
+                                        title="Print POS Receipt"
+                                      >
+                                        <Printer className="w-4 h-4" />
+                                      </button>
+                                    </td>
+                                  </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </>
+                      );
+                    })()}
+                  </div>
+                )}
+
+                {historyTab === 'edits' && (
+                  <div className="space-y-6">
+                    {customerLogs.filter(l => l.customerId === selectedCustomerForHistory.id).length === 0 ? (
+                      <p className="text-center text-gray-400 py-12 italic">No edit history found.</p>
+                    ) : (
+                      <div className="relative border-l-2 border-indigo-50 ml-4 space-y-8 pb-4">
+                        {customerLogs.filter(l => l.customerId === selectedCustomerForHistory.id)
+                          .sort((a,b) => safeDate(b.timestamp).getTime() - safeDate(a.timestamp).getTime())
+                          .map((log, idx) => (
+                            <div key={log.id} className="relative pl-8">
+                              <div className="absolute -left-2.5 top-0 w-5 h-5 bg-white border-2 border-indigo-500 rounded-full" />
+                              <div className="flex flex-col gap-1">
+                                <div className="flex items-center gap-2">
+                                  <span className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">{format(safeDate(log.timestamp), 'dd MMM yyyy HH:mm:ss')}</span>
+                                  <span className="px-1.5 py-0.5 bg-indigo-50 text-indigo-700 text-[9px] font-bold rounded uppercase">{log.type.replace('_', ' ')}</span>
+                                </div>
+                                <p className="text-sm font-medium text-gray-900">
+                                  Performed by <span className="font-bold text-indigo-600">{log.performedBy}</span>
+                                </p>
+                                <div className="mt-2 bg-gray-50 rounded-xl p-3 text-[11px] grid grid-cols-2 gap-4 border border-gray-100">
+                                  {log.oldData && (
+                                    <div>
+                                      <p className="text-gray-400 font-bold mb-1 uppercase text-[9px]">Original</p>
+                                      <div className="space-y-0.5">
+                                        {Object.entries(log.oldData).map(([key, val]) => (
+                                          <p key={key} className="truncate"><span className="text-gray-400">{key}:</span> {String(val)}</p>
+                                        ))}
+                                      </div>
+                                    </div>
+                                  )}
+                                  {log.newData && (
+                                    <div>
+                                      <p className="text-indigo-400 font-bold mb-1 uppercase text-[9px]">Modified To</p>
+                                      <div className="space-y-0.5">
+                                        {Object.entries(log.newData).map(([key, val]) => (
+                                          <p key={key} className="truncate text-indigo-900 font-bold"><span className="text-gray-400 font-normal">{key}:</span> {String(val)}</p>
+                                        ))}
+                                      </div>
+                                    </div>
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+
+              <div className="p-6 bg-gray-50 border-t border-gray-100 flex justify-end items-center relative">
+                <button 
+                  onClick={() => setSelectedCustomerForHistory(null)}
+                  className="px-8 py-3 bg-white border border-gray-200 text-gray-700 font-bold rounded-xl hover:bg-gray-100 transition-all shadow-sm"
+                >
+                  Dismiss
+                </button>
+
+                <motion.button
+                  whileHover={{ scale: 1.05 }}
+                  whileTap={{ scale: 0.95 }}
+                  onClick={() => setIsPaymentModalOpen(true)}
+                  className="absolute right-8 bottom-24 w-14 h-14 bg-indigo-600 text-white rounded-full shadow-2xl flex items-center justify-center hover:bg-indigo-700 transition-all z-20"
+                >
+                  <CalculatorIcon className="w-6 h-6" />
+                </motion.button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {isPaymentModalOpen && selectedCustomerForHistory && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.9, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.9, y: 20 }}
+              className="bg-white w-full max-w-md rounded-3xl shadow-2xl overflow-hidden shadow-emerald-500/10"
+            >
+              <div className="p-6 bg-emerald-600 text-white flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="p-3 bg-white/20 rounded-xl">
+                    <Banknote className="w-6 h-6" />
+                  </div>
+                  <div>
+                    <h3 className="font-bold text-lg">Collect Payment</h3>
+                    <p className="text-emerald-100 text-xs">{selectedCustomerForHistory.name}</p>
+                  </div>
+                </div>
+                <button onClick={() => setIsPaymentModalOpen(false)} className="p-2 hover:bg-white/10 rounded-full text-white/70 hover:text-white">
                   <X className="w-5 h-5" />
                 </button>
               </div>
-              <div className="flex-1 overflow-y-auto p-6">
-                <div className="space-y-4">
-                  {sales.filter(s => s.customerId === selectedCustomerForHistory.id).length === 0 ? (
-                    <p className="text-center text-gray-400 py-8 italic">No transactions found for this customer.</p>
-                  ) : (
-                    <table className="w-full text-sm text-left">
-                      <thead className="text-gray-500 uppercase border-b border-gray-200">
-                        <tr>
-                          <th className="py-2">Date</th>
-                          <th className="py-2">Invoice #</th>
-                          <th className="py-2 text-right">Spent</th>
-                          <th className="py-2 text-right">Paid</th>
-                          <th className="py-2 text-right">Due</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-gray-100">
-                        {sales.filter(s => s.customerId === selectedCustomerForHistory.id)
-                          .sort((a,b) => safeDate(b.timestamp).getTime() - safeDate(a.timestamp).getTime())
-                          .map(sale => (
-                            <tr key={sale.id}>
-                              <td className="py-3 text-xs">{format(safeDate(sale.timestamp), 'dd/MM/yy HH:mm')}</td>
-                              <td 
-                                className="py-3 font-semibold text-gray-900 cursor-pointer hover:text-indigo-600 transition-colors"
-                                onDoubleClick={() => printInvoice(sale, shopSettings)}
-                                title="Double-click to print invoice"
-                              >
-                                {sale.id}
-                              </td>
-                              <td className="py-3 text-right">TK {sale.finalAmount.toFixed(0)}</td>
-                              <td className="py-3 text-right text-emerald-600">TK {sale.paidAmount.toFixed(0)}</td>
-                              <td className="py-3 text-right text-red-600">TK {sale.dueAmount.toFixed(0)}</td>
-                            </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  )}
+              
+              <form onSubmit={handleCollectDue} className="p-6 space-y-4">
+                <div className="bg-emerald-50 rounded-2xl p-4 border border-emerald-100 flex items-center justify-between">
+                    <span className="text-emerald-700 font-bold text-sm">Outstanding Due:</span>
+                    <span className="text-emerald-900 font-black text-xl">TK {selectedCustomerForHistory.currentDue.toLocaleString()}</span>
                 </div>
-              </div>
-              <div className="p-6 bg-gray-50 border-t border-gray-100 flex justify-end">
-                <button 
-                  onClick={() => setSelectedCustomerForHistory(null)}
-                  className="px-6 py-2 bg-white border border-gray-200 text-gray-700 font-bold rounded-xl hover:bg-gray-100 transition-all"
-                >
-                  Close
-                </button>
-              </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Collection Amount</label>
+                  <div className="relative">
+                    <div className="absolute left-4 top-1/2 -translate-y-1/2 text-emerald-600 font-bold">TK</div>
+                    <input 
+                      name="amount" 
+                      type="number" 
+                      autoFocus
+                      max={selectedCustomerForHistory.currentDue}
+                      required 
+                      className="w-full pl-12 pr-4 py-3 rounded-xl border border-gray-200 outline-none focus:ring-2 focus:ring-emerald-500 text-xl font-bold" 
+                      placeholder="0.00"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Payment Method</label>
+                  <div className="grid grid-cols-2 gap-2">
+                    {['cash', 'bkash', 'nagad', 'bank'].map(m => (
+                       <label key={m} className="cursor-pointer">
+                          <input type="radio" name="method" value={m} defaultChecked={m === 'cash'} className="hidden peer" />
+                          <div className="px-3 py-2 border border-gray-200 rounded-xl text-center text-xs font-bold uppercase transition-all peer-checked:bg-emerald-600 peer-checked:text-white peer-checked:border-emerald-600 peer-checked:shadow-md">
+                            {m}
+                          </div>
+                       </label>
+                    ))}
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Note (Optional)</label>
+                  <input name="note" className="w-full px-4 py-3 rounded-xl border border-gray-200 outline-none focus:ring-2 focus:ring-emerald-500 text-sm" placeholder="e.g. Partial payment" />
+                </div>
+
+                <div className="flex gap-3 pt-2">
+                  <button type="button" onClick={() => setIsPaymentModalOpen(false)} className="flex-1 py-3 bg-gray-100 text-gray-600 font-bold rounded-xl hover:bg-gray-200 transition-all">Cancel</button>
+                  <button type="submit" className="flex-[2] py-3 bg-emerald-600 text-white font-black rounded-xl hover:bg-emerald-700 transition-all shadow-lg shadow-emerald-500/20">
+                    Confirm Collection
+                  </button>
+                </div>
+              </form>
             </motion.div>
           </div>
         )}
@@ -6137,7 +6759,15 @@ function Customers({ customers, sales, setNotification, shopSettings }: {
   );
 }
 
-function DailyClosingView({ sales, expenses, dailyClosings, settings, user, onDelete }: { sales: Sale[], expenses: Expense[], dailyClosings: DailyClosing[], settings: ShopSettings, user?: any, onDelete: (closing: DailyClosing) => void }) {
+function DailyClosingView({ sales, expenses, dailyClosings, duePayments, settings, user, onDelete }: { 
+  sales: Sale[], 
+  expenses: Expense[], 
+  dailyClosings: DailyClosing[], 
+  duePayments: DuePayment[],
+  settings: ShopSettings, 
+  user?: any, 
+  onDelete: (closing: DailyClosing) => void 
+}) {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [closingToDelete, setClosingToDelete] = useState<DailyClosing | null>(null);
   const today = format(new Date(), 'yyyy-MM-dd');
@@ -6164,7 +6794,16 @@ function DailyClosingView({ sales, expenses, dailyClosings, settings, user, onDe
   const totalSales = todaySales.reduce((sum, s) => sum + s.finalAmount, 0);
   const cashSales = todaySales.filter(s => s.paymentMethod === 'cash').reduce((sum, s) => sum + s.paidAmount, 0);
   const dueSales = todaySales.reduce((sum, s) => sum + s.dueAmount, 0);
-  const cashReceived = todaySales.reduce((sum, s) => sum + s.paidAmount, 0);
+  
+  const todayCollections = duePayments.filter(p => {
+    const ts = safeDate(p.timestamp);
+    const tsTime = ts.getTime();
+    const isSameDay = format(ts, 'yyyy-MM-dd') === today;
+    const isAfterLastClosing = !lastClosingDate || tsTime > lastClosingDate;
+    return isSameDay && isAfterLastClosing;
+  }).reduce((sum, p) => sum + p.amount, 0);
+
+  const cashReceived = todaySales.reduce((sum, s) => sum + s.paidAmount, 0) + todayCollections;
   
   const todayExpenses = expenses.filter(e => {
     const ts = safeDate(e.timestamp);
@@ -6189,7 +6828,7 @@ function DailyClosingView({ sales, expenses, dailyClosings, settings, user, onDe
       totalSales,
       cashSales,
       dueSales,
-      collections: cashReceived - cashSales,
+      collections: todayCollections,
       totalExpenses: todayExpenses,
       cashInHand: totalCashInDrawer,
       bkashBalance,

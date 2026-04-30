@@ -13,15 +13,14 @@ export function useVoiceSearch(onCommand: (text: string) => void) {
        recognitionRef.current.continuous = true;
        recognitionRef.current.interimResults = false;
        recognitionRef.current.maxAlternatives = 1;
-       
-       // Try auto-starting if possible, maybe we don't automatically start everywhere to avoid multiple captures
-       // We can export start/stop
     }
 
     return () => {
       if (recognitionRef.current) {
-        recognitionRef.current.stop();
-        setIsListening(false);
+        recognitionRef.current.onend = null;
+        recognitionRef.current.onresult = null;
+        recognitionRef.current.onerror = null;
+        try { recognitionRef.current.stop(); } catch(e) {}
       }
     };
   }, []);
@@ -30,6 +29,11 @@ export function useVoiceSearch(onCommand: (text: string) => void) {
   useEffect(() => {
     onCommandRef.current = onCommand;
   }, [onCommand]);
+
+  const isListeningRef = useRef(isListening);
+  useEffect(() => {
+    isListeningRef.current = isListening;
+  }, [isListening]);
 
   useEffect(() => {
     if (!recognitionRef.current) return;
@@ -45,7 +49,7 @@ export function useVoiceSearch(onCommand: (text: string) => void) {
     };
 
     recognitionRef.current.onend = () => {
-      if (isListening) {
+      if (isListeningRef.current) {
           try { recognitionRef.current.start(); } catch(e) {}
       }
     };
@@ -56,7 +60,13 @@ export function useVoiceSearch(onCommand: (text: string) => void) {
       }
       setIsListening(false);
     };
-  }, [isListening]);
+    
+    return () => {
+        // We do not nullify here to preserve across renders,
+        // unless we want to rebuild them on every render.
+        // It's safe leaving them as is. Cleanup on unmount does the nullifying.
+    };
+  }, []); // Remove isListening dependency because we use isListeningRef.current
 
   const toggleVoiceSearch = useCallback(() => {
     if (!recognitionRef.current) {

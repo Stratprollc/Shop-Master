@@ -59,7 +59,15 @@ export const toPhonetic = (str: string) => {
     '্':''
   };
 
-  s = s.replace(/ph/g, 'f').replace(/sh/g, 's').replace(/ch/g, 'c').replace(/ck/g, 'k');
+  s = s.replace(/ph/g, 'f')
+    .replace(/sh/g, 's')
+    .replace(/ch/g, 'c')
+    .replace(/ck/g, 'k')
+    .replace(/th/g, 't')
+    .replace(/dh/g, 'd')
+    .replace(/bh/g, 'b')
+    .replace(/kh/g, 'k')
+    .replace(/gh/g, 'g');
   
   let mapped = '';
   for (let i = 0; i < s.length; i++) {
@@ -168,4 +176,59 @@ export const isPhoneticMatch = (text: string | null | undefined, query: string) 
   }
   
   return false;
+};
+
+export const parseNewProductVoiceCommand = (rawText: string) => {
+    let remainder = rawText;
+    const newProductPattern = /(?:নতুন|new)\s*(?:প্রোডাক্ট|product|ফোডাক্ট|ইনভেন্টরি|inventory)(?:\s*(?:অ্যাড|এড|add))?(?:\s*(?:করো|করেন|কর|do))?\s*/i;
+
+    const prefixMatch = remainder.match(newProductPattern);
+    if (prefixMatch) {
+        remainder = remainder.substring(prefixMatch.index! + prefixMatch[0].length);
+    }
+
+    const translated = translateNumbers(remainder);
+    let name = translated;
+    let price = 0;
+    let stock = 0;
+    let unit = 'unit';
+
+    const priceRegexes = [
+        /(?:দাম|price)\s*(\d+(\.\d+)?)\s*(?:টাকা|tk)?/i,
+        /(\d+(\.\d+)?)\s*(?:টাকা|tk)/i
+    ];
+    for (const regex of priceRegexes) {
+        const pMatch = name.match(regex);
+        if (pMatch) {
+            price = parseFloat(pMatch[1]);
+            name = name.replace(pMatch[0], '');
+            break;
+        }
+    }
+
+    const stockRegexes = [
+        /(?:স্টক|স্টোক|stock)\s*(\d+(\.\d+)?)\s*([a-zA-Z\u0980-\u09FF]+)?/i,
+        /(?:^|\s+)(\d+(\.\d+)?)\s*(কেজি|গ্রাম|লিটার|মিলি|পিস|টি|টা|kg|g|gm|ml|pcs|piece|packet|প্যাকেট)(?:\s|$)/i,
+        /(?:^|\s+)(\d+(\.\d+)?)$/i
+    ];
+    let extractedUnitStr = '';
+    for (const regex of stockRegexes) {
+        const sMatch = name.match(regex);
+        if (sMatch) {
+            stock = parseFloat(sMatch[1]);
+            if (sMatch[3]) extractedUnitStr = sMatch[3];
+            name = name.replace(sMatch[0], '');
+            break;
+        }
+    }
+    
+    if (extractedUnitStr.match(/কেজি|গ্রাম|লিটার|মিলি|kg|g|gm|ml/i)) {
+        unit = 'kg';
+    } else {
+        unit = 'unit';
+    }
+
+    name = name.trim();
+
+    return { name, price, stock, unit };
 };

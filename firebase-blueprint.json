@@ -162,7 +162,7 @@
       "type": "object",
       "properties": {
         "id": { "type": "string" },
-        "entityType": { "type": "string", "enum": ["product", "sale", "customer", "expense", "stockRecord", "employee", "investment", "salary"] },
+        "entityType": { "type": "string", "enum": ["product", "sale", "customer", "expense", "stockRecord", "employee", "investment", "salary", "daily_closing"] },
         "originalId": { "type": "string" },
         "data": { "type": "object" },
         "deletedAt": { "type": "string", "format": "date-time" },
@@ -170,6 +170,39 @@
         "expiresAt": { "type": "string", "format": "date-time" }
       },
       "required": ["entityType", "originalId", "data", "deletedAt", "expiresAt"]
+    },
+    "CustomerLog": {
+      "title": "CustomerLog",
+      "description": "Historical log of changes to a customer profile or status",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "customerId": { "type": "string" },
+        "type": { "type": "string", "enum": ["profile_edit", "manual_due", "csv_import"] },
+        "oldData": { "type": "object" },
+        "newData": { "type": "object" },
+        "timestamp": { "type": "string", "format": "date-time" },
+        "performedBy": { "type": "string" },
+        "performedByRole": { "type": "string" }
+      },
+      "required": ["customerId", "type", "timestamp", "performedBy"]
+    },
+    "DuePayment": {
+      "title": "DuePayment",
+      "description": "A payment made by a customer to clear outstanding debt",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "customerId": { "type": "string" },
+        "amount": { "type": "number" },
+        "previousDue": { "type": "number" },
+        "remainingDue": { "type": "number" },
+        "method": { "type": "string", "enum": ["cash", "bkash", "nagad", "bank"] },
+        "timestamp": { "type": "string", "format": "date-time" },
+        "receivedBy": { "type": "string" },
+        "note": { "type": "string" }
+      },
+      "required": ["customerId", "amount", "method", "timestamp", "receivedBy"]
     }
   },
   "firestore": {
@@ -216,6 +249,14 @@
     "/recycleBin/{itemId}": {
       "schema": "RecycleItem",
       "description": "Collection of deleted items in bin"
+    },
+    "/customer_logs/{logId}": {
+      "schema": "CustomerLog",
+      "description": "Collection of customer edit logs"
+    },
+    "/due_payments/{paymentId}": {
+      "schema": "DuePayment",
+      "description": "Collection of customer due payments"
     }
   }
 }

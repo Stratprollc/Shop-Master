@@ -122,6 +122,21 @@ service cloud.firestore {
              data.expiresAt is timestamp;
     }
 
+    function isValidCustomerLog(data) {
+      return data.customerId is string &&
+             data.type in ['profile_edit', 'manual_due', 'csv_import'] &&
+             data.timestamp is timestamp &&
+             data.performedBy is string;
+    }
+
+    function isValidDuePayment(data) {
+      return data.customerId is string &&
+             data.amount is number &&
+             data.method in ['cash', 'bkash', 'nagad', 'bank'] &&
+             data.timestamp is timestamp &&
+             data.receivedBy is string;
+    }
+
     function isValidDailyClosing(data) {
       return data.date is string &&
              data.totalSales is number && data.totalSales >= 0 &&
@@ -201,6 +216,18 @@ service cloud.firestore {
       allow read: if true;
       allow create: if isStaff() || true; // Relaxed for mock admin
       allow update, delete: if true;
+    }
+
+    match /customer_logs/{logId} {
+      allow read: if true;
+      allow create: if isValidCustomerLog(request.resource.data);
+      allow update, delete: if isAdmin();
+    }
+
+    match /due_payments/{paymentId} {
+      allow read: if true;
+      allow create: if isValidDuePayment(request.resource.data);
+      allow update, delete: if isAdmin();
     }
   }
 }
