@@ -11,7 +11,7 @@ export function useVoiceSearch(onCommand: (text: string) => void, onError?: (err
        recognitionRef.current = new SpeechRecognition();
        recognitionRef.current.lang = lang;
        recognitionRef.current.continuous = true;
-       recognitionRef.current.interimResults = false;
+       recognitionRef.current.interimResults = true;
        recognitionRef.current.maxAlternatives = 1;
     }
 
@@ -50,17 +50,50 @@ export function useVoiceSearch(onCommand: (text: string) => void, onError?: (err
   useEffect(() => {
     if (!recognitionRef.current) return;
 
+    let accumulatedText = "";
+    let timeoutId: any = null;
+
     recognitionRef.current.onresult = (event: any) => {
-      const currentResultPattern = event.results[event.results.length - 1];
-      if (currentResultPattern.isFinal) {
-          const transcript = currentResultPattern[0].transcript;
-          setVoiceFeedback(transcript);
-          onCommandRef.current(transcript);
-          setTimeout(() => setVoiceFeedback(null), 3000);
+      let isFinalResult = false;
+      let finalBatch = "";
+      let interimBatch = "";
+      
+      for (let i = event.resultIndex; i < event.results.length; ++i) {
+        const transcript = event.results[i][0].transcript;
+        if (event.results[i].isFinal) {
+          isFinalResult = true;
+          finalBatch += transcript + " ";
+        } else {
+          interimBatch += transcript;
+        }
+      }
+
+      const displayFeedback = (accumulatedText + (accumulatedText ? " " : "") + finalBatch + interimBatch).trim();
+      setVoiceFeedback(displayFeedback || (isListeningRef.current ? "Listening..." : null));
+
+      if (isFinalResult && finalBatch.trim()) {
+          accumulatedText += (accumulatedText ? " " : "") + finalBatch.trim();
+          
+          if (timeoutId) clearTimeout(timeoutId);
+          timeoutId = setTimeout(() => {
+             if (accumulatedText.trim()) {
+               onCommandRef.current(accumulatedText.trim());
+               accumulatedText = "";
+             }
+             setVoiceFeedback(null);
+          }, 1200); 
       }
     };
 
     recognitionRef.current.onend = () => {
+      if (timeoutId) {
+         clearTimeout(timeoutId);
+         if (accumulatedText.trim()) {
+            onCommandRef.current(accumulatedText.trim());
+            accumulatedText = "";
+         }
+         setVoiceFeedback(null);
+      }
       if (isListeningRef.current) {
           try { recognitionRef.current.start(); } catch(e) {}
       }
@@ -91,9 +124,13 @@ export function useVoiceSearch(onCommand: (text: string) => void, onError?: (err
 
     if (isListening) {
       setIsListening(false);
-      recognitionRef.current.stop();
+      isListeningRef.current = false;
+      try {
+        recognitionRef.current.stop();
+      } catch(e) {}
     } else {
       setIsListening(true);
+      isListeningRef.current = true;
       try {
         recognitionRef.current.start();
       } catch(e) {}
@@ -103,6 +140,7 @@ export function useVoiceSearch(onCommand: (text: string) => void, onError?: (err
   const startListening = useCallback(() => {
     if (!recognitionRef.current || isListening) return;
     setIsListening(true);
+    isListeningRef.current = true;
     try { recognitionRef.current.start(); } catch(e) {}
   }, [isListening]);
 

@@ -122,7 +122,8 @@ import {
   OperationType,
   handleFirestoreError,
   increment,
-  serverTimestamp
+  serverTimestamp,
+  writeBatch
 } from './firebase';
 
 import { 
@@ -193,6 +194,7 @@ const PRINT_TRANSLATIONS = {
     total: 'Total',
     subtotal: 'Subtotal',
     discount: 'Discount',
+    tax: 'Tax (VAT)',
     grandTotal: 'Grand Total',
     paid: 'Paid',
     due: 'Due',
@@ -248,6 +250,7 @@ const PRINT_TRANSLATIONS = {
     total: 'মোট',
     subtotal: 'সাবটোটাল',
     discount: 'ডিসকাউন্ট',
+    tax: 'ভ্যাট/ট্যাক্স',
     grandTotal: 'সর্বমোট বিল',
     paid: 'আজকের জমা',
     due: 'বাকি পরিমাণ',
@@ -303,6 +306,7 @@ const PRINT_TRANSLATIONS = {
     total: 'الإجمالي',
     subtotal: 'المجموع الفرعي',
     discount: 'الخصم',
+    tax: 'الضريبة',
     grandTotal: 'المجموع الكلي',
     paid: 'المدفوع',
     due: 'المتبقي',
@@ -572,6 +576,8 @@ interface Sale {
   items: { productId: string; productName: string; quantity: number; price: number; originalPrice: number; cost: number; unit?: string }[];
   totalAmount: number;
   discount: number;
+  taxRate?: number;
+  taxAmount?: number;
   finalAmount: number;
   paidAmount: number;
   dueAmount: number;
@@ -1204,6 +1210,13 @@ const printInvoice = (sale: Sale, settings: ShopSettings) => {
           </div>
           ` : ''}
           
+          ${sale.taxAmount ? `
+          <div class="total-row">
+            <span>${t.tax}${sale.taxRate ? ` (${sale.taxRate}%)` : ''}:</span>
+            <span>+ ${formatVal(sale.taxAmount)}</span>
+          </div>
+          ` : ''}
+          
           <div class="divider"></div>
           
           <div class="grand-total">
@@ -1610,19 +1623,34 @@ const downloadInvoicePDF = (sale: Sale, settings: ShopSettings) => {
   const newBalance = previousBalance + (sale.dueAmount || 0);
 
   // Totals
-  doc.text(`Subtotal: ${settings.currencySymbol} ${(sale.totalAmount || 0).toFixed(2)}`, pageWidth - 20, finalY, { align: 'right' });
-  doc.text(`Discount: ${settings.currencySymbol} ${(sale.discount || 0).toFixed(2)}`, pageWidth - 20, finalY + 6, { align: 'right' });
-  doc.setFontSize(14);
-  doc.text(`Grand Total: ${settings.currencySymbol} ${(sale.finalAmount || 0).toFixed(2)}`, pageWidth - 20, finalY + 14, { align: 'right' });
-  doc.setFontSize(10);
-  doc.text(`Paid Today: ${settings.currencySymbol} ${(sale.paidAmount || 0).toFixed(2)}`, pageWidth - 20, finalY + 20, { align: 'right' });
-  if (changeAmount > 0 && !sale.customerId) {
-    doc.text(`Change Given: ${settings.currencySymbol} ${changeAmount.toFixed(2)}`, pageWidth - 20, finalY + 26, { align: 'right' });
+  let currentY = finalY;
+  doc.text(`Subtotal: ${settings.currencySymbol} ${(sale.totalAmount || 0).toFixed(2)}`, pageWidth - 20, currentY, { align: 'right' });
+  currentY += 6;
+  doc.text(`Discount: ${settings.currencySymbol} ${(sale.discount || 0).toFixed(2)}`, pageWidth - 20, currentY, { align: 'right' });
+  currentY += 6;
+  if (sale.taxAmount) {
+    doc.text(`Tax (VAT)${sale.taxRate ? ` (${sale.taxRate}%)` : ''}: ${settings.currencySymbol} ${(sale.taxAmount).toFixed(2)}`, pageWidth - 20, currentY, { align: 'right' });
+    currentY += 6;
   }
-  doc.text(`REMAINING DUE: ${settings.currencySymbol} ${(sale.finalAmount + previousBalance - (sale.paidAmount || 0)).toFixed(2)}`, pageWidth - 20, finalY + (changeAmount > 0 && !sale.customerId ? 32 : 26), { align: 'right' });
+  
+  doc.setFontSize(14);
+  currentY += 2; // Extra padding
+  doc.text(`Grand Total: ${settings.currencySymbol} ${(sale.finalAmount || 0).toFixed(2)}`, pageWidth - 20, currentY, { align: 'right' });
+  
+  doc.setFontSize(10);
+  currentY += 6;
+  doc.text(`Paid Today: ${settings.currencySymbol} ${(sale.paidAmount || 0).toFixed(2)}`, pageWidth - 20, currentY, { align: 'right' });
+  
+  if (changeAmount > 0 && !sale.customerId) {
+    currentY += 6;
+    doc.text(`Change Given: ${settings.currencySymbol} ${changeAmount.toFixed(2)}`, pageWidth - 20, currentY, { align: 'right' });
+  }
+  
+  currentY += 6;
+  doc.text(`REMAINING DUE: ${settings.currencySymbol} ${(sale.finalAmount + previousBalance - (sale.paidAmount || 0)).toFixed(2)}`, pageWidth - 20, currentY, { align: 'right' });
 
   if (sale.customerId) {
-    const balanceY = finalY + (changeAmount > 0 && !sale.customerId ? 42 : 36);
+    const balanceY = currentY + 10;
     doc.setFontSize(11);
     doc.text('Customer Balance Summary', pageWidth - 20, balanceY, { align: 'right' });
     doc.setFontSize(9);
@@ -1699,53 +1727,6 @@ function parseVoiceCommandQuantity(text: string): { originalText: string, search
   return result;
 }
 
-async function parsePosVoiceCommandAI(
-  rawText: string, 
-  availableProducts: {id: string, name: string}[], 
-  availableCustomers: {id: string, name: string, phone: string}[]
-): Promise<VoiceCommandAIResult | null> {
-  try {
-    const genAI = new GoogleGenAI(process.env.GEMINI_API_KEY || '');
-    const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
-
-    const prompt = `
-      You are a POS Voice Assistant. You help users add products to a cart or select customers.
-      Current Products: ${JSON.stringify(availableProducts.slice(0, 50))}
-      Current Customers: ${JSON.stringify(availableCustomers.slice(0, 30))}
-
-      User said: "${rawText}"
-
-      Tasks:
-      1. If the user mentions a product and potentially a quantity, find the best matching productId.
-      2. If the user mentions multiple products (e.g. "Add 5kg sugar and 2kg salt"), list them all.
-      3. If the user mentions a customer by name or phone, find the best matching customerId.
-      4. Support both English and Bengali (e.g. "৫ কেজি চিনি", "Add 2kg rice", "কাস্টমার রহিম").
-      5. If the user says something new like "Add a new product named X", set action to 'newProduct'.
-
-      Return ONLY a JSON object with this structure:
-      {
-        "action": "addProduct" | "setCustomer" | "newProduct" | "unknown" | "multi",
-        "items": [
-          { "action": "addProduct", "productId": "...", "quantity": 5, "description": "optional name used" },
-          { "action": "setCustomer", "customerId": "..." }
-        ],
-        "summary": "Short summary of what was understood",
-        "message": "Friendy feedback message"
-      }
-    `;
-
-    const result = await model.generateContent(prompt);
-    const response = await result.response;
-    const text = response.text();
-    const jsonStr = text.replace(/```json|```/g, '').trim();
-    return JSON.parse(jsonStr);
-  } catch (err: any) {
-    console.error("AI Error:", err);
-    if (err.message?.includes('quota')) throw new Error('QUOTA_EXCEEDED');
-    return null;
-  }
-}
-
 async function parseNewProductVoiceCommand(rawText: string, categories: string[]): Promise<{
   name?: string,
   price?: number,
@@ -1753,10 +1734,9 @@ async function parseNewProductVoiceCommand(rawText: string, categories: string[]
   category?: string,
   unit?: string
 } | null> {
+  if (!process.env.GEMINI_API_KEY) return null;
   try {
-    const genAI = new GoogleGenAI(process.env.GEMINI_API_KEY || '');
-    const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
-
+    const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
     const prompt = `
       Extract product details from this voice command: "${rawText}"
       Available categories: ${categories.join(', ')}
@@ -1765,11 +1745,20 @@ async function parseNewProductVoiceCommand(rawText: string, categories: string[]
       Return JSON: { "name": "...", "price": 10, "stock": 100, "category": "...", "unit": "kg/pcs" }
     `;
 
-    const result = await model.generateContent(prompt);
-    const response = await result.response;
-    const text = response.text();
-    const jsonStr = text.replace(/```json|```/g, '').trim();
-    return JSON.parse(jsonStr);
+    const response = await ai.models.generateContent({
+      model: "gemini-2.5-flash",
+      contents: prompt,
+      config: {
+        responseMimeType: "application/json",
+      }
+    });
+
+    if (response && response.text) {
+      const text = response.text;
+      const jsonStr = text.replace(/```json|```/g, '').trim();
+      return JSON.parse(jsonStr);
+    }
+    return null;
   } catch (err) {
     console.error("New product AI Error:", err);
     return null;
@@ -2379,11 +2368,20 @@ export default function App() {
   const generateCustomerSuggestion = async (query: string) => {
     if (!query || query.length < 2) return;
     try {
-      const genAI = new GoogleGenAI(process.env.GEMINI_API_KEY || '');
-      const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+      if (!process.env.GEMINI_API_KEY) {
+        setCustomerSuggestion(`I couldn't find "${query}" in our database. Shall we add them as a new customer?`);
+        setIsCustomerModalOpen(true);
+        return;
+      }
+      const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
       const prompt = `The user searched for a customer named "${query}" but they don't exist in the database. Write a very short (max 15 words) friendly and helpful AI assistant message suggesting to add them as a new customer. Be professional but welcoming. Example: "I couldn't find ${query}. Would you like me to help you add them to your records?"`;
-      const result = await model.generateContent(prompt);
-      setCustomerSuggestion(result.response.text());
+      
+      const response = await ai.models.generateContent({
+        model: "gemini-2.5-flash",
+        contents: prompt
+      });
+      
+      setCustomerSuggestion(response.text || `I couldn't find "${query}". Would you like to add them?`);
     } catch (error) {
       setCustomerSuggestion(`I couldn't find "${query}" in our database. Shall we add them as a new customer?`);
     }
@@ -2505,6 +2503,7 @@ export default function App() {
   const [cart, setCart] = useState<CartItem[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
   const [discount, setDiscount] = useState(0);
+  const [taxRate, setTaxRate] = useState(0);
   
   // Auto-Cleanup logic for Recycle Bin (30 days)
   useEffect(() => {
@@ -2839,7 +2838,9 @@ export default function App() {
   const [lastCompletedSale, setLastCompletedSale] = useState<Sale | null>(null);
 
   const cartTotal = useMemo(() => cart.reduce((sum, item) => sum + (item.discountedPrice * item.quantity), 0), [cart]);
-  const finalTotal = Math.max(0, cartTotal - discount);
+  const finalTotalBeforeTax = Math.max(0, cartTotal - discount);
+  const taxAmount = (finalTotalBeforeTax * taxRate) / 100;
+  const finalTotal = finalTotalBeforeTax + taxAmount;
 
   const [checkoutData, setCheckoutData] = useState({
     customerId: '',
@@ -2910,6 +2911,8 @@ export default function App() {
         })),
         totalAmount: cartTotal,
         discount: discount,
+        taxRate: taxRate,
+        taxAmount: taxAmount,
         finalAmount: finalTotal,
         paidAmount: checkoutData.paidAmount || 0,
         dueAmount: dueAmount,
@@ -2983,6 +2986,7 @@ export default function App() {
       setNotification({ message: editingSale ? "Order updated successfully!" : "Order completed successfully!", type: 'success' });
       setCart([]);
       setDiscount(0);
+      setTaxRate(0);
       setCheckoutData({ customerId: '', walkInName: '', walkInPhone: '', paidAmount: 0, paymentMethod: 'cash' });
       setEditingSale(null);
       setShowReceiptModal(true);
@@ -3617,6 +3621,9 @@ export default function App() {
                 handleCheckout={handleCheckout}
                 discount={discount}
                 setDiscount={setDiscount}
+                taxRate={taxRate}
+                setTaxRate={setTaxRate}
+                taxAmount={taxAmount}
                 cartTotal={cartTotal}
                 finalTotal={finalTotal}
                 customers={customers}
@@ -3627,6 +3634,7 @@ export default function App() {
                   setEditingSale(null);
                   setCart([]);
                   setDiscount(0);
+                  setTaxRate(0);
                   setCheckoutData({ customerId: '', paidAmount: 0, paymentMethod: 'cash' });
                 }}
                 settings={shopSettings}
@@ -3707,6 +3715,7 @@ export default function App() {
                 onAdd={handleAddNote} 
                 onUpdate={handleUpdateNote} 
                 onDelete={handleDeleteNote}
+                settings={shopSettings}
               />
             )}
             {activeTab === 'warranty' && (
@@ -3936,6 +3945,12 @@ export default function App() {
             </motion.div>
           </div>
         )}
+        <NoteGlobal 
+          notes={notes} 
+          onAdd={handleAddNote} 
+          onDelete={handleDeleteNote}
+          settings={shopSettings}
+        />
       </div>
     </ErrorBoundary>
   );
@@ -4517,10 +4532,11 @@ function Calculator() {
   );
 }
 
-function NoteGlobal({ notes, onAdd, onDelete }: { 
+function NoteGlobal({ notes, onAdd, onDelete, settings }: { 
   notes: Note[], 
   onAdd: (text: string, color: string) => void,
-  onDelete: (id: string) => void
+  onDelete: (id: string) => void,
+  settings: ShopSettings
 }) {
   const [isOpen, setIsOpen] = useState(false);
   const [newNote, setNewNote] = useState('');
@@ -4531,9 +4547,10 @@ function NoteGlobal({ notes, onAdd, onDelete }: {
     setNewNote(prev => prev + (prev ? ' ' : '') + text);
   };
 
+  const voiceLang = settings.systemLanguage === 'bn' ? 'bn-BD' : (settings.systemLanguage === 'ar' ? 'ar-SA' : 'en-US');
   const { isListening, voiceFeedback, toggleVoiceSearch } = useVoiceSearch(handleVoiceCommand, (err) => {
     console.error('Voice note error:', err);
-  });
+  }, voiceLang);
 
   return (
     <>
@@ -5049,11 +5066,12 @@ function EmployeeManagement({ employees, onAdd, onUpdate, onDelete }: { employee
   );
 }
 
-function NoteView({ notes, onAdd, onDelete, onUpdate }: { 
+function NoteView({ notes, onAdd, onDelete, onUpdate, settings }: { 
   notes: Note[], 
   onAdd: (text: string, color: string) => void,
   onDelete: (id: string) => void,
-  onUpdate: (id: string, text: string) => void
+  onUpdate: (id: string, text: string) => void,
+  settings: ShopSettings
 }) {
   const [newNote, setNewNote] = useState('');
   const [selectedColor, setSelectedColor] = useState('blue');
@@ -5108,9 +5126,10 @@ function NoteView({ notes, onAdd, onDelete, onUpdate }: {
     setNewNote(prev => prev + (prev ? ' ' : '') + text);
   };
 
+  const voiceLang = settings.systemLanguage === 'bn' ? 'bn-BD' : (settings.systemLanguage === 'ar' ? 'ar-SA' : 'en-US');
   const { isListening, voiceFeedback, toggleVoiceSearch } = useVoiceSearch(handleVoiceCommand, (err) => {
     console.error('Voice note error:', err);
-  });
+  }, voiceLang);
 
   const addNote = () => {
     if (newNote.trim()) {
@@ -6939,6 +6958,9 @@ function POS({
   handleCheckout, 
   discount, 
   setDiscount, 
+  taxRate,
+  setTaxRate,
+  taxAmount,
   finalTotal, 
   cartTotal, 
   setNotification, 
@@ -6970,6 +6992,9 @@ function POS({
   handleCheckout: () => void,
   discount: number,
   setDiscount: (d: number) => void,
+  taxRate?: number,
+  setTaxRate?: (r: number) => void,
+  taxAmount?: number,
   finalTotal: number,
   cartTotal: number,
   setNotification: (n: any) => void,
@@ -6998,17 +7023,61 @@ function POS({
     (categoryFilter === '' || p.category === categoryFilter)
   );
 
-  const handleVoiceCommand = (rawText: string) => {
-    const { searchName, quantity } = parseVoiceCommandQuantity(rawText);
-    const matches = products.filter(p => p.name.toLowerCase().includes(searchName.toLowerCase()));
-    if (matches.length > 0) {
-      const bestMatch = matches[0];
-      const addQty = quantity > 0 ? quantity : 1;
-      addToCart(bestMatch, addQty);
-      setNotification({ type: 'success', message: `Added ${addQty}x "${bestMatch.name}" to cart.` });
-      setSearchTerm('');
-    } else {
-      setSearchTerm(searchName);
+  const handleVoiceCommand = async (rawText: string) => {
+    setSearchTerm('');
+    setNotification({ type: 'info', message: 'Processing voice command...' });
+    try {
+      const aiResult = await parsePosVoiceCommandAI(
+        rawText,
+        products.map(p => ({ id: p.id!, name: p.name })),
+        customers.map(c => ({ id: c.id!, name: c.name, phone: c.phone }))
+      );
+
+      if (aiResult && aiResult.items && aiResult.items.length > 0) {
+        let addedCount = 0;
+        let missingProducts: string[] = [];
+        
+        aiResult.items.forEach((item: any) => {
+          if (item.action === 'addProduct' && item.productId) {
+            const match = products.find(p => p.id === item.productId);
+            if (match) {
+              addToCart(match, item.quantity > 0 ? item.quantity : 1);
+              addedCount++;
+            } else {
+              missingProducts.push(item.recognizedName || 'Unknown');
+            }
+          } else if (item.action === 'setCustomer' && item.customerId) {
+            setCheckoutData((prev: any) => ({ ...prev, customerId: item.customerId }));
+          } else if (item.action === 'newProduct' || (item.action === 'addProduct' && !item.productId)) {
+            missingProducts.push(item.recognizedName || 'Unknown');
+          }
+        });
+
+        if (addedCount > 0) {
+          setNotification({ 
+            type: 'success', 
+            message: `${aiResult.summary || `Added ${addedCount} items.`} ${missingProducts.length > 0 ? `(Missing: ${missingProducts.join(', ')})` : ''}` 
+          });
+        } else if (missingProducts.length > 0) {
+          setSearchTerm(missingProducts[0]);
+          setNotification({ 
+            type: 'warning', 
+            message: `Product(s) not found: ${missingProducts.join(', ')}. Searching for the first one.` 
+          });
+        } else if (aiResult.items.some(i => i.action === 'setCustomer')) {
+            setNotification({ type: 'success', message: aiResult.summary || 'Customer set successfully.' });
+        } else {
+            setSearchTerm(rawText.trim());
+            setNotification({ type: 'warning', message: 'No matching products found. Searching instead.' });
+        }
+      } else {
+        // Fallback to simple query
+        setSearchTerm(rawText.trim());
+      }
+    } catch (err) {
+      console.warn("AI parsing failed:", err);
+      // Fallback
+      setSearchTerm(rawText.trim());
     }
   };
 
@@ -7201,7 +7270,7 @@ function POS({
               >
                 <div className={`absolute top-2 right-2 w-1.5 h-1.5 rounded-full ${p.stock > 10 ? 'bg-emerald-500' : p.stock > 0 ? 'bg-amber-500' : 'bg-red-500'}`}></div>
                 <div className="aspect-square bg-gray-50 rounded-xl mb-2 flex items-center justify-center text-gray-300 group-hover:scale-105 transition-transform overflow-hidden relative">
-                   {p.imageUrl && !p.imageUrl.includes('wikimedia.org') && !p.imageUrl.includes('wikipedia.org') ? (
+                   {p.imageUrl ? (
                      <img src={p.imageUrl} alt={p.name} className="w-full h-full object-cover" />
                    ) : (
                      <Package className="w-6 h-6 opacity-20" />
@@ -7361,6 +7430,20 @@ function POS({
                   <span className="text-gray-400 font-bold text-[10px] mr-1">{settings.currencySymbol}</span>
                 </div>
               </div>
+
+              <div className="flex justify-between items-center bg-white p-2.5 rounded-xl border border-gray-100 shadow-sm">
+                <span className="text-gray-500 font-bold text-[10px] ml-1 uppercase tracking-tight">Tax (VAT) %</span>
+                <div className="flex items-center gap-2">
+                  <input 
+                    type="number"
+                    value={taxRate || 0}
+                    onChange={(e) => setTaxRate?.(Number(e.target.value))}
+                    className="w-16 text-right font-black text-rose-500 bg-transparent outline-none text-xs"
+                    placeholder="0"
+                  />
+                  <span className="text-gray-400 font-bold text-[10px] mr-1">%</span>
+                </div>
+              </div>
               
               <div className="flex items-center justify-between bg-white p-1 rounded-xl shadow-sm border border-gray-100">
                 {(['cash', 'bkash', 'nagad', 'card'] as const).map(method => (
@@ -7481,6 +7564,18 @@ function Inventory({ products, categories, stockRecords, sales, onViewHistory, s
   const [editingProduct, setEditingProduct] = useState<Partial<Product> | null>(null);
   const [productImage, setProductImage] = useState<string | null>(null);
   const [isUploading, setIsUploading] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState<{
+    status: string;
+    current: number;
+    total: number;
+  } | null>(null);
+  const [importReport, setImportReport] = useState<{
+    total: number;
+    success: number;
+    failed: number;
+    errors: string[];
+    show: boolean;
+  } | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [categorySearch, setCategorySearch] = useState('');
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
@@ -7554,13 +7649,14 @@ Return the result as JSON with a "category" field containing exactly one string 
         []
       );
 
-      if (aiResult) {
-        if (aiResult.action === 'newProduct') {
+      if (aiResult && aiResult.items && aiResult.items.length > 0) {
+        const item = aiResult.items[0]; // For inventory, we only process the first action
+        if (item.action === 'newProduct') {
            setIsModalOpen(true);
            setEditingProduct({
-             name: aiResult.productId ? (products.find(p => p.id === aiResult.productId)?.name || rawText) : rawText.replace(/(নতুন|new|প্রোডাক্ট|product|অ্যাড|add|করো|কর|do)/gi, '').trim(),
+             name: item.productId ? (products.find(p => p.id === item.productId)?.name || rawText) : rawText.replace(/(নতুন|new|প্রোডাক্ট|product|অ্যাড|add|করো|কর|do)/gi, '').trim(),
              price: 0,
-             stock: aiResult.quantity || 0,
+             stock: item.quantity || 0,
              unit: 'unit',
              cost: 0,
              barcode: '',
@@ -7569,13 +7665,13 @@ Return the result as JSON with a "category" field containing exactly one string 
              location: '',
              expiryDate: ''
            });
-           setNotification({ type: 'success', message: aiResult.message || 'Opened Add Product Modal' });
+           setNotification({ type: 'success', message: aiResult.summary || 'Opened Add Product Modal' });
            return;
-        } else if (aiResult.action === 'addProduct' && aiResult.productId) {
-           const match = products.find(p => p.id === aiResult.productId);
+        } else if (item.action === 'addProduct' && item.productId) {
+           const match = products.find(p => p.id === item.productId);
            if (match) {
              setSearchTerm(match.name);
-             setNotification({ type: 'success', message: aiResult.message || `Searched for: ${match.name}` });
+             setNotification({ type: 'success', message: aiResult.summary || `Searched for: ${match.name}` });
              return;
            }
         }
@@ -7698,7 +7794,7 @@ Return the result as JSON with a "category" field containing exactly one string 
   const paginatedProducts = filteredProducts.slice((validCurrentPage - 1) * itemsPerPage, validCurrentPage * itemsPerPage);
 
   useEffect(() => {
-    if (editingProduct?.imageUrl && !editingProduct.imageUrl.includes('wikimedia.org') && !editingProduct.imageUrl.includes('wikipedia.org')) {
+    if (editingProduct?.imageUrl) {
       setProductImage(editingProduct.imageUrl);
     } else {
       setProductImage(null);
@@ -7782,71 +7878,111 @@ Return the result as JSON with a "category" field containing exactly one string 
   const handleUploadCSV = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
+      if (!window.confirm("Are you sure? This will DELETE all existing inventory and replace it with this file's content.\n\nআপনি কি নিশ্চিত? এটি আপনার বর্তমান সমস্ত ইনভেন্টরি মুছে ফেলবে এবং এই ফাইল থেকে নতুন ডাটা যোগ করবে।")) {
+        if (e.target) e.target.value = '';
+        return;
+      }
+
       setIsUploading(true);
+      setImportReport(null);
+
       Papa.parse(file, {
         header: true,
         skipEmptyLines: true,
         complete: async (results: any) => {
+          let report = {
+            total: results.data.length,
+            success: 0,
+            failed: 0,
+            errors: [] as string[],
+            show: true
+          };
+
           try {
             const data = results.data;
-            let newProductsCount = 0;
-            let updatedProductsCount = 0;
-            const maxSerial = products.reduce((max, p) => Math.max(max, p.serialNumber || 0), 0);
-
-            for (const row of data) {
-              const name = row.Name || row.name || row['Product Name'];
-              const price = Number(row.Price || row.price || row['Selling Price']);
-              const serialFromCSV = Number(row['Serial Number'] || row.serialNumber);
-              
-              if (!name || isNaN(price)) continue;
-              
-              const productData = {
-                name: name,
-                category: row.Category || row.category || 'General',
-                price: price,
-                cost: Number(row.Cost || row.cost || row['Buying Price'] || 0),
-                stock: Number(row.Stock || row.stock || row['Initial Stock'] || 0),
-                unit: (row.Unit || row.unit || 'unit').toLowerCase() === 'kg' ? 'kg' : 'unit',
-                barcode: row.Barcode || row.barcode || '',
-                expiryDate: formatToBnDate(row['Expiry Date'] || row.expiryDate || ''),
-                location: row.Location || row.location || '',
-                company: row.Company || row.company || row['Company Name'] || '',
-                department: row.Department || row.department || '',
-                warehouse: row.Warehouse || row.warehouse || ''
-              };
-
-              // Try to find existing product by Serial Number first, then Barcode, then Name
-              const existing = products.find(p => 
-                (serialFromCSV && p.serialNumber === serialFromCSV) ||
-                (productData.barcode && p.barcode === productData.barcode) ||
-                (p.name.toLowerCase() === name.toLowerCase())
-              );
-
-              if (existing) {
-                await updateDoc(doc(db, 'products', existing.id), productData);
-                updatedProductsCount++;
-              } else {
-                await addDoc(collection(db, 'products'), {
-                  ...productData,
-                  serialNumber: maxSerial + 1 + newProductsCount
-                });
-                newProductsCount++;
-              }
+            
+            // Fetch fresh list of IDs to ensure everything is deleted
+            setUploadProgress({ status: 'Querying current inventory...', current: 0, total: 0 });
+            const querySnapshot = await getDocs(collection(db, 'products'));
+            const productIds = querySnapshot.docs.map(doc => doc.id);
+            
+            setUploadProgress({ status: 'Deleting current inventory...', current: 0, total: productIds.length });
+            
+            for (let i = 0; i < productIds.length; i += 500) {
+              const batch = writeBatch(db);
+              const chunk = productIds.slice(i, i + 500);
+              chunk.forEach(id => {
+                batch.delete(doc(db, 'products', id));
+              });
+              await batch.commit();
+              setUploadProgress(prev => prev ? { ...prev, current: i + chunk.length } : null);
             }
-            setNotification({ type: 'success', message: `Inventory updated: ${newProductsCount} added, ${updatedProductsCount} updated.` });
+            
+            // Add new products in batches
+            setUploadProgress({ status: 'Uploading new products...', current: 0, total: data.length });
+            for (let i = 0; i < data.length; i += 500) {
+              const batch = writeBatch(db);
+              const chunk = data.slice(i, i + 500);
+              
+              chunk.forEach((row: any) => {
+                try {
+                  const name = (row.Name || row.name || row['Product Name'] || row['পণ্যের নাম'] || '').trim();
+                  const price = Number(row.Price || row.price || row['Selling Price'] || row['বিক্রয় মূল্য'] || 0);
+                  const serialFromCSV = Number(row['Serial Number'] || row.serialNumber || row['সিরিয়াল'] || NaN);
+                  
+                  if (!name) {
+                    report.failed++;
+                    report.errors.push("Missing name in row " + (report.success + report.failed + 1));
+                    return;
+                  }
+                  
+                  const productData = {
+                    name,
+                    category: (row.Category || row.category || row['Catalog'] || row['Catalogue'] || row['বিভাগ'] || 'General').trim(),
+                    price: isNaN(price) ? 0 : price,
+                    cost: Number(row.Cost || row.cost || row['Buying Price'] || row['ক্রয় মূল্য'] || 0),
+                    stock: Number(row.Stock || row.stock || row['Initial Stock'] || row['স্টক'] || 0),
+                    unit: (row.Unit || row.unit || row['একক'] || 'unit').toLowerCase().includes('kg') ? 'kg' : 'unit',
+                    barcode: (row.Barcode || row.barcode || row['বারকোড'] || '').trim(),
+                    expiryDate: (row['Expiry Date'] || row.expiryDate || row['মেয়াদ'] || '').trim(),
+                    location: (row.Location || row.location || row['স্থান'] || '').trim(),
+                    company: (row.Company || row.company || row['Company Name'] || row['কোম্পানি'] || '').trim(),
+                    department: (row.Department || row.department || '').trim(),
+                    warehouse: (row.Warehouse || row.warehouse || '').trim(),
+                    serialNumber: !isNaN(serialFromCSV) ? serialFromCSV : (report.success + 1)
+                  };
+
+                  const newDocRef = doc(collection(db, 'products'));
+                  batch.set(newDocRef, productData);
+                  report.success++;
+                } catch (rowError: any) {
+                  report.failed++;
+                  report.errors.push(`Row Error: ${rowError.message || 'Unknown error'}`);
+                }
+              });
+              
+              await batch.commit();
+              setUploadProgress(prev => prev ? { ...prev, current: i + chunk.length } : null);
+            }
+            
+            setImportReport(report);
+            setNotification({ type: 'success', message: `Import completed: ${report.success} success, ${report.failed} failed.` });
           } catch (error) {
-            setNotification({ type: 'error', message: 'Failed to upload inventory.' });
-            handleFirestoreError(error, OperationType.WRITE, 'products');
+            console.error("CSV Import Error:", error);
+            setNotification({ type: 'error', message: 'Critical failure during inventory reset.' });
+            setImportReport(prev => prev ? { ...prev, show: true } : report);
           } finally {
             setIsUploading(false);
+            setUploadProgress(null);
             if (e.target) e.target.value = '';
           }
         },
         error: (error) => {
+           console.error("Papa Parse Error:", error);
            setNotification({ type: 'error', message: 'Failed to parse CSV file.' });
            setIsUploading(false);
+           setUploadProgress(null);
            if (e.target) e.target.value = '';
-           handleFirestoreError(error instanceof Error ? error : new Error(String(error)), OperationType.WRITE, 'products');
         }
       });
     }
@@ -7858,9 +7994,9 @@ Return the result as JSON with a "category" field containing exactly one string 
     const formData = new FormData(form);
     const imageFile = (form.querySelector('input[type="file"]') as HTMLInputElement)?.files?.[0];
     
-    let imageUrl = productImage;
+    let finalImageUrl = productImage;
     if (imageFile) {
-      imageUrl = await fileToBase64(imageFile);
+      finalImageUrl = await fileToBase64(imageFile);
     }
     
     const productData = {
@@ -7876,7 +8012,7 @@ Return the result as JSON with a "category" field containing exactly one string 
       expiryDate: formatToBnDate(formData.get('expiryDate') as string || ''),
       location: formData.get('location') as string || '',
       company: formData.get('company') as string || '',
-      imageUrl: imageUrl
+      imageUrl: finalImageUrl
     };
 
     if (!productData.name || isNaN(productData.price) || productData.price < 0) {
@@ -8010,10 +8146,19 @@ Return the result as JSON with a "category" field containing exactly one string 
           </motion.div>
           <div>
             <h2 className="text-3xl font-black text-gray-900 tracking-tight leading-tight">Stock Inventory</h2>
-            <div className="flex items-center gap-2 mt-1">
+            <div className="flex flex-wrap items-center gap-3 mt-1.5">
               <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Efficient Resource Management</span>
-              <span className="w-1 h-1 bg-gray-300 rounded-full"></span>
-              <span className="text-[10px] font-bold text-amber-600 uppercase tracking-widest">{products.length} Products Found</span>
+              <span className="w-1 h-1 bg-gray-300 rounded-full hidden sm:block"></span>
+              <div className="flex items-center gap-2">
+                <span className="px-2.5 py-1 bg-amber-50 text-amber-700 text-[10px] font-black uppercase tracking-widest rounded-xl border border-amber-100 flex items-center gap-1.5 shadow-sm">
+                  <span className="w-1.5 h-1.5 bg-amber-500 rounded-full animate-pulse"></span>
+                  Products: {products.length}
+                </span>
+                <span className="px-2.5 py-1 bg-emerald-50 text-emerald-700 text-[10px] font-black uppercase tracking-widest rounded-xl border border-emerald-100 flex items-center gap-1.5 shadow-sm">
+                  <span className="w-1.5 h-1.5 bg-emerald-500 rounded-full"></span>
+                  Live Stock: {Math.round(products.reduce((sum, p) => sum + (p.stock || 0), 0))}
+                </span>
+              </div>
             </div>
           </div>
         </div>
@@ -8166,7 +8311,7 @@ Return the result as JSON with a "category" field containing exactly one string 
                               whileHover={{ scale: 1.15, rotate: 2 }}
                               className="w-14 h-14 bg-gray-50 rounded-2xl flex items-center justify-center text-gray-300 border border-gray-100 overflow-hidden shrink-0 shadow-sm relative group/img"
                             >
-                              {p.imageUrl && !p.imageUrl.includes('wikimedia.org') && !p.imageUrl.includes('wikipedia.org') ? (
+                              {p.imageUrl ? (
                                 <img src={p.imageUrl} alt={p.name} className="w-full h-full object-cover group-hover/img:scale-110 transition-transform duration-500" />
                               ) : (
                                 <Package className="w-7 h-7 opacity-20" />
@@ -8395,6 +8540,111 @@ Return the result as JSON with a "category" field containing exactly one string 
         </div>
       </div>
 
+      {/* Upload Progress Overlay */}
+      <AnimatePresence>
+        {isUploading && uploadProgress && (
+          <div className="fixed inset-0 z-[70] flex items-center justify-center p-4 bg-black/80 backdrop-blur-xl">
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.9 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.9 }}
+              className="bg-white w-full max-w-sm rounded-[2.5rem] shadow-2xl p-10 text-center"
+            >
+              <div className="w-24 h-24 mx-auto mb-8 relative">
+                <div className="absolute inset-0 rounded-full border-4 border-gray-100"></div>
+                <motion.div 
+                  className="absolute inset-0 rounded-full border-4 border-emerald-500 border-t-transparent"
+                  animate={{ rotate: 360 }}
+                  transition={{ duration: 1, repeat: Infinity, ease: "linear" }}
+                ></motion.div>
+                <div className="absolute inset-0 flex items-center justify-center">
+                  <span className="text-xl font-black text-gray-900 font-mono">
+                    {Math.round((uploadProgress.current / (uploadProgress.total || 1)) * 100)}%
+                  </span>
+                </div>
+              </div>
+              
+              <h3 className="text-xl font-black text-gray-900 mb-2 uppercase tracking-tight">Processing Inventory</h3>
+              <p className="text-gray-500 text-xs font-bold uppercase tracking-widest mb-6">{uploadProgress.status}</p>
+              
+              <div className="w-full h-2 bg-gray-100 rounded-full overflow-hidden mb-4">
+                <motion.div 
+                  className="h-full bg-emerald-500"
+                  initial={{ width: 0 }}
+                  animate={{ width: `${(uploadProgress.current / (uploadProgress.total || 1)) * 100}%` }}
+                ></motion.div>
+              </div>
+              
+              <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest">
+                {uploadProgress.current} / {uploadProgress.total} Items
+              </p>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* CSV Import Report Modal */}
+      <AnimatePresence>
+        {importReport?.show && (
+          <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/60 backdrop-blur-md">
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.9, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.9, y: 20 }}
+              className="bg-white w-full max-w-md rounded-[2.5rem] shadow-2xl overflow-hidden border border-gray-100"
+            >
+              <div className="p-8 text-center">
+                <div className={`w-20 h-20 mx-auto rounded-3xl flex items-center justify-center mb-6 ${importReport.failed === 0 ? 'bg-emerald-50 text-emerald-500' : 'bg-amber-50 text-amber-500'}`}>
+                  {importReport.failed === 0 ? <CheckCircle2 className="w-10 h-10" /> : <AlertCircle className="w-10 h-10" />}
+                </div>
+                
+                <h3 className="text-2xl font-black text-gray-900 mb-2 uppercase tracking-tight">CSV Import Report</h3>
+                <p className="text-gray-500 text-sm font-medium mb-8">Detailed summary of your inventory reset</p>
+
+                <div className="grid grid-cols-3 gap-4 mb-8">
+                  <div className="p-4 bg-gray-50 rounded-2xl border border-gray-100">
+                    <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">Total</p>
+                    <p className="text-xl font-black text-gray-900 font-mono">{importReport.total}</p>
+                  </div>
+                  <div className="p-4 bg-emerald-50 rounded-2xl border border-emerald-100">
+                    <p className="text-[10px] font-black text-emerald-400 uppercase tracking-widest mb-1">Success</p>
+                    <p className="text-xl font-black text-emerald-600 font-mono">{importReport.success}</p>
+                  </div>
+                  <div className="p-4 bg-red-50 rounded-2xl border border-red-100">
+                    <p className="text-[10px] font-black text-red-300 uppercase tracking-widest mb-1">Failed</p>
+                    <p className="text-xl font-black text-red-500 font-mono">{importReport.failed}</p>
+                  </div>
+                </div>
+
+                {importReport.errors.length > 0 && (
+                  <div className="text-left mb-8 max-h-32 overflow-y-auto p-4 bg-red-50/50 rounded-2xl border border-red-100/50 space-y-2">
+                    <p className="text-[10px] font-black text-red-500 uppercase tracking-widest mb-2">Errors Encountered:</p>
+                    {importReport.errors.slice(0, 5).map((err, idx) => (
+                      <p key={idx} className="text-[11px] font-bold text-red-600/70 flex items-center gap-2">
+                        <span className="w-1 h-1 rounded-full bg-red-400"></span>
+                        {err}
+                      </p>
+                    ))}
+                    {importReport.errors.length > 5 && (
+                      <p className="text-[10px] font-bold text-red-400 italic">...and {importReport.errors.length - 5} more errors</p>
+                    )}
+                  </div>
+                )}
+
+                <motion.button
+                  whileHover={{ scale: 1.02 }}
+                  whileTap={{ scale: 0.98 }}
+                  onClick={() => setImportReport(null)}
+                  className="w-full py-4 bg-gray-900 text-white rounded-2xl font-black uppercase tracking-widest text-sm shadow-xl shadow-gray-200 hover:bg-gray-800 transition-all"
+                >
+                  Close Report
+                </motion.button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
       {/* Modal */}
       <AnimatePresence>
         {isModalOpen && (
@@ -8425,18 +8675,30 @@ Return the result as JSON with a "category" field containing exactly one string 
                   <div className="flex-1">
                     <label className="block text-sm font-bold text-gray-900 mb-1">Product Image</label>
                     <p className="text-xs text-gray-500 mb-3">Upload a clear picture of the product</p>
-                    <input 
-                      type="file" 
-                      accept="image/*" 
-                      onChange={async (e) => {
-                        const file = e.target.files?.[0];
-                        if (file) {
-                          const base64 = await fileToBase64(file);
-                          setProductImage(base64);
-                        }
-                      }}
-                      className="text-xs text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-xs file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100 cursor-pointer"
-                    />
+                    <div className="flex items-center gap-3">
+                      <input 
+                        type="file" 
+                        accept="image/*" 
+                        onChange={async (e) => {
+                          const file = e.target.files?.[0];
+                          if (file) {
+                            const base64 = await fileToBase64(file);
+                            setProductImage(base64);
+                          }
+                        }}
+                        className="text-xs text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-xs file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100 cursor-pointer flex-1"
+                      />
+                      {productImage && (
+                        <button 
+                          type="button"
+                          onClick={() => setProductImage(null)}
+                          className="p-2 text-red-500 hover:bg-red-50 rounded-full transition-colors"
+                          title="Remove Image"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      )}
+                    </div>
                   </div>
                 </div>
                 <div className="grid grid-cols-2 gap-6">
@@ -8748,6 +9010,12 @@ function SalesHistory({ sales, onEdit, onDelete, settings, isOnline }: { sales: 
   const [endDate, setEndDate] = useState('');
   const [reportTab, setReportTab] = useState<'logs' | 'product_report' | 'customer_report'>('logs');
 
+  const handleVoiceCommand = (text: string) => {
+    setSearchTerm(text.trim());
+  };
+  const voiceLang = settings.systemLanguage === 'bn' ? 'bn-BD' : (settings.systemLanguage === 'ar' ? 'ar-SA' : 'en-US');
+  const { isListening, voiceFeedback, toggleVoiceSearch } = useVoiceSearch(handleVoiceCommand, undefined, voiceLang);
+
   const filteredSales = sales.filter(sale => {
     // Search filter
     const matchesSearch = sale.id.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -8959,10 +9227,28 @@ function SalesHistory({ sales, onEdit, onDelete, settings, isOnline }: { sales: 
             <input 
               type="text"
               placeholder="Search invoice, customer name or phone..."
-              className="w-full pl-14 pr-6 py-4 bg-gray-50/50 border-none rounded-2xl text-sm font-bold focus:ring-2 focus:ring-violet-500 transition-all outline-none placeholder:text-gray-400"
+              className="w-full pl-14 pr-16 py-4 bg-gray-50/50 border-none rounded-2xl text-sm font-bold focus:ring-2 focus:ring-violet-500 transition-all outline-none placeholder:text-gray-400"
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
             />
+            <button 
+              onClick={toggleVoiceSearch}
+              className={`absolute right-3 top-1/2 -translate-y-1/2 p-2 rounded-xl transition-all ${isListening ? 'bg-red-50 text-red-500 animate-pulse' : 'text-gray-400 hover:bg-violet-50 hover:text-violet-500'}`}
+            >
+              <Mic className="w-5 h-5" />
+            </button>
+            <AnimatePresence>
+              {voiceFeedback && (
+                <motion.div
+                  initial={{ opacity: 0, scale: 0.8 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  exit={{ opacity: 0, scale: 0.8 }}
+                  className="absolute right-14 top-1/2 -translate-y-1/2 bg-gray-800 text-white text-xs px-3 py-1.5 rounded-lg whitespace-nowrap shadow-xl"
+                >
+                  {voiceFeedback}
+                </motion.div>
+              )}
+            </AnimatePresence>
           </div>
           <button 
             onClick={handleExportCSV}
@@ -9328,6 +9614,12 @@ function SalesHistory({ sales, onEdit, onDelete, settings, isOnline }: { sales: 
                     <span className="text-gray-500">Discount</span>
                     <span className="text-red-500">-{formatCurrency(selectedSale.discount)}</span>
                   </div>
+                  {selectedSale.taxAmount ? (
+                    <div className="flex justify-between text-sm">
+                      <span className="text-gray-500">Tax (VAT){selectedSale.taxRate ? ` (${selectedSale.taxRate}%)` : ''}</span>
+                      <span className="text-rose-500">+{formatCurrency(selectedSale.taxAmount)}</span>
+                    </div>
+                  ) : null}
                   <div className="flex justify-between text-xl font-bold pt-2">
                     <span className="text-gray-900">Grand Total</span>
                     <span className="text-indigo-600">{formatCurrency(selectedSale.finalAmount)}</span>
@@ -9967,6 +10259,12 @@ function Customers({
   const [historyTab, setHistoryTab] = useState<'transactions' | 'payments' | 'edits'>('transactions');
   const [dateFilter, setDateFilter] = useState<'3m' | '6m' | '1y' | '2y' | 'all'>('all');
 
+  const handleVoiceCommand = (text: string) => {
+    setSearchTerm(text.trim());
+  };
+  const voiceLang = shopSettings.systemLanguage === 'bn' ? 'bn-BD' : (shopSettings.systemLanguage === 'ar' ? 'ar-SA' : 'en-US');
+  const { isListening, voiceFeedback, toggleVoiceSearch } = useVoiceSearch(handleVoiceCommand, undefined, voiceLang);
+
   const filteredCustomers = useMemo(() => {
     if (!searchTerm) return customers;
     return customers.filter(c => 
@@ -10240,10 +10538,28 @@ function Customers({
                 <input 
                   type="text"
                   placeholder="Find customer by name, health, or location..."
-                  className="w-full pl-16 pr-6 py-5 bg-gray-50/50 border-none rounded-2xl text-base font-bold focus:ring-2 focus:ring-purple-500 transition-all outline-none placeholder:text-gray-400"
+                  className="w-full pl-16 pr-16 py-5 bg-gray-50/50 border-none rounded-2xl text-base font-bold focus:ring-2 focus:ring-purple-500 transition-all outline-none placeholder:text-gray-400"
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
                 />
+                <button 
+                  onClick={toggleVoiceSearch}
+                  className={`absolute right-3 top-1/2 -translate-y-1/2 p-2.5 rounded-xl transition-all ${isListening ? 'bg-red-50 text-red-500 animate-pulse' : 'text-gray-400 hover:bg-purple-50 hover:text-purple-500'}`}
+                >
+                  <Mic className="w-5 h-5" />
+                </button>
+                <AnimatePresence>
+                  {voiceFeedback && (
+                    <motion.div
+                      initial={{ opacity: 0, scale: 0.8 }}
+                      animate={{ opacity: 1, scale: 1 }}
+                      exit={{ opacity: 0, scale: 0.8 }}
+                      className="absolute right-16 top-1/2 -translate-y-1/2 bg-gray-800 text-white text-xs px-3 py-1.5 rounded-lg whitespace-nowrap shadow-xl"
+                    >
+                      {voiceFeedback}
+                    </motion.div>
+                  )}
+                </AnimatePresence>
               </div>
               <motion.button 
                 whileHover={{ scale: 1.05 }}
