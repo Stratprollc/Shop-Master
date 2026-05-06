@@ -13,13 +13,15 @@ export const standardizeBn = (str: string) => {
 export const translateNumbers = (str: string) => {
   let text = str;
   const bnToEn: Record<string, string> = { 
-      '১':'1', '২':'2', '৩':'3', '৪':'4', '৫':'5', '৬':'6', '৭':'7', '৮':'8', '৯':'9', '০':'0'
+      '১':'1', '২':'2', '৩':'3', '৪':'4', '৫':'5', '৬':'6', '৭':'7', '৮':'8', '৯':'9', '০':'0',
+      '١':'1', '٢':'2', '٣':'3', '٤':'4', '٥':'5', '٦':'6', '٧':'7', '٨':'8', '٩':'9', '٠':'0'
   };
   const wordNumbers: Record<string, string> = {
       'এক':'1', 'দুই':'2', 'তিন':'3', 'চার':'4', 'পাঁচ':'5', 'ছয়':'6', 'সাত':'7', 'আট':'8', 'নয়':'9', 'দশ':'10',
-      'এগারো':'11', 'বারো':'12', 'তেরো':'13', 'চোদ্দ':'14', 'পনেরো':'15', 'ষোল':'16', 'সতেরো':'17', 'আঠারো':'18', 'উনিশ':'19', 'কুড়ি':'20', 'বিশ':'20'
+      'এগারো':'11', 'বারো':'12', 'তেরো':'13', 'চোদ্দ':'14', 'পনেরো':'15', 'ষোল':'16', 'সতেরো':'17', 'আঠারো':'18', 'উনিশ':'19', 'কুড়ি':'20', 'বিশ':'20',
+      'واحد':'1', 'اثنان':'2', 'ثلاثة':'3', 'أربعة':'4', 'خمسة':'5', 'ستة':'6', 'سبعة':'7', 'ثمانية':'8', 'تسعة':'9', 'عشرة':'10'
   };
-  text = text.replace(/[০-৯]/g, (m) => bnToEn[m]);
+  text = text.replace(/[০-৯٠-٩]/g, (m) => bnToEn[m]);
   
   // Replace word numbers when they are at the start of a word, possibly followed by typical unit suffixes
   Object.keys(wordNumbers).forEach(key => {
@@ -106,9 +108,9 @@ export const parseVoiceCommandQuantity = (rawText: string) => {
   text = text.trim();
 
   // Try extracting from prefix
-  const qtyPrefixRegex = /^(\d+(\.\d+)?)\s*(কেজি|কিলো|গ্রাম|লিটার|মিলি|পিস|টি|টা|kg|g|gm|liter|ml|pcs|piece)?\s+/i;
+  const qtyPrefixRegex = /^(\d+(\.\d+)?)\s*(কেজি|কিলো|গ্রাম|লিটার|মিলি|পিস|টি|টা|kg|g|gm|liter|ml|pcs|piece|كجم|كيلو|جرام|لتر|مل|قطعة|حبة)?\s+/i;
   // Try extracting from suffix
-  const qtySuffixRegex = /\s+(\d+(\.\d+)?)\s*(কেজি|কিলো|গ্রাম|লিটার|মিলি|পিস|টি|টা|kg|g|gm|liter|ml|pcs|piece)?$/i;
+  const qtySuffixRegex = /\s+(\d+(\.\d+)?)\s*(কেজি|কিলো|গ্রাম|লিটার|মিলি|পিস|টি|টা|kg|g|gm|liter|ml|pcs|piece|كجم|كيلو|جرام|لتر|مل|قطعة|حبة)?$/i;
   
   let quantity = 1;
   let searchName = text;
@@ -120,7 +122,7 @@ export const parseVoiceCommandQuantity = (rawText: string) => {
   const parseMatch = (match: RegExpMatchArray) => {
     let parsedNum = parseFloat(match[1]);
     const unit = match[3]?.trim().toLowerCase() || '';
-    if (['গ্রাম', 'g', 'gm', 'মিলি', 'ml'].includes(unit)) {
+    if (['গ্রাম', 'g', 'gm', 'মিলি', 'ml', 'جرام', 'مل'].includes(unit)) {
         if (parsedNum >= 50) {
            parsedNum = parsedNum / 1000;
         }
@@ -236,55 +238,75 @@ export const isPhoneticMatch = (text: string | null | undefined, query: string) 
   
   // Basic English to Bengali keyword mapping for common categories
   const categoryMap: Record<string, string[]> = {
-    'grocery': ['মুদি', 'মুদী'],
-    'rice': ['চাল', 'ধান'],
-    'fish': ['মাছ', 'মৎস্য'],
-    'meat': ['মাংস', 'গোশত'],
-    'oil': ['তেল'],
-    'spice': ['মশলা', 'মসালা'],
-    'fruit': ['ফল'],
-    'vegetable': ['সবজি', 'শাকসবজি'],
-    'bakery': ['বেকারি', 'বিকারি'],
-    'dairy': ['ডেইরি', 'দুগ্ধ'],
-    'frozen': ['হিমায়িত'],
-    'snack': ['নাস্তা', 'স্ন্যাকস'],
-    'biscuit': ['বিস্কুট'],
-    'cake': ['কেক'],
-    'chocolate': ['চকোলেট'],
-    'drink': ['পানীয়'],
-    'juice': ['জুস'],
-    'milk': ['দুধ'],
-    'baby': ['শিশু', 'বেবি'],
-    'health': ['স্বাস্থ্য'],
-    'medicine': ['ওষুধ', 'মেডিসিন', 'চিকিৎসা'],
-    'clean': ['পরিষ্কার', 'ক্লিন'],
-    'soap': ['সাবান'],
-    'stationery': ['স্টেশনারি'],
-    'clothe': ['পোশাক', 'কাপড়'],
-    'toy': ['খেলনা'],
-    'egg': ['ডিম'],
-    'chicken': ['মুরগি'],
-    'bread': ['রুটি', 'ব্রেড'],
-    'tea': ['চা'],
-    'coffee': ['কফি'],
-    'sugar': ['চিনি'],
-    'salt': ['লবণ', 'লবন'],
-    'flour': ['আটা', 'ময়দা'],
-    'pulse': ['ডাল'],
-    'electronics': ['ইলেকট্রনিক্স'],
-    'agriculture': ['কৃষি'],
-    'seed': ['বীজ'],
-    'fertilizer': ['সার'],
-    'mobile': ['মোবাইল'],
-    'gift': ['উপহার'],
-    'cosmetics': ['প্রসাধন', 'কসমেটিকস'],
-    'personal care': ['ব্যক্তিগত যত্ন']
+    'grocery': ['মুদি', 'মুদী', 'بقالة'],
+    'rice': ['চাল', 'ধান', 'أرز', 'رز', 'aroz', 'aruz'],
+    'fish': ['মাছ', 'মৎস্য', 'سمك'],
+    'meat': ['মাংস', 'গোশত', 'لحم'],
+    'oil': ['তেল', 'زيت'],
+    'soybean oil': ['সয়াবিন তেল', 'সয়াবিন', 'زيت فول الصويا'],
+    'spice': ['মশলা', 'মসালা', 'توابل', 'بهارات'],
+    'fruit': ['ফল', 'فاكهة'],
+    'vegetable': ['সবজি', 'শাকসবজি', 'خضروات'],
+    'bakery': ['বেকারি', 'বিকারি', 'مخبز'],
+    'dairy': ['ডেইরি', 'দুগ্ধ', 'ألبان'],
+    'frozen': ['হিমায়িত', 'مجمد'],
+    'snack': ['নাস্তা', 'স্ন্যাকস', 'وجبة خفيفة'],
+    'biscuit': ['বিস্কুট', 'বস্কুট', 'بسكويت'],
+    'cake': ['কেক', 'كيك'],
+    'chocolate': ['চকোলেট', 'شوكولاتة'],
+    'drink': ['পানীয়', 'مشروب'],
+    'water': ['পানি', 'জল', 'ماء'],
+    'juice': ['জুস', 'عصير'],
+    'milk': ['দুধ', 'حليب'],
+    'baby': ['শিশু', 'বেবি', 'طفل'],
+    'health': ['স্বাস্থ্য', 'صحة'],
+    'medicine': ['ওষুধ', 'মেডিসিন', 'চিকিৎসা', 'دواء'],
+    'clean': ['পরিষ্কার', 'ক্লিন', 'نظيف'],
+    'soap': ['সাবান', 'صابون'],
+    'shampoo': ['শ্যাম্পু', 'شامبو'],
+    'air freshener': ['এয়ার ফ্রেশনার', 'এয়ার ফ্রেশনার', 'রুম ফ্রেশনার', 'معطر جو'],
+    'noodles': ['নুডুলস', 'নুডলস', 'نودلز', 'مكرونة'],
+    'mr noodles': ['মিস্টার নুডুলস', 'মিস্টার নুডলস'],
+    'stationery': ['স্টেশনারি', 'قرطاسية'],
+    'pen': ['কলম', 'قلم'],
+    'pencil': ['পেন্সিল', 'قلم رصاص'],
+    'paper': ['কাগজ', 'ورق'],
+    'clothe': ['পোশাক', 'কাপড়', 'ملابس'],
+    'toy': ['খেলনা', 'لعبة'],
+    'egg': ['ডিম', 'بيضة'],
+    'chicken': ['মুরগি', 'دجاج'],
+    'beef': ['গরুর মাংস', 'গরু', 'لحم بقر'],
+    'mutton': ['খাসির মাংস', 'খাসি', 'لحم ضأن'],
+    'bread': ['রুটি', 'ব্রেড', 'خبز'],
+    'tea': ['চা', 'شاي'],
+    'coffee': ['কফি', 'قهوة'],
+    'sugar': ['চিনি', 'سكر'],
+    'salt': ['লবণ', 'লবন', 'ملح'],
+    'flour': ['আটা', 'ময়দা', 'دقيق', 'طحين'],
+    'pulse': ['ডাল', 'عدس'],
+    'onion': ['পেঁয়াজ', 'পেয়াজ', 'بصل'],
+    'garlic': ['রসুন', 'ثوم'],
+    'ginger': ['আদা', 'زنجبيل'],
+    'potato': ['আলু', 'بطاطس', 'بطاطا'],
+    'electronics': ['ইলেকট্রনিক্স', 'إلكترونيات'],
+    'agriculture': ['কৃষি', 'زراعة'],
+    'seed': ['বীজ', 'بذور'],
+    'fertilizer': ['সার', 'سماد'],
+    'mobile': ['মোবাইল', 'جوال'],
+    'gift': ['উপহার', 'هدية'],
+    'cosmetics': ['প্রসাধন', 'কসমেটিকস', 'مستحضرات تجميل'],
+    'personal care': ['ব্যক্তিগত যত্ন', 'عناية شخصية']
   };
 
-  // Check if any mapped Bengali word matches the text
-  for (const [en, bnList] of Object.entries(categoryMap)) {
-    if (stdQuery.includes(en)) {
-      if (bnList.some(bn => stdText.includes(bn))) return true;
+  // Check cross-language matching
+  for (const [en, mappedList] of Object.entries(categoryMap)) {
+    const isQueryEn = stdQuery.includes(en);
+    const isTextEn = stdText.includes(en);
+    const isQueryMapped = mappedList.some(m => stdQuery.includes(m));
+    const isTextMapped = mappedList.some(m => stdText.includes(m));
+
+    if ((isQueryEn && isTextMapped) || (isQueryMapped && isTextEn) || (isQueryMapped && isTextMapped)) {
+      return true;
     }
   }
   

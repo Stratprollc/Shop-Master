@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 
-export function useVoiceSearch(onCommand: (text: string) => void, onError?: (error: string) => void) {
+export function useVoiceSearch(onCommand: (text: string) => void, onError?: (error: string) => void, lang: string = 'bn-BD') {
   const [isListening, setIsListening] = useState(false);
   const [voiceFeedback, setVoiceFeedback] = useState<string | null>(null);
   const recognitionRef = useRef<any>(null);
@@ -9,12 +9,18 @@ export function useVoiceSearch(onCommand: (text: string) => void, onError?: (err
     const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
     if (SpeechRecognition && !recognitionRef.current) {
        recognitionRef.current = new SpeechRecognition();
-       recognitionRef.current.lang = 'bn-BD';
+       recognitionRef.current.lang = lang;
        recognitionRef.current.continuous = true;
        recognitionRef.current.interimResults = false;
        recognitionRef.current.maxAlternatives = 1;
     }
 
+    if (recognitionRef.current) {
+       recognitionRef.current.lang = lang;
+    }
+  }, [lang]);
+
+  useEffect(() => {
     return () => {
       if (recognitionRef.current) {
         recognitionRef.current.onend = null;

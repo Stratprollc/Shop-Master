@@ -1,0 +1,198 @@
+552:  type: 'add' | 'sale' | 'return' | 'adjustment';
+822:  if (num === undefined || num === null) return '';
+824:  return num.toString().replace(/\d/g, (digit) => bengaliDigits[parseInt(digit)]);
+828:  if (num === undefined || num === null) return '';
+830:  return num.toString().replace(/\d/g, (digit) => arabicDigits[parseInt(digit)]);
+834:  if (!timestamp) return new Date();
+835:  if (timestamp.toDate && typeof timestamp.toDate === 'function') return timestamp.toDate();
+836:  if (timestamp instanceof Date) return timestamp;
+837:  if (typeof timestamp === 'number') return new Date(timestamp);
+839:    return new Date(timestamp.seconds * 1000 + (timestamp.nanoseconds || 0) / 1000000);
+841:  return new Date(timestamp);
+848:  return format(now, 'hmmddMMyy');
+856:    return `${symbol} ${toBengaliNumber(formattedAmount)}`;
+859:    return `${symbol} ${toArabicNumber(formattedAmount)}`;
+861:  return `${symbol} ${formattedAmount}`;
+869:  return formatCurrency(amount, symbol, lang);
+873:  return new Promise((resolve, reject) => {
+906:  if (!printWindow) return;
+1048:  if (!printWindow) return;
+1052:    if (lang === 'bn') return toBengaliNumber(formatted);
+1053:    if (lang === 'ar') return toArabicNumber(formatted);
+1054:    return formatted;
+1059:    if (lang === 'bn') return toBengaliNumber(formatted);
+1060:    if (lang === 'ar') return toArabicNumber(formatted);
+1061:    return formatted;
+1066:    if (lang === 'bn') return toBengaliNumber(formatted);
+1067:    if (lang === 'ar') return toArabicNumber(formatted);
+1068:    return formatted;
+1083:    return `
+1261:  if (!printWindow) return;
+1265:    if (lang === 'bn') return toBengaliNumber(formatted);
+1266:    if (lang === 'ar') return toArabicNumber(formatted);
+1267:    return formatted;
+1272:    if (lang === 'bn') return toBengaliNumber(formatted);
+1273:    if (lang === 'ar') return toArabicNumber(formatted);
+1274:    return formatted;
+1279:    if (lang === 'bn') return toBengaliNumber(formatted);
+1280:    if (lang === 'ar') return toArabicNumber(formatted);
+1281:    return formatted;
+1413:          return { success: true, result };
+1415:          return { success: false, error: result };
+1419:      return { success: false, error };
+1430:  return { success: true, fallback: true };
+1434:  if (!sale.customerPhone) return;
+1501:    return;
+1505:  if (!testPhone) return;
+1608:    return result;
+1622:          return result;
+1635:    return result;
+1645:    return result;
+1648:  return result;
+1690:    return JSON.parse(jsonStr);
+1694:    return null;
+1720:    return JSON.parse(jsonStr);
+1723:    return null;
+1746:    return () => window.removeEventListener('error', handleError);
+1750:    return (
+1767:  return <>{children}</>;
+1777:    return () => window.removeEventListener('click', handleClick);
+1827:  return (
+2129:    return isPhoneticMatch(item.entityType, searchTerm) || isPhoneticMatch(dataStr, searchTerm);
+2132:  return (
+2193:                return (
+2252:    return () => {
+2260:    if (queue.length === 0) return;
+2317:    if (!query || query.length < 2) return;
+2361:    return () => unsubscribe();
+2389:        if (!p.expiryDate) return false;
+2391:        return expiry >= today && expiry <= in30Days;
+2447:    if (!user || user.role !== 'admin') return;
+2448:    if (recycleBin.length === 0) return;
+2453:      return expiry <= now;
+2473:      return () => clearTimeout(timer);
+2497:    return () => {
+2506:    if (!user) return;
+2564:    return () => {
+2705:    return price;
+2714:        return prev.map(item => 
+2721:      return [...prev, { ...product, quantity: qty, originalPrice: product.price, discountedPrice: initialPrice }];
+2736:        return { ...item, quantity: newQty, discountedPrice: newPrice };
+2738:      return item;
+2747:        return { ...item, quantity: newQty, discountedPrice: newPrice };
+2749:      return item;
+2756:        return { ...item, discountedPrice: Math.max(0, price) };
+2758:      return item;
+2768:        return { ...item, discountedPrice: newUnitPrice };
+2770:      return item;
+2802:    if (cart.length === 0) return;
+2811:        return;
+2936:    if (loading) return;
+3058:      return {
+3140:      return;
+3179:      return docRef.id;
+3182:      return undefined;
+3269:    return (
+3281:    return (
+3362:  return (
+3757:                            return;
+3875:  return (
+3910:    if (!dailyClosings || dailyClosings.length === 0) return null;
+3912:    return safeDate(sorted[0].timestamp).getTime();
+3916:    return sales.filter(s => {
+3921:        return isSameDay && (!lastClosingDate || saleTime > lastClosingDate);
+3926:        return saleDate >= weekAgo;
+3928:      if (period === 'month') return format(saleDate, 'yyyy-MM') === format(now, 'yyyy-MM');
+3929:      if (period === 'year') return format(saleDate, 'yyyy') === format(now, 'yyyy');
+3930:      return true;
+3939:    return sum + s.items.reduce((itemSum, item) => itemSum + ((item.cost || 0) * item.quantity), 0);
+3948:      return isSameDay && isAfterLastClosing;
+3953:      return expDate >= weekAgo;
+3955:    if (period === 'month') return format(expDate, 'yyyy-MM') === format(now, 'yyyy-MM');
+3956:    if (period === 'year') return format(expDate, 'yyyy') === format(now, 'yyyy');
+3957:    return true;
+3967:    if (!p.expiryDate) return false;
+3970:    return diffDays > 0 && diffDays <= 30;
+3977:      return format(ts, 'yyyy-MM-dd') === today && (!lastClosingDate || ts.getTime() > lastClosingDate);
+3985:    return { todayCash, todayDue, periodCash, periodDue };
+3994:        return format(d, 'MMM dd');
+4000:        return format(d, 'MMM dd');
+4006:    return labels.map(label => {
+4009:        if (period === 'year') return format(saleDate, 'MMM') === label;
+4010:        return format(saleDate, 'MMM dd') === label;
+4015:        return sum + s.items.reduce((itemSum, item) => itemSum + ((item.cost || 0) * item.quantity), 0);
+4018:      return {
+4028:  return (
+4092:              return (
+4213:  return (
+4244:  return (
+4279:                    return (
+4399:  return (
+4466:  return (
+4593:  return (
+4614:    return () => window.removeEventListener('click', handleClick);
+4655:  return (
+5064:  return (
+5189:                return (
+5293:  return (
+5341:  return (
+5535:  return (
+5711:    if (!selectedProduct) return;
+5715:      return;
+5739:    if (!printWindow) return;
+5836:  return (
+6201:    return demoRecords;
+6232:  return (
+6416:    return [
+6508:  return (
+6676:  return (
+6722:      return products.slice(0, 5).map((p, idx) => ({
+6727:    return base;
+6735:  return (
+6927:  return (
+7378:      return;
+7426:    return () => clearTimeout(timer);
+7455:           return;
+7461:             return;
+7474:         return;
+7502:    return () => window.removeEventListener('click', handleClick);
+7532:      if (!p.expiryDate) return false;
+7533:      return new Date(p.expiryDate) < now;
+7535:    return true;
+7571:    return productSortOrder === 'asc' ? cmp : -cmp;
+7592:    if (!addingStockProduct) return;
+7601:      return;
+7766:      return;
+7864:  return (
+8224:                 return (
+8638:    if (!matchesSearch) return false;
+8641:    if (statusFilter === 'settled' && sale.dueAmount > 0) return false;
+8642:    if (statusFilter === 'pending' && sale.dueAmount <= 0) return false;
+8649:      if (saleDate < start) return false;
+8654:      if (saleDate > end) return false;
+8657:    return true;
+8669:  return (
+9101:    return sales.reduce((sum, s) => {
+9102:      return sum + s.items.reduce((itemSum, item) => {
+9103:        return itemSum + ((item.cost || 0) * item.quantity);
+9115:    return customers.filter(c => (c.currentDue || 0) >= 5000)
+9159:  return (
+9666:    if (!searchTerm) return customers;
+9667:    return customers.filter(c => 
+9737:    if (!selectedCustomerForHistory) return;
+9745:    if (amount <= 0) return;
+9768:    if (dateFilter === 'all') return data;
+9776:    return data.filter(item => safeDate(item.timestamp) >= cutoff);
+9783:    if (!printWindow) return;
+9851:  return (
+10064:                  <p className="text-gray-400 text-xs font-bold mt-2 uppercase tracking-widest leading-loose">The intelligence filter returned zero matches<br/>Try alternative search parameters.</p>
+10308:                        return (
+10318:                      return (
+10375:                        return (
+10385:                      return (
+10615:    if (!dailyClosings || dailyClosings.length === 0) return null;
+10617:    return safeDate(sorted[0].timestamp).getTime();
+10629:    return isSameDay && isAfterLastClosing;
+10641:    return isSameDay && isAfterLastClosing;
+10651:    return isSameDay && isAfterLastClosing;
+10696:  return (

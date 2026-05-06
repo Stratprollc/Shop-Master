@@ -2,6 +2,7 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { useVoiceSearch } from './hooks/useVoiceSearch';
 import { standardizeBn, toPhonetic, parseVoiceCommandQuantity, isPhoneticMatch, parseNewProductVoiceCommand, formatToBnDate } from './utils/voiceUtils';
+import { parsePosVoiceCommandAI } from './utils/aiVoiceParser';
 import { addToSyncQueue, getSyncQueue, removeFromSyncQueue } from './utils/offlineDb';
 import { 
   LayoutDashboard, 
@@ -97,6 +98,8 @@ import autoTable from 'jspdf-autotable';
 import Papa from 'papaparse';
 // import { Html5QrcodeScanner } from 'html5-qrcode';
 import { motion, AnimatePresence } from 'motion/react';
+import { Sparkles } from 'lucide-react';
+import { GoogleGenAI } from "@google/genai";
 import { 
   db, 
   auth, 
@@ -166,6 +169,7 @@ interface ShopSettings {
   waInstanceId?: string;
   waPhoneNumberId?: string;
   autoSendWhatsApp?: boolean;
+  aiWhatsAppEnabled?: boolean;
   receiptFooter?: string;
   waTemplateEnglish?: string;
   waTemplateBengali?: string;
@@ -1427,49 +1431,104 @@ const callWhatsAppApi = async (phone: string, message: string, settings: ShopSet
   return { success: true, fallback: true };
 };
 
-const sendWhatsAppInvoice = async (sale: Sale, settings: ShopSettings, lang: 'en' | 'bn' = 'en') => {
+const generatePersonalizedMessage = async (customer: Customer | null | undefined, sale: Sale | null, type: 'invoice' | 'reminder', lang: 'en' | 'bn' | 'ar', settings: ShopSettings) => {
+  try {
+    if (!process.env.GEMINI_API_KEY) {
+      console.warn("GEMINI_API_KEY is not defined. Falling back to template.");
+      return null;
+    }
+    const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+    let prompt = `You are a helpful and polite shop assistant for "${settings.name || 'our shop'}". 
+Generate a personalized WhatsApp message for a customer.
+Type of message: ${type === 'invoice' ? 'New Invoice/Purchase Confirmation' : 'Due Payment Reminder'}
+Language: ${lang === 'bn' ? 'Bengali' : (lang === 'ar' ? 'Arabic' : 'English')}
+
+Customer Data:
+Name: ${customer?.name || sale?.customerName || 'Valued Customer'}
+Total Due: ${settings.currencySymbol} ${customer?.currentDue || (sale ? (sale.finalAmount + (sale.previousBalance || 0) - (sale.paidAmount || 0)) : 0)}`;
+
+    if (type === 'invoice' && sale) {
+      prompt += `
+Sale Data:
+Invoice ID: ${sale.id || 'N/A'}
+Purchase Amount: ${settings.currencySymbol} ${sale.finalAmount}
+Paid Amount: ${settings.currencySymbol} ${sale.paidAmount}`;
+    }
+
+    prompt += `\nInclude proper greetings, be friendly, and sign off with the shop's name. Use clear formatting and appropriate emojis. 
+Do NOT include any markdown blocks, JSON format, or preamble like "Here is the message". Return ONLY the actual WhatsApp message text.`;
+
+    const response = await ai.models.generateContent({
+      model: "gemini-2.5-flash",
+      contents: prompt,
+    });
+
+    if (response && response.text) {
+      return response.text.trim();
+    }
+    return null;
+  } catch (error) {
+    console.error("AI Message Generation Error:", error);
+    return null;
+  }
+};
+
+const sendWhatsAppInvoice = async (sale: Sale, settings: ShopSettings, lang: 'en' | 'bn' | 'ar' = 'en') => {
   if (!sale.customerPhone) return;
   
-  const template = lang === 'bn' ? (settings.waTemplateBengali || "") : (settings.waTemplateEnglish || "");
+  let message = "";
   
-  // Prepare variables
-  const variables: { [key: string]: string } = {
-    '{{customerName}}': sale.customerName || 'Customer',
-    '{{shopName}}': settings.name || 'Shop',
-    '{{invoiceId}}': sale.id,
-    '{{totalAmount}}': sale.finalAmount.toString(),
-    '{{currencySymbol}}': settings.currencySymbol || 'TK',
-    '{{discount}}': sale.discount ? sale.discount.toString() : '0',
-    '{{paidAmount}}': sale.paidAmount.toString(),
-    '{{dueAmount}}': (sale.finalAmount - sale.paidAmount).toString(),
-    '{{items}}': sale.items.map(item => `• ${item.productName}: ${item.quantity} x ${item.price}`).join('\n')
-  };
+  if (settings.aiWhatsAppEnabled) {
+    const aiMsg = await generatePersonalizedMessage(null, sale, 'invoice', lang, settings);
+    if (aiMsg) message = aiMsg;
+  }
 
-  // Replace variables
-  let message = template;
-  Object.keys(variables).forEach(key => {
-    message = message.replace(new RegExp(key, 'g'), variables[key]);
-  });
-
-  // Fallback if template is not configured or just too simple
-  if (!template || message === template) {
-    const itemsText = sale.items.map(item => `• ${item.productName}: ${item.quantity} x ${item.price} = ${item.price * item.quantity}`).join('\n');
+  if (!message) {
+    const template = lang === 'bn' ? (settings.waTemplateBengali || "") : (settings.waTemplateEnglish || "");
+    
     const previousBalance = sale.previousBalance || 0;
-    const currentDue = sale.finalAmount - sale.paidAmount;
-    message = `*আমাদের স্টোর ${settings.name} থেকে ইনভয়েস*\n` +
-      `ইনভয়েস: #${sale.id}\n` +
-      `তারিখ: ${format(safeDate(sale.timestamp), 'dd/MM/yyyy')}\n\n` +
-      `*আইটেমসমূহ:*\n${itemsText}\n\n` +
-      `--------------------------\n` +
-      `*টোটাল প্রোডাক্ট বিল:* ${settings.currencySymbol} ${sale.totalAmount}\n` +
-      `*ডিসকাউন্ট:* ${settings.currencySymbol} ${sale.discount}\n` +
-      `*গ্র্যান্ড টোটাল:* ${settings.currencySymbol} ${sale.finalAmount}\n` +
-      `*আজকের জমা:* ${settings.currencySymbol} ${sale.paidAmount}\n` +
-      `--------------------------\n` +
-      `*পূর্বের বাকি:* ${settings.currencySymbol} ${previousBalance}\n` +
-      `*আজকের বিল:* ${settings.currencySymbol} ${sale.finalAmount}\n` +
-      `*টোটাল বাকি:* ${settings.currencySymbol} ${(sale.finalAmount + previousBalance - (sale.paidAmount || 0))}\n\n` +
-      `আপনার কেনাকাটার জন্য ধন্যবাদ!`;
+    const currentBalance = sale.finalAmount + previousBalance - (sale.paidAmount || 0);
+
+    // Prepare variables
+    const variables: { [key: string]: string } = {
+      '{{customerName}}': sale.customerName || 'Customer',
+      '{{shopName}}': settings.name || 'Shop',
+      '{{invoiceId}}': sale.id,
+      '{{totalAmount}}': sale.finalAmount.toString(),
+      '{{currencySymbol}}': settings.currencySymbol || 'TK',
+      '{{discount}}': sale.discount ? sale.discount.toString() : '0',
+      '{{paidAmount}}': sale.paidAmount.toString(),
+      '{{dueAmount}}': (sale.finalAmount - sale.paidAmount).toString(),
+      '{{prevBalance}}': previousBalance.toString(),
+      '{{currentBalance}}': currentBalance.toString(),
+      '{{items}}': sale.items.map(item => `• ${item.productName}: ${item.quantity} x ${item.price}`).join('\n')
+    };
+
+    // Replace variables
+    message = template;
+    Object.keys(variables).forEach(key => {
+      message = message.replace(new RegExp(key, 'g'), variables[key]);
+    });
+
+    // Fallback if template is not configured or just too simple
+    if (!template || message === template) {
+      const itemsText = sale.items.map(item => `• ${item.productName}: ${item.quantity} x ${item.price} = ${item.price * item.quantity}`).join('\n');
+      const previousBalance = sale.previousBalance || 0;
+      message = `*আমাদের স্টোর ${settings.name} থেকে ইনভয়েস*\n` +
+        `ইনভয়েস: #${sale.id}\n` +
+        `তারিখ: ${format(safeDate(sale.timestamp), 'dd/MM/yyyy')}\n\n` +
+        `*আইটেমসমূহ:*\n${itemsText}\n\n` +
+        `--------------------------\n` +
+        `*টোটাল প্রোডাক্ট বিল:* ${settings.currencySymbol} ${sale.totalAmount}\n` +
+        `*ডিসকাউন্ট:* ${settings.currencySymbol} ${sale.discount}\n` +
+        `*গ্র্যান্ড টোটাল:* ${settings.currencySymbol} ${sale.finalAmount}\n` +
+        `*আজকের জমা:* ${settings.currencySymbol} ${sale.paidAmount}\n` +
+        `--------------------------\n` +
+        `*পূর্বের বাকি:* ${settings.currencySymbol} ${previousBalance}\n` +
+        `*আজকের বিল:* ${settings.currencySymbol} ${sale.finalAmount}\n` +
+        `*টোটাল বাকি:* ${settings.currencySymbol} ${(sale.finalAmount + previousBalance - (sale.paidAmount || 0))}\n\n` +
+        `আপনার কেনাকাটার জন্য ধন্যবাদ!`;
+    }
   }
 
   const result = await callWhatsAppApi(sale.customerPhone, message, settings);
@@ -1584,6 +1643,139 @@ const downloadInvoicePDF = (sale: Sale, settings: ShopSettings) => {
   doc.save(`Invoice_${sale.id}.pdf`);
 };
 
+// --- Voice Command Parsing Helpers ---
+
+function parseVoiceCommandQuantity(text: string): { originalText: string, searchName: string, quantity: number, matchFound: boolean } {
+  const result = { originalText: text, searchName: text, quantity: 1, matchFound: false };
+  const lower = text.toLowerCase().trim();
+
+  // Handle Bengali quantity patterns like "৫ কেজি চিনি" or "৫টি সাবান" or "১০ টা ডিম"
+  const bnQtyRegex = /^(\d+)\s*(কেজি|গ্রাম|লিটার|মিলি|পিস|টি|টা|মি|গজ|কে|প|ট)\s*(?:করে|ও)?\s*(.+)$/i;
+  const bnMatch = lower.match(bnQtyRegex);
+  if (bnMatch) {
+    result.quantity = parseInt(bnMatch[1]);
+    result.searchName = bnMatch[3].trim();
+    result.matchFound = true;
+    return result;
+  }
+
+  // Handle "এক কেজি চিনি" style
+  const bnWordMap: {[key: string]: number} = { 'একটা': 1, 'এক': 1, 'দুই': 2, 'তিন': 3, 'চার': 4, 'পাঁচ': 5, 'ছয়': 6, 'সাত': 7, 'আট': 8, 'নয়': 9, 'দশ': 10 };
+  for (const word in bnWordMap) {
+    if (lower.startsWith(word)) {
+      const remaining = lower.substring(word.length).trim();
+      const units = ['কেজি', 'টা', 'টি', 'পিস'];
+      for (const u of units) {
+        if (remaining.startsWith(u)) {
+          result.quantity = bnWordMap[word];
+          result.searchName = remaining.substring(u.length).trim();
+          result.matchFound = true;
+          return result;
+        }
+      }
+    }
+  }
+
+  // Handle English patterns like "5kg sugar" or "add 2 soaps" or "10 items of milk"
+  const enQtyRegex = /^(?:add\s+)?(\d+)\s*(?:kg|kg\s+of|units\s+of|items\s+of|x|pcs|packs?|grams?|liter?s?|ml)?\s*(.+)$/i;
+  const enMatch = lower.match(enQtyRegex);
+  if (enMatch) {
+    result.quantity = parseInt(enMatch[1]);
+    result.searchName = enMatch[2].trim();
+    result.matchFound = true;
+    return result;
+  }
+
+  // Pattern like "Sugar 5kg"
+  const reverseEnRegex = /^(.+)\s+(\d+)\s*(?:kg|pcs|x|units|packs?)$/i;
+  const revMatch = lower.match(reverseEnRegex);
+  if (revMatch) {
+    result.searchName = revMatch[1].trim();
+    result.quantity = parseInt(revMatch[2]);
+    result.matchFound = true;
+    return result;
+  }
+
+  return result;
+}
+
+async function parsePosVoiceCommandAI(
+  rawText: string, 
+  availableProducts: {id: string, name: string}[], 
+  availableCustomers: {id: string, name: string, phone: string}[]
+): Promise<VoiceCommandAIResult | null> {
+  try {
+    const genAI = new GoogleGenAI(process.env.GEMINI_API_KEY || '');
+    const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+
+    const prompt = `
+      You are a POS Voice Assistant. You help users add products to a cart or select customers.
+      Current Products: ${JSON.stringify(availableProducts.slice(0, 50))}
+      Current Customers: ${JSON.stringify(availableCustomers.slice(0, 30))}
+
+      User said: "${rawText}"
+
+      Tasks:
+      1. If the user mentions a product and potentially a quantity, find the best matching productId.
+      2. If the user mentions multiple products (e.g. "Add 5kg sugar and 2kg salt"), list them all.
+      3. If the user mentions a customer by name or phone, find the best matching customerId.
+      4. Support both English and Bengali (e.g. "৫ কেজি চিনি", "Add 2kg rice", "কাস্টমার রহিম").
+      5. If the user says something new like "Add a new product named X", set action to 'newProduct'.
+
+      Return ONLY a JSON object with this structure:
+      {
+        "action": "addProduct" | "setCustomer" | "newProduct" | "unknown" | "multi",
+        "items": [
+          { "action": "addProduct", "productId": "...", "quantity": 5, "description": "optional name used" },
+          { "action": "setCustomer", "customerId": "..." }
+        ],
+        "summary": "Short summary of what was understood",
+        "message": "Friendy feedback message"
+      }
+    `;
+
+    const result = await model.generateContent(prompt);
+    const response = await result.response;
+    const text = response.text();
+    const jsonStr = text.replace(/```json|```/g, '').trim();
+    return JSON.parse(jsonStr);
+  } catch (err: any) {
+    console.error("AI Error:", err);
+    if (err.message?.includes('quota')) throw new Error('QUOTA_EXCEEDED');
+    return null;
+  }
+}
+
+async function parseNewProductVoiceCommand(rawText: string, categories: string[]): Promise<{
+  name?: string,
+  price?: number,
+  stock?: number,
+  category?: string,
+  unit?: string
+} | null> {
+  try {
+    const genAI = new GoogleGenAI(process.env.GEMINI_API_KEY || '');
+    const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+
+    const prompt = `
+      Extract product details from this voice command: "${rawText}"
+      Available categories: ${categories.join(', ')}
+      If a category isn't exact, pick the closest one or "General".
+      Support English, Bengali, and Arabic input.
+      Return JSON: { "name": "...", "price": 10, "stock": 100, "category": "...", "unit": "kg/pcs" }
+    `;
+
+    const result = await model.generateContent(prompt);
+    const response = await result.response;
+    const text = response.text();
+    const jsonStr = text.replace(/```json|```/g, '').trim();
+    return JSON.parse(jsonStr);
+  } catch (err) {
+    console.error("New product AI Error:", err);
+    return null;
+  }
+}
+
 // --- Components ---
 
 const ErrorBoundary = ({ children }: { children: React.ReactNode }) => {
@@ -1661,6 +1853,7 @@ function SettingsPanel({ settings, onSaveSettings, users, onAddUser, onDeleteUse
       waPhoneNumberId: formData.get('waPhoneNumberId') as string,
       waToken: formData.get('waToken') as string,
       autoSendWhatsApp: formData.get('autoSendWhatsApp') === 'on',
+      aiWhatsAppEnabled: formData.get('aiWhatsAppEnabled') === 'on',
       receiptWidth: formData.get('receiptWidth') as '58mm' | '80mm',
       receiptFooter: formData.get('receiptFooter') as string,
       waTemplateEnglish: formData.get('waTemplateEnglish') as string,
@@ -1860,6 +2053,16 @@ function SettingsPanel({ settings, onSaveSettings, users, onAddUser, onDeleteUse
                   className="w-5 h-5 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500" 
                 />
                 <label htmlFor="autoSendWhatsApp" className="text-sm font-bold text-gray-700">Enable Fully Automatic WhatsApp Invoicing</label>
+              </div>
+              <div className="flex items-center gap-3">
+                <input 
+                  type="checkbox" 
+                  name="aiWhatsAppEnabled" 
+                  id="aiWhatsAppEnabled"
+                  defaultChecked={settings.aiWhatsAppEnabled} 
+                  className="w-5 h-5 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500" 
+                />
+                <label htmlFor="aiWhatsAppEnabled" className="text-sm font-bold text-gray-700">Use Gemini API for Personalized Messages</label>
               </div>
               <div className="md:col-span-2 flex items-center justify-between bg-gray-50 p-6 rounded-2xl border border-gray-100">
                 <div>
@@ -2168,6 +2371,24 @@ export default function App() {
   const [editingSale, setEditingSale] = useState<Sale | null>(null);
   const [isScannerOpen, setIsScannerOpen] = useState(false);
   const [notification, setNotification] = useState<{ message: string, type: 'success' | 'error' | 'info' } | null>(null);
+  const [isCustomerModalOpen, setIsCustomerModalOpen] = useState(false);
+  const [customerSuggestion, setCustomerSuggestion] = useState('');
+  const [isCustomerVoiceListening, setIsCustomerVoiceListening] = useState(false);
+
+  // Function to generate AI suggestion for customer
+  const generateCustomerSuggestion = async (query: string) => {
+    if (!query || query.length < 2) return;
+    try {
+      const genAI = new GoogleGenAI(process.env.GEMINI_API_KEY || '');
+      const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+      const prompt = `The user searched for a customer named "${query}" but they don't exist in the database. Write a very short (max 15 words) friendly and helpful AI assistant message suggesting to add them as a new customer. Be professional but welcoming. Example: "I couldn't find ${query}. Would you like me to help you add them to your records?"`;
+      const result = await model.generateContent(prompt);
+      setCustomerSuggestion(result.response.text());
+    } catch (error) {
+      setCustomerSuggestion(`I couldn't find "${query}" in our database. Shall we add them as a new customer?`);
+    }
+    setIsCustomerModalOpen(true);
+  };
   const [selectedProductForHistory, setSelectedProductForHistory] = useState<Product | null>(null);
   const [stockRecords, setStockRecords] = useState<StockRecord[]>([]);
   
@@ -2218,6 +2439,31 @@ export default function App() {
   const [customerLogs, setCustomerLogs] = useState<CustomerLog[]>([]);
   const [duePayments, setDuePayments] = useState<DuePayment[]>([]);
   const [notes, setNotes] = useState<Note[]>([]);
+  const [expiringProducts, setExpiringProducts] = useState<Product[]>([]);
+  
+  // Check for expiring products
+  useEffect(() => {
+    if (products.length > 0) {
+      const today = new Date();
+      const in30Days = new Date();
+      in30Days.setDate(today.getDate() + 30);
+
+      const nearingExpiry = products.filter(p => {
+        if (!p.expiryDate) return false;
+        const expiry = new Date(p.expiryDate);
+        return expiry >= today && expiry <= in30Days;
+      });
+
+      setExpiringProducts(nearingExpiry);
+
+      if (nearingExpiry.length > 0) {
+        setNotification({
+          type: 'info',
+          message: `${nearingExpiry.length} products are nearing expiry date (within 30 days)!`
+        });
+      }
+    }
+  }, [products]);
   const [shopSettings, setShopSettings] = useState<ShopSettings>({
     name: 'Bismillah Store',
     address: 'Your Shop Address',
@@ -2226,6 +2472,7 @@ export default function App() {
     receiptFooter: "Thank you for shopping with us!\nPowered by ShopMaster",
     waGatewayType: 'manual',
     autoSendWhatsApp: false,
+    aiWhatsAppEnabled: false,
     waTemplateEnglish: "Hello *{{customerName}}*, thank you for shopping at *{{shopName}}*! Your invoice #{{invoiceId}} total is {{currencySymbol}} {{totalAmount}}.",
     waTemplateBengali: "প্রিয় *{{customerName}}*, *{{shopName}}*-এ কেনাকাটা করার জন্য ধন্যবাদ! আপনার ইনভয়েস #{{invoiceId}} এর মোট পরিমাণ {{currencySymbol}} {{totalAmount}} টাকা।",
     printLanguage: 'bn',
@@ -2291,45 +2538,7 @@ export default function App() {
     }
   }, [notification]);
 
-  useEffect(() => {
-    // Process missing images in background
-    let isProcessing = false;
-    
-    // Using an interval to process missing images
-    const timer = setInterval(async () => {
-      if (isProcessing) return;
-      
-      // Look for products without imageUrl AND haven't been attempted
-      // We will cast Product type to include autoImageAttempted if needed,
-      // but to be safe with TypeScript we'll just check if it has the property via any
-      const missingImageProduct = products.find(p => !p.imageUrl && !(p as any).autoImageAttempted);
-      
-      if (missingImageProduct && missingImageProduct.id) {
-        isProcessing = true;
-        try {
-          const { getWikiImage } = await import('./utils/wikiImage');
-          const picUrl = await getWikiImage(missingImageProduct.name);
-          
-          if (picUrl) {
-            await updateDoc(doc(db, 'products', missingImageProduct.id), { 
-              imageUrl: picUrl, 
-              autoImageAttempted: true 
-            });
-          } else {
-            await updateDoc(doc(db, 'products', missingImageProduct.id), { 
-              autoImageAttempted: true 
-            });
-          }
-        } catch (e) {
-          console.error("Auto image fetch failed:", e);
-        } finally {
-          isProcessing = false;
-        }
-      }
-    }, 3000); // Check every 3 seconds to be very polite
-    
-    return () => clearInterval(timer);
-  }, [products]);
+
   useEffect(() => {
     // Sync global window variables for the fC helper
     (window as any)._globalCurrencySymbol = shopSettings.currencySymbol;
@@ -2560,11 +2769,11 @@ export default function App() {
     return price;
   };
 
-  const addToCart = (product: Product) => {
+  const addToCart = (product: Product, qty: number = 1) => {
     setCart(prev => {
       const existing = prev.find(item => item.id === product.id);
       if (existing) {
-        const newQty = existing.quantity + 1;
+        const newQty = existing.quantity + qty;
         const newPrice = calculateItemPrice(product, newQty);
         return prev.map(item => 
           item.id === product.id 
@@ -2572,8 +2781,8 @@ export default function App() {
             : item
         );
       }
-      const initialPrice = calculateItemPrice(product, 1);
-      return [...prev, { ...product, quantity: 1, originalPrice: product.price, discountedPrice: initialPrice }];
+      const initialPrice = calculateItemPrice(product, qty);
+      return [...prev, { ...product, quantity: qty, originalPrice: product.price, discountedPrice: initialPrice }];
     });
   };
 
@@ -2614,6 +2823,18 @@ export default function App() {
     }));
   };
 
+  const updateCartLineTotalManual = (productId: string, total: number) => {
+    setCart(prev => prev.map(item => {
+      if (item.id === productId) {
+        // If quantity is 0 or less, avoid division by zero, just set quantity to 1 implicitly for Calculation mapping or keep it simple
+        const qty = item.quantity > 0 ? item.quantity : 1;
+        const newUnitPrice = Math.max(0, total) / qty;
+        return { ...item, discountedPrice: newUnitPrice };
+      }
+      return item;
+    }));
+  };
+
   const [showReceiptModal, setShowReceiptModal] = useState(false);
   const [lastCompletedSale, setLastCompletedSale] = useState<Sale | null>(null);
 
@@ -2646,7 +2867,17 @@ export default function App() {
 
     try {
       const selectedCustomer = customers.find(c => c.id === checkoutData.customerId);
-      const dueAmount = Math.max(0, finalTotal - checkoutData.paidAmount);
+      const paidAmount = checkoutData.paidAmount || 0;
+      
+      // Enforce full payment for walk-in customers
+      if (!checkoutData.customerId && paidAmount < finalTotal) {
+        setNotification({ message: "Walk-in customers must pay in full!", type: 'error' });
+        return;
+      }
+
+      const dueAmount = finalTotal - paidAmount;
+      const previousBalance = selectedCustomer?.currentDue || 0;
+      const newBalance = previousBalance + dueAmount;
 
       // Revert old sale effects if editing
       if (editingSale) {
@@ -2718,7 +2949,7 @@ export default function App() {
       }
 
       if (sendWhatsApp && isOnline) {
-        await sendWhatsAppInvoice(finalSale, shopSettings, shopSettings.systemLanguage === 'bn' ? 'bn' : 'en');
+        await sendWhatsAppInvoice(finalSale, shopSettings, shopSettings.systemLanguage === 'bn' ? 'bn' : (shopSettings.systemLanguage === 'ar' ? 'ar' : 'en'));
       }
 
       if (checkoutData.customerId && isOnline) {
@@ -2758,7 +2989,7 @@ export default function App() {
 
       // Auto Send WhatsApp if customer has phone and auto-send is enabled
       if (finalSale.customerPhone && shopSettings.autoSendWhatsApp) {
-        sendWhatsAppInvoice(finalSale, shopSettings, shopSettings.systemLanguage === 'bn' ? 'bn' : 'en');
+        sendWhatsAppInvoice(finalSale, shopSettings, shopSettings.systemLanguage === 'bn' ? 'bn' : (shopSettings.systemLanguage === 'ar' ? 'ar' : 'en'));
       }
     } catch (error) {
       handleFirestoreError(error, OperationType.WRITE, 'sales');
@@ -3003,6 +3234,19 @@ export default function App() {
     }
   };
 
+  const handleAddCustomer = async (newCustomer: Omit<Customer, 'id' | 'serialNumber'>): Promise<string | undefined> => {
+    try {
+      const docRef = await addDoc(collection(db, 'customers'), {
+        ...newCustomer,
+        serialNumber: Date.now()
+      });
+      return docRef.id;
+    } catch (error) {
+      handleFirestoreError(error, OperationType.WRITE, 'customers');
+      return undefined;
+    }
+  };
+
   const handleUpdateEmployee = async (id: string, updatedData: Partial<Employee>) => {
     try {
       await updateDoc(doc(db, 'employees', id), updatedData);
@@ -3067,10 +3311,18 @@ export default function App() {
 
   const handleSendWhatsAppReminder = async (customer: Customer, lang: 'en' | 'bn') => {
     let message = "";
-    if (lang === 'bn') {
-      message = `আসসালামু আলাইকুম ${customer.name}, আপনার বকেয়া বিলের পরিমাণ ${shopSettings.currencySymbol} ${customer.currentDue?.toFixed(2)}। ${customer.dueDate ? `আপনার প্রতিশ্রুত তারিখ ছিল ${format(new Date(customer.dueDate), 'dd MMM yyyy')}।` : ''} অনুগ্রহ করে যত দ্রুত সম্ভব বিলটি পরিশোধ করুন। ধন্যবাদ!`;
-    } else {
-      message = `Assalamu Alaikum ${customer.name}, this is a reminder regarding your outstanding due of ${shopSettings.currencySymbol} ${customer.currentDue?.toFixed(2)}. ${customer.dueDate ? `Your promised date was ${format(new Date(customer.dueDate), 'dd MMM yyyy')}.` : ''} Please settle the amount as soon as possible. Thank you!`;
+    
+    if (shopSettings.aiWhatsAppEnabled) {
+      const aiMsg = await generatePersonalizedMessage(customer, null, 'reminder', lang, shopSettings);
+      if (aiMsg) message = aiMsg;
+    }
+
+    if (!message) {
+      if (lang === 'bn') {
+        message = `আসসালামু আলাইকুম ${customer.name}, আপনার বকেয়া বিলের পরিমাণ ${shopSettings.currencySymbol} ${customer.currentDue?.toFixed(2)}। ${customer.dueDate ? `আপনার প্রতিশ্রুত তারিখ ছিল ${format(new Date(customer.dueDate), 'dd MMM yyyy')}।` : ''} অনুগ্রহ করে যত দ্রুত সম্ভব বিলটি পরিশোধ করুন। ধন্যবাদ!`;
+      } else {
+        message = `Assalamu Alaikum ${customer.name}, this is a reminder regarding your outstanding due of ${shopSettings.currencySymbol} ${customer.currentDue?.toFixed(2)}. ${customer.dueDate ? `Your promised date was ${format(new Date(customer.dueDate), 'dd MMM yyyy')}.` : ''} Please settle the amount as soon as possible. Thank you!`;
+      }
     }
     
     setNotification({ message: 'Sending WhatsApp reminder...', type: 'info' });
@@ -3348,6 +3600,7 @@ export default function App() {
                   setSelectedProductForHistory(p);
                 }}
                 isOnline={isOnline}
+                expiringProducts={expiringProducts}
               />
             )}
             {activeTab === 'pos' && (
@@ -3360,6 +3613,7 @@ export default function App() {
                 updateCartQuantity={updateCartQuantity}
                 updateCartQuantityManual={updateCartQuantityManual}
                 updateCartPriceManual={updateCartPriceManual}
+                updateCartLineTotalManual={updateCartLineTotalManual}
                 handleCheckout={handleCheckout}
                 discount={discount}
                 setDiscount={setDiscount}
@@ -3379,6 +3633,13 @@ export default function App() {
                 setNotification={setNotification}
                 user={user}
                 isOnline={isOnline}
+                onAddCustomer={handleAddCustomer}
+                generateCustomerSuggestion={generateCustomerSuggestion}
+                isCustomerModalOpen={isCustomerModalOpen}
+                setIsCustomerModalOpen={setIsCustomerModalOpen}
+                customerSuggestion={customerSuggestion}
+                isCustomerVoiceListening={isCustomerVoiceListening}
+                setIsCustomerVoiceListening={setIsCustomerVoiceListening}
               />
             )}
             {activeTab === 'inventory' && (
@@ -3392,6 +3653,7 @@ export default function App() {
                 }}
                 setNotification={setNotification}
                 isOnline={isOnline}
+                settings={shopSettings}
               />
             )}
             {activeTab === 'sales' && (
@@ -3504,6 +3766,123 @@ export default function App() {
           </AnimatePresence>
         </main>
 
+        <AnimatePresence>
+          {isCustomerModalOpen && (
+            <div className="fixed inset-0 z-[200] flex items-center justify-center p-4">
+              <motion.div 
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                onClick={() => setIsCustomerModalOpen(false)}
+                className="absolute inset-0 bg-black/60 backdrop-blur-sm"
+              />
+              <motion.div 
+                initial={{ scale: 0.9, opacity: 0, y: 20 }}
+                animate={{ scale: 1, opacity: 1, y: 0 }}
+                exit={{ scale: 0.9, opacity: 0, y: 20 }}
+                className="relative w-full max-w-sm bg-white rounded-[2.5rem] shadow-2xl border border-gray-100 overflow-hidden"
+              >
+                <div className={`h-2 w-full bg-gradient-to-r ${PAGE_THEMES.dashboard.gradient}`}></div>
+                <div className="p-8">
+                  <div className="flex items-center gap-4 mb-6">
+                    <div className="w-12 h-12 bg-emerald-50 text-emerald-600 rounded-2xl flex items-center justify-center shadow-inner">
+                      <Sparkles className="w-6 h-6 animate-pulse" />
+                    </div>
+                    <div>
+                      <h3 className="text-xl font-black text-gray-900 tracking-tight lowercase">AI Assistant</h3>
+                      <p className="text-[10px] text-gray-400 font-bold uppercase tracking-widest leading-none">Smart Suggestion</p>
+                    </div>
+                  </div>
+
+                  <div className="bg-emerald-50/50 p-4 rounded-2xl border border-emerald-100/30 mb-6">
+                    <p className="text-emerald-900 font-bold text-sm italic">"{customerSuggestion}"</p>
+                  </div>
+
+                  <div className="space-y-4">
+                    <div className="flex gap-2">
+                      <div className="flex-1 space-y-1">
+                        <label className="text-[9px] font-black text-gray-400 uppercase tracking-widest ml-2">Name</label>
+                        <input 
+                          type="text"
+                          className="w-full bg-gray-50 border border-gray-100 rounded-xl px-4 py-3 text-xs font-black focus:ring-2 focus:ring-emerald-500 outline-none"
+                          value={checkoutData.walkInName || ''}
+                          onChange={(e) => setCheckoutData({...checkoutData, walkInName: e.target.value})}
+                        />
+                      </div>
+                      <div className="flex-1 space-y-1">
+                        <label className="text-[9px] font-black text-gray-400 uppercase tracking-widest ml-2">Mobile</label>
+                        <input 
+                          type="text"
+                          className="w-full bg-gray-50 border border-gray-100 rounded-xl px-4 py-3 text-xs font-black focus:ring-2 focus:ring-emerald-500 outline-none"
+                          value={checkoutData.walkInPhone || ''}
+                          onChange={(e) => setCheckoutData({...checkoutData, walkInPhone: e.target.value})}
+                        />
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-3">
+                      <button 
+                        onClick={() => {
+                          const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+                          if (!SpeechRecognition) {
+                            setNotification({ type: 'error', message: 'Voice recognition not supported' });
+                            return;
+                          }
+                          const rec = new SpeechRecognition();
+                          rec.lang = settings.systemLanguage === 'bn' ? 'bn-BD' : (settings.systemLanguage === 'ar' ? 'ar-SA' : 'en-US');
+                          rec.onstart = () => setIsCustomerVoiceListening(true);
+                          rec.onend = () => setIsCustomerVoiceListening(false);
+                          rec.onresult = (event: any) => {
+                            const transcript = event.results[0][0].transcript;
+                            // Simple parser: "Name is X Mobile is Y"
+                            const nameMatch = transcript.match(/name (is )?([a-zA-Z ]+)/i);
+                            const phoneMatch = transcript.match(/mobile (is )?([0-9 ]+)/i);
+                            if (nameMatch) setCheckoutData(prev => ({...prev, walkInName: nameMatch[2].trim()}));
+                            if (phoneMatch) setCheckoutData(prev => ({...prev, walkInPhone: phoneMatch[2].trim().replace(/\s/g, '')}));
+                            if (!nameMatch && !phoneMatch) {
+                              setCheckoutData(prev => ({...prev, walkInName: transcript}));
+                            }
+                          };
+                          rec.start();
+                        }}
+                        className={`flex-1 py-4 rounded-2xl flex items-center justify-center gap-2 transition-all ${isCustomerVoiceListening ? 'bg-red-50 text-red-500 animate-pulse' : 'bg-gray-50 text-gray-400 hover:bg-emerald-50 hover:text-emerald-500'}`}
+                      >
+                        <Mic className="w-5 h-5" />
+                        <span className="text-[10px] font-black uppercase tracking-widest">
+                          {isCustomerVoiceListening ? '...' : 'Voice'}
+                        </span>
+                      </button>
+                      
+                      <button 
+                        onClick={async () => {
+                          const newCust = {
+                            name: checkoutData.walkInName || 'New Customer',
+                            phone: checkoutData.walkInPhone || '',
+                            address: '',
+                            points: 0,
+                            totalSpent: 0,
+                            currentDue: 0
+                          };
+                          const newId = await handleAddCustomer(newCust);
+                          if (newId) {
+                            setCheckoutData({ ...checkoutData, customerId: newId, walkInName: '', walkInPhone: '' });
+                            setIsCustomerModalOpen(false);
+                            setNotification({ type: 'success', message: 'Customer added successfully!' });
+                          }
+                        }}
+                        className={`flex-[1.5] py-4 bg-emerald-600 text-white rounded-2xl font-black text-[10px] uppercase tracking-widest shadow-lg flex items-center justify-center gap-2 active:scale-95 transition-all`}
+                      >
+                        <Plus className="w-4 h-4" />
+                        Add Customer
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </motion.div>
+            </div>
+          )}
+        </AnimatePresence>
+
         {isScannerOpen && (
           <BarcodeScanner 
             onScan={handleScan} 
@@ -3538,7 +3917,7 @@ export default function App() {
                 {lastCompletedSale.customerPhone && (
                   <button 
                     onClick={() => {
-                      sendWhatsAppInvoice(lastCompletedSale, shopSettings, shopSettings.systemLanguage === 'bn' ? 'bn' : 'en');
+                      sendWhatsAppInvoice(lastCompletedSale, shopSettings, shopSettings.systemLanguage === 'bn' ? 'bn' : (shopSettings.systemLanguage === 'ar' ? 'ar' : 'en'));
                       setShowReceiptModal(false);
                     }}
                     className="w-full py-3 bg-emerald-600 text-white rounded-xl font-bold hover:bg-emerald-700 transition-all flex items-center justify-center gap-2"
@@ -3587,7 +3966,7 @@ function BarcodeScanner({ onScan, onClose }: { onScan: (data: string) => void, o
 }
 
 
-function Dashboard({ products, sales, customers, expenses, dailyClosings, settings, onDelete, onViewProductHistory, isOnline }: { products: Product[], sales: Sale[], customers: Customer[], expenses: Expense[], dailyClosings: DailyClosing[], settings: ShopSettings, onDelete: (closing: DailyClosing) => void, onViewProductHistory: (p: Product) => void, isOnline: boolean }) {
+function Dashboard({ products, sales, customers, expenses, dailyClosings, settings, onDelete, onViewProductHistory, isOnline, expiringProducts = [] }: { products: Product[], sales: Sale[], customers: Customer[], expenses: Expense[], dailyClosings: DailyClosing[], settings: ShopSettings, onDelete: (closing: DailyClosing) => void, onViewProductHistory: (p: Product) => void, isOnline: boolean, expiringProducts?: Product[] }) {
   const systemLang = settings.systemLanguage || 'bn';
   const st = (key: keyof typeof SYSTEM_TRANSLATIONS['en']) => (SYSTEM_TRANSLATIONS[systemLang] as any)[key] || (SYSTEM_TRANSLATIONS['en'] as any)[key];
   const [period, setPeriod] = useState<'day' | 'week' | 'month' | 'year'>('day');
@@ -3758,6 +4137,54 @@ function Dashboard({ products, sales, customers, expenses, dailyClosings, settin
           ))}
         </div>
       </motion.header>
+      
+      {expiringProducts.length > 0 && (
+        <motion.div 
+          variants={itemVariants}
+          className="bg-amber-50 border border-amber-200 rounded-[2.5rem] p-8 shadow-sm overflow-hidden relative"
+        >
+          <div className="absolute top-0 right-0 p-8 opacity-5">
+            <AlertTriangle className="w-40 h-40 text-amber-600" />
+          </div>
+          <div className="flex items-center gap-4 mb-6">
+            <div className={`w-12 h-12 bg-amber-100 rounded-2xl flex items-center justify-center text-amber-600 shadow-inner`}>
+              <AlertTriangle className="w-7 h-7" />
+            </div>
+            <div>
+              <h3 className="text-2xl font-black text-amber-900 tracking-tight">System Notification: Expiry Alerts</h3>
+              <p className="text-amber-700/70 font-bold text-sm">The following products are nearing their expiry date (within 30 days).</p>
+            </div>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+            {expiringProducts.map(p => {
+              const expiry = new Date(p.expiryDate!);
+              const diffTime = Math.abs(expiry.getTime() - new Date().getTime());
+              const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+              
+              return (
+                <div key={p.id} className="bg-white/80 backdrop-blur-md p-4 rounded-3xl border border-amber-100 flex flex-col justify-between shadow-sm hover:shadow-md transition-all hover:-translate-y-1 group">
+                  <div className="mb-4">
+                    <h4 className="font-black text-gray-800 line-clamp-1 group-hover:text-amber-700 transition-colors uppercase tracking-tight">{p.name}</h4>
+                    <div className="flex items-center gap-2 mt-1">
+                       <span className="text-[10px] bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full font-black uppercase">Expires in {diffDays} days</span>
+                    </div>
+                  </div>
+                  <div className="flex items-center justify-between pt-3 border-t border-amber-50">
+                    <div className="flex flex-col">
+                      <span className="text-[9px] text-gray-400 font-bold uppercase tracking-wider">Date</span>
+                      <span className="text-xs font-black text-gray-700">{p.expiryDate}</span>
+                    </div>
+                    <div className="flex flex-col text-right">
+                      <span className="text-[9px] text-gray-400 font-bold uppercase tracking-wider">Stock</span>
+                      <span className="text-xs font-black text-gray-700">{p.stock} {p.unit}</span>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </motion.div>
+      )}
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
         <motion.div variants={itemVariants} whileHover={{ y: -5 }}><StatCard icon={DollarSign} label={`${period === 'day' ? (systemLang === 'ar' ? 'مবিবরণ' : 'Today') : ''} ${st('totalSales')}`} value={fC(totalSales)} color="bg-blue-50 text-blue-600" /></motion.div>
@@ -6224,50 +6651,15 @@ function SupplierPage({ products, settings }: { products: Product[], settings: S
                       >
                         <td className="px-8 py-7">
                           <div className="flex items-center gap-4">
-                            <div className={`w-12 h-12 rounded-2xl bg-${theme.bg.split(' ')[0]} flex items-center justify-center text-${theme.primary} font-black shadow-inner border border-${theme.primary.split('-')[0]}-100 transition-transform group-hover:scale-110`}>
-                              <Factory className="w-6 h-6" />
-                            </div>
-                            <div className="flex flex-col">
-                              <span className={`text-lg font-black text-gray-900 tracking-tight group-hover:text-${theme.primary.split('-')[0]}-700 transition-colors uppercase`}>{supplier.company}</span>
-                              <div className="flex items-center gap-2 mt-0.5">
-                                <Tag className={`w-3 h-3 text-${theme.primary.split('-')[0]}-500`} />
-                                <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest">{supplier.brand} • {supplier.category}</span>
-                              </div>
-                            </div>
+                             <div className="w-12 h-12 rounded-2xl bg-gray-100 flex items-center justify-center font-black">
+                                {supplier.company.charAt(0)}
+                             </div>
+                             <div className="flex flex-col">
+                               <span className="text-lg font-black text-gray-900 uppercase">{supplier.company}</span>
+                             </div>
                           </div>
                         </td>
-                        <td className="px-8 py-7">
-                          <div className="flex items-center gap-4">
-                            <div className={`w-10 h-10 rounded-full bg-${theme.bg.split(' ')[0]} flex items-center justify-center text-${theme.primary} font-bold overflow-hidden border-2 border-white shadow-sm ring-1 ring-${theme.primary.split('-')[0]}-100`}>
-                               {supplier.srName.charAt(0)}
-                            </div>
-                            <div className="flex flex-col gap-0.5">
-                               <div className="flex items-center gap-2">
-                                 <span className="text-[14px] font-black text-gray-700 tracking-tight uppercase">{supplier.srName}</span>
-                               </div>
-                               <div className="flex items-center gap-2">
-                                 <PhoneCall className="w-2.5 h-2.5 text-gray-300" />
-                                 <span className="text-[10px] font-bold text-gray-400 font-mono tracking-tighter tabular-nums">{supplier.srPhone}</span>
-                               </div>
-                            </div>
-                          </div>
-                        </td>
-                        <td className="px-8 py-7">
-                           <div className="flex items-center gap-5">
-                              <div className="flex flex-col">
-                                 <span className="text-[15px] font-black text-gray-900 font-mono tracking-tighter tabular-nums">{supplier.productCount}</span>
-                                 <span className="text-[9px] font-black text-gray-400 uppercase tracking-widest">Active SKUs</span>
-                              </div>
-                              <div className="w-px h-8 bg-gray-100"></div>
-                              <div className="flex flex-col">
-                                 <div className="flex items-center gap-1">
-                                   <DatabaseIcon className="w-2.5 h-2.5 text-emerald-500" />
-                                   <span className="text-[15px] font-black text-emerald-600 font-mono tracking-tighter tabular-nums">0.00</span>
-                                 </div>
-                                 <span className="text-[9px] font-black text-gray-400 uppercase tracking-widest font-black">Net Balance</span>
-                              </div>
-                           </div>
-                        </td>
+
                         <td className="px-8 py-7 text-center relative">
                            <div className="flex flex-col items-center gap-2">
                               <span className={`px-4 py-1.5 rounded-full text-[9px] font-black uppercase tracking-[0.2em] border transition-all ${
@@ -6303,7 +6695,7 @@ function SupplierPage({ products, settings }: { products: Product[], settings: S
            <motion.div 
             variants={itemVariants}
             className="bg-white p-10 rounded-[3rem] shadow-xl border border-gray-100 text-center relative overflow-hidden group"
-          >
+           >
              <div className={`absolute top-0 left-0 w-full h-1.5 bg-gradient-to-r ${theme.gradient}`}></div>
              <div className={`w-24 h-24 bg-${theme.bg.split(' ')[0]} text-${theme.primary} rounded-[2.5rem] flex items-center justify-center mx-auto mb-8 shadow-inner group-hover:scale-110 transition-transform duration-700`}>
                 <Warehouse className="w-12 h-12" />
@@ -6325,24 +6717,21 @@ function SupplierPage({ products, settings }: { products: Product[], settings: S
                 </div>
 
                 <div className="p-6 bg-gray-50 border border-gray-100 rounded-3xl flex items-center gap-4 group/card hover:bg-white transition-all shadow-sm">
-                   <div className={`w-12 h-12 bg-white rounded-2xl flex items-center justify-center text-${theme.primary} shadow-sm group-hover/card:scale-110 transition-transform`}>
-                      <ShieldCheck className="w-6 h-6" />
+                   <div className="w-12 h-12 bg-white rounded-2xl shadow-sm flex items-center justify-center text-indigo-600">
+                      <Lock className="w-6 h-6" />
                    </div>
                    <div>
-                      <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest leading-none mb-1">Active Vendors</p>
-                      <p className="text-base font-black text-gray-900 uppercase">{suppliers.length} Nodes</p>
-                   </div>
-                </div>
-
-                <div className={`p-8 border-2 border-dashed border-gray-100 rounded-[2.5rem] flex flex-col items-center gap-4 group-hover:border-${theme.primary.split('-')[0]}-100 transition-colors`}>
-                   <div className={`w-12 h-12 bg-gray-50 rounded-2xl flex items-center justify-center text-gray-300 group-hover:bg-${theme.bg.split(' ')[0]} group-hover:text-${theme.primary.split('-')[0]}-400 transition-all`}>
-                      <AlertCircle className="w-6 h-6" />
-                   </div>
-                   <p className="text-[9px] font-black text-gray-400 uppercase tracking-widest text-center leading-relaxed font-black">Ready for inventory sync node update.</p>
-                </div>
-             </div>
-          </motion.div>
+                      <p className="text-[9px] font-black text-gray-400 uppercase tracking-widest leading-none mb-1">Status</p>
+                     <p className="text-base font-black text-indigo-600 uppercase">Awaits Key</p>
+                  </div>
+              </div>
+           </div>
+           </motion.div>
         </div>
+
+        {/* Design Accents */}
+        <div className="absolute -bottom-10 -right-10 w-64 h-64 bg-indigo-50 rounded-full blur-[60px] opacity-50"></div>
+        <div className="absolute -top-10 -left-10 w-48 h-48 bg-violet-50 rounded-full blur-[60px] opacity-50"></div>
       </div>
     </motion.div>
   );
@@ -6356,32 +6745,21 @@ function ActivationCodePage() {
     shadow: 'shadow-indigo-200'
   };
 
-  const containerVariants = {
-    hidden: { opacity: 0 },
-    visible: { opacity: 1, transition: { staggerChildren: 0.1 } }
-  };
-
-  const itemVariants = {
-    hidden: { opacity: 0, scale: 0.95 },
-    visible: { opacity: 1, scale: 1, transition: { duration: 0.5, ease: "easeOut" } }
-  };
-
   return (
     <motion.div 
-      initial="hidden"
-      animate="visible"
-      variants={containerVariants}
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
       className="max-w-4xl mx-auto space-y-12 py-12"
     >
-      <motion.div variants={itemVariants} className="text-center space-y-6">
+      <div className="text-center space-y-6">
         <div className="w-24 h-24 bg-white rounded-[2.5rem] shadow-xl border border-indigo-100 flex items-center justify-center mx-auto ring-4 ring-indigo-50 transition-transform hover:rotate-12 duration-500">
            <Zap className="w-12 h-12 text-indigo-600" />
         </div>
         <h2 className="text-5xl font-black text-gray-900 uppercase tracking-tighter italic">Activation Node</h2>
         <p className="text-[12px] font-black text-gray-400 uppercase tracking-[0.3em]">Initialize high-level system protocols via license matrix</p>
-      </motion.div>
+      </div>
 
-      <motion.div variants={itemVariants} className="bg-white p-12 rounded-[4rem] shadow-[0_30px_80px_-20px_rgba(79,70,229,0.15)] border border-gray-100 relative overflow-hidden group">
+      <div className="bg-white p-12 rounded-[4rem] shadow-[0_30px_80px_-20px_rgba(79,70,229,0.15)] border border-gray-100 relative overflow-hidden group">
          <div className={`absolute top-0 left-0 w-full h-2 bg-gradient-to-r ${theme.gradient}`}></div>
          
          <div className="space-y-10 relative z-10">
@@ -6401,43 +6779,16 @@ function ActivationCodePage() {
                Verify System Integrity
                <ChevronRight className="w-5 h-5 transition-transform group-hover/btn:translate-x-2" />
             </button>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mt-12">
-               <div className="p-6 bg-gray-50 rounded-3xl border border-gray-100 flex items-center gap-5 translate-y-0 hover:-translate-y-1 transition-all">
-                  <div className="w-12 h-12 bg-white rounded-2xl shadow-sm flex items-center justify-center text-indigo-600">
-                     <DatabaseIcon className="w-6 h-6" />
-                  </div>
-                  <div>
-                     <p className="text-[9px] font-black text-gray-400 uppercase tracking-widest leading-none mb-1">Local Identity</p>
-                     <p className="text-base font-black text-gray-900 uppercase">OFFLINE NODE</p>
-                  </div>
-               </div>
-               <div className="p-6 bg-gray-50 rounded-3xl border border-gray-100 flex items-center gap-5 translate-y-0 hover:-translate-y-1 transition-all">
-                  <div className="w-12 h-12 bg-white rounded-2xl shadow-sm flex items-center justify-center text-indigo-600">
-                     <Lock className="w-6 h-6" />
-                  </div>
-                  <div>
-                     <p className="text-[9px] font-black text-gray-400 uppercase tracking-widest leading-none mb-1">Status</p>
-                     <p className="text-base font-black text-indigo-600 uppercase">Awaits Key</p>
-                  </div>
-               </div>
-            </div>
          </div>
-
-         {/* Design Accents */}
-         <div className="absolute -bottom-10 -right-10 w-64 h-64 bg-indigo-50 rounded-full blur-[60px] opacity-50"></div>
-         <div className="absolute -top-10 -left-10 w-48 h-48 bg-violet-50 rounded-full blur-[60px] opacity-50"></div>
-      </motion.div>
+      </div>
     </motion.div>
   );
 }
-
 function WarrantyPage({ products, settings }: { products: Product[], settings: ShopSettings }) {
   const [searchTerm, setSearchTerm] = useState('');
   const theme = PAGE_THEMES.warranty;
 
   const warrantyProducts = useMemo(() => {
-    // Demo data as requested if none exists
     const base = products.filter(p => !!p.warranty);
     if (base.length === 0 && products.length > 0) {
       return products.slice(0, 5).map((p, idx) => ({
@@ -6450,7 +6801,7 @@ function WarrantyPage({ products, settings }: { products: Product[], settings: S
 
   const filtered = warrantyProducts.filter(p => 
     p.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    p.barcode.includes(searchTerm)
+    (p.barcode && p.barcode.includes(searchTerm))
   );
 
   return (
@@ -6482,287 +6833,391 @@ function WarrantyPage({ products, settings }: { products: Product[], settings: S
         <div className="lg:col-span-3 space-y-8">
           <div className="bg-white p-4 rounded-[2rem] shadow-sm border border-gray-100 flex flex-col sm:flex-row items-center gap-4 ring-1 ring-black/[0.02]">
             <div className="relative flex-1 group w-full">
-              <Search className={`absolute left-6 top-1/2 -translate-y-1/2 text-gray-400 w-5 h-5 group-focus-within:text-${theme.primary.split('-')[0]}-500 transition-colors`} />
+              <Search className="absolute left-6 top-1/2 -translate-y-1/2 text-gray-400 w-5 h-5 transition-colors group-focus-within:text-cyan-600" />
               <input 
-                type="text"
-                placeholder="Track product protection by name or barcode..."
-                className={`w-full pl-16 pr-6 py-5 bg-gray-50/50 border-none rounded-2xl text-base font-bold focus:ring-2 focus:ring-${theme.primary.split('-')[0]}-500 transition-all outline-none`}
+                type="text" 
+                placeholder="Secure lookup via product hash or identifier..."
+                className="w-full pl-16 pr-8 py-5 bg-gray-50/50 border-2 border-transparent rounded-3xl text-sm font-black focus:bg-white focus:border-cyan-500 transition-all outline-none"
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
               />
             </div>
           </div>
 
-          <div className={`bg-white rounded-[2.5rem] shadow-[0_10px_60px_-15px_rgba(0,0,0,0.08)] border border-gray-100 overflow-hidden ring-1 ring-black/[0.02]`}>
-            <div className="overflow-x-auto">
-              <table className="w-full text-left border-collapse min-w-[900px]">
-                <thead>
-                  <tr className="bg-gray-50/50">
-                    <th className="px-8 py-6 text-[10px] font-black text-gray-400 uppercase tracking-[0.2em] border-b border-gray-100">Product Node</th>
-                    <th className="px-8 py-6 text-[10px] font-black text-gray-400 uppercase tracking-[0.2em] border-b border-gray-100">Coverage Terms</th>
-                    <th className="px-8 py-6 text-[10px] font-black text-gray-400 uppercase tracking-[0.2em] border-b border-gray-100 italic">Serial/Barcode</th>
-                    <th className="px-8 py-6 text-[10px] font-black text-gray-400 uppercase tracking-[0.2em] border-b border-gray-100 text-center">Status</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-gray-50">
-                  <AnimatePresence mode="popLayout">
-                    {filtered.map((p, idx) => (
-                      <motion.tr 
-                        key={p.id}
-                        layout
-                        initial={{ opacity: 0, x: -20 }}
-                        animate={{ opacity: 1, x: 0 }}
-                        transition={{ duration: 0.3, delay: idx * 0.05 }}
-                        whileHover={{ backgroundColor: "rgba(0,0,0,0.02)" }}
-                        className="group"
-                      >
-                        <td className="px-8 py-7">
-                          <div className="flex items-center gap-4">
-                            <div className={`w-12 h-12 rounded-2xl bg-${theme.bg.split(' ')[0]} flex items-center justify-center text-${theme.primary} font-black shadow-inner`}>
-                              {p.name.charAt(0)}
-                            </div>
-                            <div className="flex flex-col">
-                              <span className={`text-lg font-black text-gray-900 tracking-tight group-hover:text-${theme.primary.split('-')[0]}-700 transition-colors uppercase`}>{p.name}</span>
-                              <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest">{p.category}</span>
-                            </div>
-                          </div>
-                        </td>
-                        <td className="px-8 py-7">
-                          <div className="flex items-center gap-2">
-                             <Shield className={`w-4 h-4 text-${theme.primary.split('-')[0]}-500`} />
-                             <span className="text-[13px] font-black text-gray-700 uppercase tracking-tight">{p.warranty}</span>
-                          </div>
-                        </td>
-                        <td className="px-8 py-7">
-                          <code className="text-xs font-black text-gray-400 font-mono tracking-widest tabular-nums">{p.barcode}</code>
-                        </td>
-                        <td className="px-8 py-7 text-center relative">
-                          <span className={`px-4 py-1.5 rounded-full bg-emerald-50 text-emerald-600 text-[9px] font-black uppercase tracking-[0.2em] border border-emerald-100`}>
-                             Protected
-                          </span>
-                          <div className={`absolute right-0 top-1/2 -translate-y-1/2 w-1 h-12 bg-${theme.primary} rounded-l-full transition-all scale-y-0 group-hover:scale-y-100 opacity-60`}></div>
-                        </td>
-                      </motion.tr>
-                    ))}
-                  </AnimatePresence>
-                </tbody>
-              </table>
-              {filtered.length === 0 && (
-                <div className="p-24 text-center flex flex-col items-center">
-                  <div className={`w-20 h-20 bg-${theme.bg.split(' ')[0]} rounded-3xl flex items-center justify-center mb-6 ring-1 ring-${theme.primary.split('-')[0]}-100`}>
-                    <ShieldCheck className={`w-8 h-8 text-${theme.primary.split('-')[0]}-200`} />
-                  </div>
-                  <h4 className="text-xl font-black text-gray-900 uppercase">Protection Blindspot</h4>
-                  <p className="text-gray-400 text-xs font-bold mt-2 uppercase tracking-widest leading-loose">No warranty-serialized units found matching these terms.</p>
-                </div>
-              )}
-            </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <AnimatePresence>
+              {filtered.map((item, idx) => (
+                <motion.div
+                  key={item.id}
+                  initial={{ opacity: 0, scale: 0.9 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  exit={{ opacity: 0, scale: 0.9 }}
+                  transition={{ delay: idx * 0.05 }}
+                  className="bg-white p-6 rounded-[2.5rem] shadow-sm border border-gray-100 relative overflow-hidden group hover:shadow-xl hover:shadow-cyan-500/5 transition-all"
+                >
+                   <div className="absolute top-0 right-0 w-32 h-32 bg-cyan-50 rounded-full -mr-16 -mt-16 group-hover:scale-150 transition-transform duration-700 blur-2xl opacity-10"></div>
+                   <div className="absolute bottom-0 left-0 w-24 h-24 bg-cyan-100 rounded-full -ml-12 -mb-12 group-hover:scale-150 transition-transform duration-700 blur-2xl opacity-10"></div>
+                   
+                   <div className="flex items-center gap-4 mb-6 relative">
+                     <div className={`w-14 h-14 rounded-2xl bg-cyan-50 flex items-center justify-center group-hover:scale-110 transition-transform`}>
+                       <ShieldCheck className="w-7 h-7 text-cyan-600" />
+                     </div>
+                     <div>
+                       <h3 className="font-black text-gray-900 text-lg leading-tight truncate max-w-[200px]">{item.name}</h3>
+                       <p className="text-[10px] font-black text-cyan-600 uppercase tracking-widest mt-1">Protected Asset</p>
+                     </div>
+                   </div>
+
+                   <div className="space-y-4 relative">
+                     <div className="p-4 bg-gray-50 rounded-[1.5rem] border border-gray-100 group-hover:bg-white transition-colors">
+                       <div className="flex justify-between items-center mb-3">
+                         <span className="text-[9px] font-black text-gray-400 uppercase tracking-wider">Warranty Status</span>
+                         <span className="px-3 py-1 bg-cyan-50 text-cyan-700 rounded-full text-[8px] font-black uppercase ring-1 ring-cyan-100">Active</span>
+                       </div>
+                       
+                       <div className="grid grid-cols-2 gap-4">
+                         <div>
+                            <p className="text-[8px] font-bold text-gray-400 uppercase tracking-tighter mb-1">Duration</p>
+                            <p className="text-xs font-black text-gray-900">{item.warranty || '0'} Days</p>
+                         </div>
+                         <div>
+                            <p className="text-[8px] font-bold text-gray-400 uppercase tracking-tighter mb-1">Coverage</p>
+                            <p className="text-xs font-black text-gray-900">Full Service</p>
+                         </div>
+                       </div>
+                     </div>
+
+                     <div className="flex items-center justify-between pt-2">
+                       <div className="flex flex-col">
+                         <span className="text-[8px] font-black text-gray-400 uppercase tracking-widest">Identifier</span>
+                         <span className="text-[10px] font-mono font-bold text-gray-900">#{item.id?.slice(-8) || item.barcode}</span>
+                       </div>
+                       <button className="p-3 bg-gray-900 text-white rounded-2xl hover:bg-cyan-600 transition-all shadow-lg active:scale-95 group-hover:rotate-6">
+                         <ArrowRight className="w-4 h-4" />
+                       </button>
+                     </div>
+                   </div>
+                </motion.div>
+              ))}
+            </AnimatePresence>
           </div>
         </div>
 
-        <div className="space-y-8">
-           <motion.div 
-            initial={{ opacity: 0, x: 20 }}
-            animate={{ opacity: 1, x: 0 }}
-            className="bg-white p-10 rounded-[3rem] shadow-xl border border-gray-100 text-center relative overflow-hidden group"
-          >
-             <div className={`absolute top-0 left-0 w-full h-1.5 bg-gradient-to-r ${theme.gradient}`}></div>
-             <div className={`w-24 h-24 bg-${theme.bg.split(' ')[0]} text-${theme.primary} rounded-[2.5rem] flex items-center justify-center mx-auto mb-8 shadow-inner group-hover:scale-110 transition-transform duration-700`}>
-                <Shield className="w-12 h-12" />
+        <div className="space-y-6">
+           <div className="bg-gray-900 rounded-[2.5rem] p-8 text-white relative overflow-hidden group shadow-2xl">
+             <div className="absolute top-0 right-0 w-48 h-48 bg-cyan-500 rounded-full -mr-24 -mt-24 blur-3xl opacity-20 group-hover:opacity-40 transition-opacity"></div>
+             <div className="relative">
+               <h3 className="text-xl font-black mb-4">Warranty Statistics</h3>
+               <div className="space-y-6">
+                 <div className="flex items-center gap-4">
+                   <div className="w-12 h-12 bg-white/10 rounded-2xl flex items-center justify-center font-black text-cyan-400">
+                     {products.filter(p => (Number(p.warranty) || 0) > 0).length}
+                   </div>
+                   <p className="text-sm font-bold text-gray-400">Total Items Protected</p>
+                 </div>
+               </div>
              </div>
-             <h3 className="text-2xl font-black text-gray-900 uppercase tracking-tight">Assurance Meta</h3>
-             <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mt-3 leading-relaxed">Aggregated safety protocols and claim metrics.</p>
-
-             <div className="mt-10 space-y-4 text-left">
-                <div className={`p-8 bg-gradient-to-br from-${theme.primary.split('-')[0]}-900 to-${theme.primary.split('-')[0]}-800 rounded-[2.5rem] text-white relative overflow-hidden shadow-2xl`}>
-                   <div className="absolute top-0 right-0 w-32 h-32 bg-white/5 rounded-full blur-[40px]"></div>
-                   <p className="text-[9px] font-black text-white/40 uppercase tracking-[0.3em] mb-4">Coverage Heat</p>
-                   <div className="flex items-end justify-between mb-4">
-                      <p className="text-3xl font-black text-white font-mono tracking-tighter leading-none">Global</p>
-                      <span className={`text-[10px] font-black text-${theme.primary.split('-')[0]}-400 uppercase`}>Secure</span>
-                   </div>
-                   <div className="w-full h-1 bg-white/10 rounded-full mt-2 overflow-hidden">
-                      <div className={`w-[92%] h-full bg-${theme.primary.split('-')[0]}-500 shadow-[0_0_10px_rgba(0,0,0,0.8)]`}></div>
-                   </div>
-                </div>
-
-                <div className="p-6 bg-gray-50 border border-gray-100 rounded-3xl flex items-center gap-4 group/card hover:bg-white transition-all shadow-sm">
-                   <div className={`w-12 h-12 bg-white rounded-2xl flex items-center justify-center text-${theme.primary} shadow-sm group-hover/card:scale-110 transition-transform`}>
-                      <ShieldAlert className="w-6 h-6" />
-                   </div>
-                   <div>
-                      <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest leading-none mb-1">Claim Risk</p>
-                      <p className="text-base font-black text-gray-900 uppercase">Minimal</p>
-                   </div>
-                </div>
-             </div>
-          </motion.div>
+           </div>
         </div>
       </div>
     </motion.div>
   );
 }
+
 function POS({ 
-  sales,
   products, 
+  customers, 
   cart, 
   addToCart, 
   removeFromCart, 
   updateCartQuantity, 
-  updateCartQuantityManual,
-  updateCartPriceManual,
+  updateCartQuantityManual, 
+  updateCartPriceManual, 
+  updateCartLineTotalManual, 
+  checkoutData, 
+  setCheckoutData, 
   handleCheckout, 
   discount, 
   setDiscount, 
+  finalTotal, 
   cartTotal, 
-  finalTotal,
-  customers,
-  checkoutData,
-  setCheckoutData,
+  setNotification, 
+  settings,
+  sales,
   editingSale,
   onCancelEdit,
-  settings,
-  setNotification,
   user,
-  isOnline
+  isOnline,
+  onAddCustomer,
+  generateCustomerSuggestion,
+  isCustomerModalOpen,
+  setIsCustomerModalOpen,
+  customerSuggestion,
+  isCustomerVoiceListening,
+  setIsCustomerVoiceListening
 }: { 
-  sales: Sale[],
-  products: Product[], 
+  products: Product[],
+  customers: Customer[],
   cart: CartItem[], 
-  addToCart: (p: Product) => void, 
-  removeFromCart: (id: string) => void, 
+  addToCart: (p: Product, q?: number) => void, 
+  removeFromCart: (id: string) => void,
   updateCartQuantity: (id: string, delta: number) => void,
-  updateCartQuantityManual: (id: string, quantity: number) => void,
-  updateCartPriceManual: (id: string, price: number) => void,
+  updateCartQuantityManual: (id: string, q: number) => void,
+  updateCartPriceManual: (id: string, p: number) => void,
+  updateCartLineTotalManual: (id: string, t: number) => void,
+  checkoutData: any,
+  setCheckoutData: any,
   handleCheckout: () => void,
   discount: number,
   setDiscount: (d: number) => void,
-  cartTotal: number,
   finalTotal: number,
-  customers: Customer[],
-  checkoutData: any,
-  setCheckoutData: any,
-  editingSale: Sale | null,
-  onCancelEdit: () => void,
+  cartTotal: number,
+  setNotification: (n: any) => void,
   settings: ShopSettings,
-  setNotification: any,
-  user: AppUser,
-  isOnline: boolean
+  sales?: Sale[],
+  editingSale?: Sale | null,
+  onCancelEdit?: () => void,
+  user?: any,
+  isOnline?: boolean,
+  onAddCustomer?: () => void,
+  generateCustomerSuggestion?: (q: string) => void,
+  isCustomerModalOpen?: boolean,
+  setIsCustomerModalOpen?: (o: boolean) => void,
+  customerSuggestion?: string,
+  isCustomerVoiceListening?: boolean,
+  setIsCustomerVoiceListening?: (l: boolean) => void
 }) {
   const [searchTerm, setSearchTerm] = useState('');
   const [categoryFilter, setCategoryFilter] = useState('');
-  const [isCheckoutModalOpen, setIsCheckoutModalOpen] = useState(false);
   const theme = PAGE_THEMES.pos;
+  const systemLang = settings.systemLanguage || 'bn';
+  const st = (key: keyof typeof SYSTEM_TRANSLATIONS['en']) => (SYSTEM_TRANSLATIONS[systemLang] as any)[key] || (SYSTEM_TRANSLATIONS['en'] as any)[key];
 
-  const categories = Array.from(new Set(products.map(p => p.category))).filter(Boolean);
   const filteredProducts = products.filter(p => 
-    (p.name.toLowerCase().includes(searchTerm.toLowerCase()) || p.barcode.includes(searchTerm)) &&
+    p.name.toLowerCase().includes(searchTerm.toLowerCase()) && 
     (categoryFilter === '' || p.category === categoryFilter)
   );
 
-  const systemLang = settings.systemLanguage || 'bn';
-  const st = (key: keyof typeof SYSTEM_TRANSLATIONS['en']) => (SYSTEM_TRANSLATIONS[systemLang] as any)[key] || (SYSTEM_TRANSLATIONS['en'] as any)[key];
+  const handleVoiceCommand = (rawText: string) => {
+    const { searchName, quantity } = parseVoiceCommandQuantity(rawText);
+    const matches = products.filter(p => p.name.toLowerCase().includes(searchName.toLowerCase()));
+    if (matches.length > 0) {
+      const bestMatch = matches[0];
+      const addQty = quantity > 0 ? quantity : 1;
+      addToCart(bestMatch, addQty);
+      setNotification({ type: 'success', message: `Added ${addQty}x "${bestMatch.name}" to cart.` });
+      setSearchTerm('');
+    } else {
+      setSearchTerm(searchName);
+    }
+  };
+
+  const voiceLang = settings.systemLanguage === 'bn' ? 'bn-BD' : (settings.systemLanguage === 'ar' ? 'ar-SA' : 'en-US');
+  const { isListening, voiceFeedback, toggleVoiceSearch } = useVoiceSearch(handleVoiceCommand, (err) => {
+    if (err === 'not-allowed') {
+      setNotification({ message: "Microphone access denied. Please allow microphone in browser settings.", type: 'error' });
+    } else {
+      setNotification({ message: `Voice search error: ${err}`, type: 'error' });
+    }
+  }, voiceLang);
+
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Enter' && searchTerm.trim()) {
+      e.preventDefault();
+      
+      let match = products.find(p => p.barcode && p.barcode === searchTerm.trim());
+      
+      if (!match && filteredProducts.length > 0) {
+        match = filteredProducts[0];
+      }
+
+      if (match) {
+        addToCart(match, 1);
+        setNotification({ type: 'success', message: `Added "${match.name}" to cart.` });
+        setSearchTerm('');
+      } else {
+        setNotification({ type: 'error', message: `No product found for "${searchTerm.trim()}"` });
+        setSearchTerm('');
+      }
+    }
+  };
 
   return (
     <motion.div 
       initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
       exit={{ opacity: 0, y: -20 }}
-      className="h-[calc(100vh-140px)] flex flex-col gap-6"
+      className="h-[calc(100vh-2.5rem)] lg:h-[calc(100vh-5rem)] flex flex-col gap-3 md:gap-4 p-2 md:p-0"
     >
-      <header className="flex flex-col md:flex-row md:items-center justify-between gap-6 bg-white p-6 rounded-3xl shadow-sm border border-gray-100 relative overflow-hidden shrink-0">
-        <div className={`absolute top-0 left-0 w-full h-1.5 bg-gradient-to-r ${theme.gradient} shadow-sm`}></div>
-        <div className="flex items-center gap-4">
-          <div className={`w-12 h-12 ${theme.bg} text-${theme.primary} rounded-2xl flex items-center justify-center shadow-inner`}>
-            <ShoppingCart className="w-6 h-6" />
+      <header className="flex flex-col xl:flex-row xl:items-center justify-between gap-4 bg-white p-4 md:p-5 rounded-[1.5rem] md:rounded-[2rem] shadow-sm border border-gray-100 relative overflow-hidden shrink-0">
+        <div className={`absolute top-0 left-0 w-full h-1 bg-gradient-to-r ${theme.gradient} shadow-sm`}></div>
+        <div className="flex items-center gap-4 shrink-0">
+          <div className={`w-11 h-11 ${theme.bg} text-${theme.primary} rounded-2xl flex items-center justify-center shadow-inner`}>
+            <ShoppingCart className="w-5 h-5" />
           </div>
           <div>
-            <h2 className="text-2xl font-black text-gray-900 tracking-tight">{st('pos')}</h2>
-            <p className="text-xs text-gray-400 font-bold uppercase tracking-widest">New Order Entry</p>
+            <h2 className="text-xl font-black text-gray-900 tracking-tight leading-none">Point of Sale</h2>
+            <p className="text-[9px] text-gray-400 font-bold uppercase tracking-widest mt-1">New Order Entry</p>
           </div>
         </div>
         
-        <div className="flex-1 w-full flex flex-wrap xl:flex-nowrap items-center gap-3">
-          <div className="flex items-center gap-2 shrink-0">
-            <select 
-              className="w-40 bg-white border border-gray-100 rounded-2xl px-4 py-3 text-sm font-bold focus:ring-2 focus:ring-emerald-500 shadow-sm outline-none cursor-pointer appearance-none text-gray-700"
-              value={checkoutData.customerId || ''}
-              onChange={(e) => setCheckoutData({...checkoutData, customerId: e.target.value})}
-            >
-              <option value="">Select Customer</option>
-              {customers.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-            </select>
-            <input 
-              type="text" 
-              placeholder="Name" 
-              className="w-32 bg-white border border-gray-100 rounded-2xl px-4 py-3 text-sm font-bold focus:ring-2 focus:ring-emerald-500 shadow-sm outline-none text-gray-700" 
-              value={checkoutData.walkInName || ''}
-              onChange={(e) => setCheckoutData({...checkoutData, walkInName: e.target.value})}
-            />
-            <input 
-              type="text" 
-              placeholder="Mobile" 
-              className="w-32 bg-white border border-gray-100 rounded-2xl px-4 py-3 text-sm font-bold focus:ring-2 focus:ring-emerald-500 shadow-sm outline-none text-gray-700" 
-              value={checkoutData.walkInPhone || ''}
-              onChange={(e) => setCheckoutData({...checkoutData, walkInPhone: e.target.value})}
-            />
+        <div className="flex-1 w-full flex flex-col lg:flex-row items-stretch lg:items-center gap-3 xl:gap-8 lg:px-2">
+          {/* Customer Selection Group */}
+          <div className="flex flex-wrap sm:flex-nowrap items-center gap-2 bg-gray-50/80 p-1 rounded-2xl border border-gray-100 shadow-sm transition-all hover:bg-white hover:border-emerald-100 min-w-0 lg:max-w-[400px]">
+            <div className="relative group w-full sm:w-48">
+              <input 
+                type="text" 
+                placeholder={checkoutData.customerId ? customers.find(c => c.id === checkoutData.customerId)?.name : "Search customer..."}
+                className="w-full bg-white border border-gray-100 rounded-xl px-3 py-2 text-[10px] font-black focus:ring-2 focus:ring-emerald-500 shadow-sm outline-none text-gray-700 transition-all placeholder:text-gray-300 h-9" 
+                value={checkoutData.walkInName || ''}
+                onChange={(e) => {
+                  const val = e.target.value;
+                  setCheckoutData({...checkoutData, walkInName: val});
+                  if (val.length > 1) {
+                    const matched = customers.some(c => c.name.toLowerCase().includes(val.toLowerCase()) || (c.phone && c.phone.includes(val)));
+                    if (!matched && val.length > 5) {
+                      // Trigger AI search logic after some delay or on specific condition
+                    }
+                  }
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && checkoutData.walkInName) {
+                    const matched = customers.filter(c => c.name.toLowerCase().includes(checkoutData.walkInName!.toLowerCase()) || (c.phone && c.phone.includes(checkoutData.walkInName!)));
+                    if (matched.length === 0) {
+                      generateCustomerSuggestion?.(checkoutData.walkInName!);
+                    } else if (matched.length === 1) {
+                      setCheckoutData({...checkoutData, customerId: matched[0].id, walkInName: '', walkInPhone: ''});
+                    }
+                  }
+                }}
+              />
+              {checkoutData.walkInName && customers.filter(c => c.name.toLowerCase().includes(checkoutData.walkInName!.toLowerCase()) || (c.phone && c.phone.includes(checkoutData.walkInName!))).length > 0 && (
+                <div className="absolute left-0 top-full mt-1 w-full bg-white border border-gray-100 rounded-xl shadow-xl z-50 max-h-48 overflow-y-auto">
+                  {customers.filter(c => c.name.toLowerCase().includes(checkoutData.walkInName!.toLowerCase()) || (c.phone && c.phone.includes(checkoutData.walkInName!))).map(c => (
+                    <div 
+                      key={c.id} 
+                      className="px-3 py-2 text-[10px] font-black text-gray-700 hover:bg-emerald-50 cursor-pointer border-b border-gray-50 last:border-0"
+                      onClick={() => setCheckoutData({...checkoutData, customerId: c.id, walkInName: '', walkInPhone: ''})}
+                    >
+                      {c.name} {c.phone && <span className="text-gray-400">({c.phone})</span>}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+            
+            <div className="flex gap-2 flex-1 min-w-0">
+              <input 
+                type="text" 
+                placeholder="Mobile" 
+                className="flex-1 min-w-0 bg-white border border-gray-100 rounded-xl px-2 py-2 text-[10px] font-black focus:ring-2 focus:ring-emerald-500 shadow-sm outline-none text-gray-700 transition-all placeholder:text-gray-300 h-9" 
+                value={checkoutData.walkInPhone || ''}
+                readOnly={!!checkoutData.customerId}
+                onChange={(e) => setCheckoutData({...checkoutData, walkInPhone: e.target.value})}
+              />
+            </div>
+
+            {checkoutData.customerId && (
+              <button 
+                onClick={() => setCheckoutData({...checkoutData, customerId: '', walkInName: '', walkInPhone: ''})}
+                className="px-2 py-1 text-[8px] font-black text-gray-400 hover:text-red-500 uppercase transition-colors"
+              >
+                Clear
+              </button>
+            )}
           </div>
-          <div className="relative flex-1 group min-w-[200px]">
-            <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400 w-5 h-5 group-focus-within:text-emerald-500 transition-colors" />
-            <input 
-              type="text"
-              placeholder="Search product or scan barcode..."
-              className="w-full pl-12 pr-12 py-3 bg-gray-50 border-none rounded-2xl text-sm font-bold focus:ring-2 focus:ring-emerald-500 transition-all shadow-inner outline-none"
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              autoFocus
-            />
-            <button className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-400 hover:text-emerald-500">
-              <Mic className="w-5 h-5" />
-            </button>
+
+          <div className="flex-1 flex flex-col sm:flex-row items-stretch sm:items-center gap-2 md:gap-3">
+            {/* Product Search Group */}
+            <div className="flex-1 flex items-center gap-2 bg-[#ebf5e4]/50 p-1 rounded-2xl md:rounded-[1.5rem] border border-emerald-100/30 shadow-sm hover:shadow-md transition-all group/search">
+              <div className="relative flex-1 group">
+                <input 
+                  type="text"
+                  placeholder="Search product..."
+                  className="w-full h-10 md:h-12 pl-4 md:pl-6 pr-10 md:pr-12 bg-white/90 border border-emerald-50/50 rounded-xl md:rounded-[1.25rem] text-[11px] md:text-[13px] font-black focus:ring-2 focus:ring-emerald-500 transition-all shadow-sm outline-none text-gray-800 placeholder:text-gray-400"
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  onKeyDown={handleKeyDown}
+                  autoFocus
+                />
+                <button 
+                  onClick={toggleVoiceSearch}
+                  className={`absolute right-2 md:right-3 top-1/2 -translate-y-1/2 p-2 md:p-2.5 rounded-lg md:rounded-xl transition-all ${isListening ? 'bg-red-50 text-red-500 animate-pulse' : 'text-gray-400 hover:bg-emerald-50 hover:text-emerald-500'}`}
+                >
+                  <Mic className="w-4 h-4 md:w-5 md:h-5" />
+                </button>
+                <AnimatePresence>
+                  {voiceFeedback && (
+                    <motion.div
+                      initial={{ opacity: 0, scale: 0.8 }}
+                      animate={{ opacity: 1, scale: 1 }}
+                      exit={{ opacity: 0, scale: 0.8 }}
+                      className="absolute -bottom-8 left-0 right-0 py-1 bg-emerald-600 text-white text-[9px] font-black rounded-lg text-center shadow-lg z-50 border border-white/20 px-2 truncate"
+                    >
+                      "{voiceFeedback}"
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+              </div>
+            </div>
+
+            {/* Category Filter */}
+            <div className="shrink-0">
+              <select 
+                className="w-full bg-white border border-gray-100 rounded-xl md:rounded-[1.25rem] px-3 md:px-5 h-10 md:h-12 text-[10px] md:text-[11px] font-black text-gray-700 tracking-wide focus:ring-2 focus:ring-emerald-500 transition-all shadow-sm min-w-0 md:min-w-[160px] outline-none cursor-pointer hover:bg-gray-50 flex items-center"
+                value={categoryFilter}
+                onChange={(e) => setCategoryFilter(e.target.value)}
+              >
+                <option value="">All Categories</option>
+                {FIXED_CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
+              </select>
+            </div>
           </div>
-          <select 
-            className="bg-gray-50 border-none rounded-2xl px-4 py-3 text-sm font-bold focus:ring-2 focus:ring-emerald-500 transition-all shadow-inner min-w-[140px] outline-none"
-            value={categoryFilter}
-            onChange={(e) => setCategoryFilter(e.target.value)}
-          >
-            <option value="">All Categories</option>
-            {categories.map(c => <option key={c} value={c}>{c}</option>)}
-          </select>
         </div>
       </header>
 
-      <div className="flex-1 flex flex-col lg:flex-row gap-6 min-h-0">
+      <div className="flex-1 flex flex-col lg:flex-row gap-5 min-h-0 overflow-hidden lg:overflow-visible">
         {/* Products Area */}
-        <div className="flex-1 overflow-y-auto pr-2 custom-scrollbar">
-          <div className="grid grid-cols-3 md:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6 gap-3">
-            {filteredProducts.slice(0, 10).map((p, idx) => (
+        <div className="flex-1 flex flex-col min-h-0 bg-white rounded-[2rem] md:rounded-[2.5rem] p-4 md:p-6 shadow-sm border border-gray-100 lg:overflow-hidden">
+          <div className="flex items-center justify-between mb-4 md:mb-6">
+            <h2 className="text-xl md:text-2xl font-black text-gray-800 tracking-tight flex items-center gap-3">
+              {st('products')}
+              <span className="text-[10px] bg-emerald-50 text-emerald-600 px-3 py-1 rounded-full border border-emerald-100 font-black uppercase tracking-widest leading-none">
+                {filteredProducts.length} items
+              </span>
+            </h2>
+          </div>
+          
+          <div className="flex-1 overflow-y-auto pr-1 md:pr-2 custom-scrollbar">
+            <div className="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6 gap-3 md:gap-5 pb-8">
+            {filteredProducts.map((p, idx) => (
               <motion.button
                 key={p.id}
                 initial={{ opacity: 0, scale: 0.9 }}
                 animate={{ opacity: 1, scale: 1 }}
-                transition={{ delay: Math.min(idx * 0.02, 0.5) }}
-                whileHover={{ y: -4, scale: 1.02 }}
-                whileTap={{ scale: 0.98 }}
+                transition={{ delay: Math.min(idx * 0.01, 0.3) }}
                 onClick={() => addToCart(p)}
-                disabled={p.stock <= 0}
-                className={`flex flex-col bg-white rounded-2xl p-3 text-left border transition-all duration-300 relative group overflow-hidden ${p.stock <= 0 ? 'opacity-60 grayscale' : 'border-gray-100 hover:border-emerald-200 hover:shadow-lg hover:shadow-emerald-500/5'}`}
+                className={`flex flex-col bg-white rounded-[1.5rem] p-2.5 text-left border transition-all duration-300 relative group overflow-hidden border-gray-100 hover:border-emerald-200 hover:shadow-xl hover:shadow-emerald-500/5 hover:-translate-y-1 ${p.stock <= 0 ? 'border-dashed' : ''}`}
               >
-                <div className={`absolute top-0 right-0 w-1.5 h-1.5 rounded-full m-2 ${p.stock > 10 ? 'bg-emerald-500' : p.stock > 0 ? 'bg-amber-500' : 'bg-red-500'}`}></div>
-                <div className="aspect-square bg-gray-50 rounded-xl mb-2 flex items-center justify-center text-gray-300 group-hover:scale-105 transition-transform overflow-hidden">
-                   {p.imageUrl ? (
+                <div className={`absolute top-2 right-2 w-1.5 h-1.5 rounded-full ${p.stock > 10 ? 'bg-emerald-500' : p.stock > 0 ? 'bg-amber-500' : 'bg-red-500'}`}></div>
+                <div className="aspect-square bg-gray-50 rounded-xl mb-2 flex items-center justify-center text-gray-300 group-hover:scale-105 transition-transform overflow-hidden relative">
+                   {p.imageUrl && !p.imageUrl.includes('wikimedia.org') && !p.imageUrl.includes('wikipedia.org') ? (
                      <img src={p.imageUrl} alt={p.name} className="w-full h-full object-cover" />
                    ) : (
                      <Package className="w-6 h-6 opacity-20" />
                    )}
+                   {p.stock <= 5 && p.stock > 0 && (
+                     <div className="absolute inset-x-0 bottom-0 bg-red-500/90 py-0.5 text-center">
+                        <span className="text-[7px] font-black text-white uppercase tracking-tighter">Low Stock</span>
+                     </div>
+                   )}
                 </div>
                 <div className="flex-1">
-                  <p className="text-[9px] font-black text-gray-400 uppercase tracking-widest mb-0.5 truncate">{p.category}</p>
-                  <p className="font-bold text-gray-900 leading-tight group-hover:text-emerald-600 transition-colors uppercase text-[11px] line-clamp-1">{p.name}</p>
-                  {p.expiryDate && <p className="text-[9px] font-bold text-red-500 mt-1">Exp: {p.expiryDate}</p>}
+                  <p className="text-[8px] font-black text-gray-400 uppercase tracking-widest mb-0.5 truncate">{p.category}</p>
+                  <p className="font-bold text-gray-800 leading-tight group-hover:text-emerald-600 transition-colors text-[10px] sm:text-[11px] line-clamp-2 h-7 mb-1">{p.name}</p>
                 </div>
-                <div className="mt-2 pt-2 border-t border-gray-50 flex items-center justify-between">
-                  <p className="text-sm font-black text-emerald-600 font-mono tracking-tight">{settings.currencySymbol}{p.price}</p>
+                <div className="mt-1 pt-1.5 border-t border-gray-50 flex items-center justify-between">
+                  <p className="text-xs font-black text-emerald-600 font-mono tracking-tight">{settings.currencySymbol}{p.price}</p>
                   <div className="bg-gray-100 px-1.5 py-0.5 rounded-lg text-[8px] font-black text-gray-500">
                     S: {p.stock}
                   </div>
@@ -6771,34 +7226,34 @@ function POS({
             ))}
           </div>
         </div>
+      </div>
 
-        {/* Cart Area */}
-        <div className="w-full lg:w-[420px] bg-white rounded-[2.5rem] shadow-xl border border-gray-100 flex flex-col overflow-hidden relative grow-0 shrink-0">
-          <div className="p-6 border-b border-gray-50 flex items-center justify-between bg-gray-50/30">
-            <div className="flex items-center gap-3">
-              <div className={`w-10 h-10 ${theme.bg} text-${theme.primary} rounded-xl flex items-center justify-center font-black shadow-sm`}>
+      {/* Cart Area */}
+        <div id="cart-panel" className="w-full lg:w-[380px] bg-white rounded-[2rem] shadow-xl border border-gray-100 flex flex-col overflow-hidden relative lg:shrink-0 h-[600px] lg:h-full">
+          <div className="p-4 border-b border-gray-50 flex items-center justify-between bg-gray-50/20 shrink-0">
+            <div className="flex items-center gap-2.5">
+              <div className={`w-8 h-8 ${theme.bg} text-${theme.primary} rounded-lg flex items-center justify-center font-black shadow-sm text-xs`}>
                 {cart.reduce((sum, item) => sum + item.quantity, 0)}
               </div>
-              <h3 className="font-black text-gray-900 tracking-tight">Shopping Cart</h3>
+              <h3 className="font-black text-gray-900 tracking-tight text-sm">Shopping Cart</h3>
             </div>
             {cart.length > 0 && (
               <button 
-                onClick={() => {if(confirm('Clear entire cart?')) setCheckoutData({ ...checkoutData, customerId: '', paidAmount: 0, paymentMethod: 'cash' })}}
+                onClick={() => {if(confirm('Clear entire cart?')) cart.forEach(i => removeFromCart(i.id))}}
                 className="p-2 text-gray-300 hover:text-red-500 hover:bg-red-50 rounded-xl transition-all"
               >
-                <Trash2 className="w-5 h-5" />
+                <Trash2 className="w-4 h-4" />
               </button>
             )}
           </div>
 
-          <div className="flex-1 overflow-y-auto p-6 space-y-4 custom-scrollbar bg-white">
+          <div className="flex-1 min-h-[150px] overflow-y-auto p-3 md:p-4 space-y-3 custom-scrollbar bg-white">
             {cart.length === 0 ? (
               <div className="h-full flex flex-col items-center justify-center text-center opacity-20 select-none">
-                <div className="w-32 h-32 bg-gray-100 rounded-full flex items-center justify-center mb-6 border-4 border-white shadow-inner">
-                  <ShoppingCart className="w-16 h-16" />
+                <div className="w-24 h-24 bg-gray-100 rounded-full flex items-center justify-center mb-4 shadow-inner">
+                  <ShoppingCart className="w-10 h-10" />
                 </div>
-                <p className="font-black text-xl uppercase tracking-widest text-gray-400">Empty Cart</p>
-                <p className="text-xs font-bold mt-2 text-gray-400">Select items to start checkout</p>
+                <p className="font-black text-sm uppercase tracking-widest text-gray-400">Empty Cart</p>
               </div>
             ) : (
               <AnimatePresence>
@@ -6808,54 +7263,78 @@ function POS({
                     initial={{ x: 20, opacity: 0 }}
                     animate={{ x: 0, opacity: 1 }}
                     exit={{ x: -20, opacity: 0 }}
-                    className="flex flex-col gap-3 p-4 bg-gray-50 rounded-2xl border border-gray-100 group hover:border-emerald-200 hover:bg-white transition-all shadow-sm"
+                    className="flex flex-col gap-2 p-2.5 md:p-3.5 bg-gray-50/50 rounded-xl md:rounded-2xl border border-gray-100 group hover:border-emerald-200 hover:bg-white transition-all shadow-sm"
                   >
-                    <div className="flex justify-between items-start">
+                    <div className="flex justify-between items-start px-0.5">
                       <div className="flex-1 min-w-0">
-                        <p className="text-[13px] font-black text-gray-900 leading-tight uppercase truncate">{item.name}</p>
-                        <p className="text-[10px] text-gray-400 font-bold mt-1 uppercase tracking-widest">{item.barcode}</p>
+                        <p className="text-[11px] md:text-[12px] font-black text-gray-800 leading-tight break-words">{item.name}</p>
+                        <p className="text-[7.5px] md:text-[8px] text-gray-400 font-bold mt-0.5 uppercase tracking-widest leading-none">
+                          {item.unit ? `UNIT: ${item.unit}` : (item.barcode ? `CODE: ${item.barcode}` : '')}
+                        </p>
+                        {item.stock <= 0 && (
+                          <div className="mt-1 flex items-center gap-1">
+                            <span className="flex h-1.5 w-1.5 rounded-full bg-amber-500 animate-pulse"></span>
+                            <span className="text-[8px] font-black text-amber-600 uppercase tracking-tighter bg-amber-50 px-1.5 py-0.5 rounded-md border border-amber-100">
+                              দয়া করে ইনভেন্টরি আপডেট দেওয়া হোক
+                            </span>
+                          </div>
+                        )}
                       </div>
-                      <button 
-                        onClick={() => removeFromCart(item.id)}
-                        className="text-gray-300 hover:text-red-500 transition-colors p-1"
-                      >
-                        <X className="w-4 h-4" />
-                      </button>
-                    </div>
-                    
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-2 bg-white p-1 rounded-xl shadow-inner border border-gray-100">
+                      
+                      <div className="flex items-center gap-1 bg-white p-0.5 rounded-lg shadow-sm border border-gray-100 shrink-0 mx-2 scale-90 origin-right">
                         <button 
                           onClick={() => updateCartQuantity(item.id, -1)}
-                          className="w-8 h-8 flex items-center justify-center text-emerald-600 hover:bg-emerald-50 rounded-lg transition-colors border border-emerald-50"
+                          className="w-6 h-6 flex items-center justify-center text-emerald-600 hover:bg-emerald-50 rounded-md transition-colors border border-emerald-50 active:scale-95"
                         >
-                          <Minus className="w-4 h-4" />
+                          <Minus className="w-2.5 h-2.5" />
                         </button>
                         <input 
                           type="number" 
-                          value={item.quantity}
+                          value={item.quantity === 0 ? '' : Number(item.quantity).toString()}
                           onChange={(e) => updateCartQuantityManual(item.id, Number(e.target.value))}
-                          className="w-10 text-center font-black text-sm bg-transparent outline-none"
+                          className="w-8 text-center font-black text-[11px] bg-transparent outline-none text-gray-800"
                         />
                         <button 
                           onClick={() => updateCartQuantity(item.id, 1)}
-                          className="w-8 h-8 flex items-center justify-center text-emerald-600 hover:bg-emerald-50 rounded-lg transition-colors border border-emerald-50"
+                          className="w-6 h-6 flex items-center justify-center text-emerald-600 hover:bg-emerald-50 rounded-md transition-colors border border-emerald-50 active:scale-95"
                         >
-                          <Plus className="w-4 h-4" />
+                          <Plus className="w-2.5 h-2.5" />
                         </button>
                       </div>
-                      <div className="text-right">
-                        <p className="text-[10px] text-gray-400 font-bold uppercase mb-0.5 tracking-tighter">Unit Price</p>
-                        <div className="flex items-center gap-1">
-                          <span className="text-[10px] font-bold text-gray-400">{settings.currencySymbol}</span>
-                          <input 
-                            type="number"
-                            value={item.price}
-                            onChange={(e) => updateCartPriceManual(item.id, Number(e.target.value))}
-                            className="w-20 text-right font-black text-emerald-600 text-sm bg-transparent outline-none focus:bg-emerald-50 rounded px-1 transition-all"
-                          />
-                        </div>
-                      </div>
+
+                      <button 
+                        onClick={() => removeFromCart(item.id)}
+                        className="text-gray-300 hover:text-red-500 transition-colors p-1 shrink-0 -mt-1 -mr-1"
+                      >
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+
+                    <div className="bg-white rounded-xl shadow-inner border border-gray-100 overflow-hidden mt-0.5">
+                       <div className="grid grid-cols-2 bg-gray-50/50 border-b border-gray-100 px-2 md:px-3.5 py-1 md:py-1.5">
+                          <span className="text-[7px] md:text-[7.5px] text-gray-400 font-black uppercase tracking-[0.1em]">Price</span>
+                          <span className="text-[7px] md:text-[7.5px] text-gray-400 font-black uppercase tracking-[0.1em] border-l border-gray-100 pl-2 md:pl-3">Line Total</span>
+                       </div>
+                       <div className="grid grid-cols-2 gap-px bg-gray-100/50">
+                          <div className="bg-white p-1.5 md:p-2.5 flex items-baseline gap-1 group/input">
+                            <span className="text-gray-300 font-bold text-[8px] md:text-[9px]">{settings.currencySymbol}</span>
+                            <input 
+                              type="number"
+                              value={parseFloat(Number(item.discountedPrice).toFixed(2))}
+                              onChange={(e) => updateCartPriceManual(item.id, Number(e.target.value))}
+                              className="w-full text-left font-black text-gray-800 text-xs md:text-sm bg-transparent outline-none group-focus-within/input:text-emerald-600 transition-all font-mono"
+                            />
+                          </div>
+                          <div className="bg-white p-1.5 md:p-2.5 flex items-baseline gap-1 border-l border-gray-100">
+                            <span className="text-emerald-400/60 font-bold text-[8px] md:text-[9px]">{settings.currencySymbol}</span>
+                            <input 
+                              type="number"
+                              value={parseFloat(Number(item.discountedPrice * item.quantity).toFixed(2))}
+                              onChange={(e) => updateCartLineTotalManual(item.id, Number(e.target.value))}
+                              className="w-full text-left font-black text-emerald-600 text-xs md:text-sm bg-transparent outline-none font-mono"
+                            />
+                          </div>
+                       </div>
                     </div>
                   </motion.div>
                 ))}
@@ -6863,154 +7342,135 @@ function POS({
             )}
           </div>
 
-          <div className="p-8 bg-gray-50 border-t border-gray-100 space-y-6">
-            <div className="space-y-3">
-              <div className="flex justify-between items-center text-gray-400 font-bold text-xs uppercase tracking-widest">
+          <div className="p-5 bg-gray-50 border-t border-gray-100 space-y-3.5 shrink-0 relative z-10 rounded-b-[2rem]">
+            <div className="space-y-2.5">
+              <div className="flex justify-between items-center text-gray-400 font-bold text-[10px] uppercase tracking-widest px-2">
                 <span>Subtotal</span>
-                <span className="font-mono">{fC(cartTotal)}</span>
+                <span className="font-mono font-black text-gray-600">{fC(cartTotal)}</span>
               </div>
-              <div className="flex justify-between items-center bg-white p-4 rounded-2xl border border-gray-100 shadow-sm">
-                <span className="text-gray-500 font-bold text-[13px]">Apply Discount</span>
+              <div className="flex justify-between items-center bg-white p-2.5 rounded-xl border border-gray-100 shadow-sm">
+                <span className="text-gray-500 font-bold text-[10px] ml-1 uppercase tracking-tight">Discount</span>
                 <div className="flex items-center gap-2">
                   <input 
                     type="number"
                     value={discount}
                     onChange={(e) => setDiscount(Number(e.target.value))}
-                    className="w-20 text-right font-black text-red-500 bg-transparent outline-none"
+                    className="w-16 text-right font-black text-red-500 bg-transparent outline-none text-xs"
                     placeholder="0"
                   />
-                  <span className="text-gray-400 font-bold text-sm">{settings.currencySymbol}</span>
+                  <span className="text-gray-400 font-bold text-[10px] mr-1">{settings.currencySymbol}</span>
                 </div>
               </div>
-              <div className="flex justify-between items-center pt-4 border-t border-gray-100">
-                <span className="text-gray-900 font-black text-lg uppercase">Total Payable</span>
-                <span className={`text-3xl font-black text-${theme.primary} tracking-tighter font-mono`}>{fC(finalTotal)}</span>
+              
+              <div className="flex items-center justify-between bg-white p-1 rounded-xl shadow-sm border border-gray-100">
+                {(['cash', 'bkash', 'nagad', 'card'] as const).map(method => (
+                  <button
+                    key={method}
+                    onClick={() => setCheckoutData({...checkoutData, paymentMethod: method})}
+                    className={`flex-1 py-2 px-1 rounded-lg flex items-center justify-center gap-1.5 transition-all text-[8.5px] font-black uppercase tracking-wider ${checkoutData.paymentMethod === method ? `bg-${theme.primary} text-white shadow-md transform scale-[1.02]` : 'text-gray-400 hover:text-gray-600 hover:bg-gray-50'}`}
+                  >
+                    {method === 'cash' ? <Banknote className="w-3 h-3" /> : method === 'card' ? <CreditCard className="w-3 h-3" /> : <Smartphone className="w-3 h-3" />}
+                    <span className="hidden sm:inline">{method}</span>
+                  </button>
+                ))}
+              </div>
+
+              <div className="flex items-center justify-between bg-white p-2.5 rounded-xl border border-gray-100 shadow-sm group">
+                 <span className="text-[8.5px] ml-1 font-black text-gray-400 uppercase tracking-widest leading-tight">Paid Amount</span>
+                 <div className="flex items-center gap-1 group-focus-within:text-emerald-500 transition-colors mr-1">
+                   {(!checkoutData.customerId || checkoutData.customerId === '') && (checkoutData.paidAmount < finalTotal) && (
+                     <div className="absolute -top-6 right-0 bg-red-500 text-white text-[8px] px-2 py-1 rounded-md font-bold animate-bounce shadow-lg"> Full payment required for Walk-in </div>
+                   )}
+                   <span className="text-gray-300 font-bold text-[10px]">{settings.currencySymbol}</span>
+                   <input 
+                      type="number"
+                      className={`w-16 text-right font-black ${(!checkoutData.customerId && checkoutData.paidAmount < finalTotal) ? 'text-red-500 animate-pulse' : 'text-gray-900'} text-sm bg-transparent outline-none transition-all placeholder-gray-300`}
+                      value={checkoutData.paidAmount}
+                      onChange={(e) => setCheckoutData({...checkoutData, paidAmount: Number(e.target.value)})}
+                      onFocus={(e) => e.target.select()}
+                      placeholder={finalTotal.toString()}
+                   />
+                 </div>
+              </div>
+
+              {checkoutData.customerId && (
+                <div className="bg-emerald-50/50 p-2.5 rounded-xl border border-emerald-100/30 space-y-1.5 mt-1">
+                  <div className="flex justify-between items-center text-[9px] font-bold text-emerald-700/70 uppercase">
+                     <span>{systemLang === 'bn' ? 'পূর্বের বাকি' : 'Previous Due'}</span>
+                     <span className="font-mono">{fC(customers.find(c => c.id === checkoutData.customerId)?.currentDue || 0)}</span>
+                  </div>
+                  <div className="flex justify-between items-center text-[9px] font-bold text-emerald-800 uppercase">
+                     <span>{systemLang === 'bn' ? 'বর্তমান বাকি' : 'Current Balance'}</span>
+                     <span className="font-mono font-black">{fC((customers.find(c => c.id === checkoutData.customerId)?.currentDue || 0) + finalTotal - (checkoutData.paidAmount || 0))}</span>
+                  </div>
+                </div>
+              )}
+
+              <div className="flex justify-between items-center pt-2 border-t border-gray-100 px-2 mt-1">
+                <span className="text-gray-900 font-black text-xs uppercase tracking-tight">Total Payable</span>
+                <span className={`text-[22px] font-black text-${theme.primary} tracking-tighter font-mono`}>{fC(finalTotal)}</span>
               </div>
             </div>
 
             <button 
               disabled={cart.length === 0}
-              onClick={() => setIsCheckoutModalOpen(true)}
-              className={`w-full py-5 bg-${theme.primary} text-white rounded-[2rem] font-black text-lg shadow-xl ${theme.shadow} hover:opacity-90 disabled:bg-gray-200 disabled:shadow-none transition-all flex items-center justify-center gap-3 active:scale-[0.98] uppercase tracking-widest`}
+              onClick={() => {
+                 if (!checkoutData.paidAmount && checkoutData.paidAmount !== 0) {
+                    setCheckoutData({...checkoutData, paidAmount: finalTotal});
+                 }
+                 setTimeout(() => handleCheckout(), 0);
+              }}
+              className={`w-full py-4 bg-${theme.primary} text-white rounded-2xl font-black text-[15px] shadow-xl ${theme.shadow} hover:opacity-90 disabled:bg-gray-200 disabled:shadow-none transition-all flex items-center justify-center gap-3 active:scale-[0.98] uppercase tracking-widest mt-2 border-b-4 border-black/10`}
             >
-              <CreditCard className="w-6 h-6" />
+              <Banknote className="w-6 h-6" />
               Pay Now
             </button>
           </div>
         </div>
       </div>
 
+      {/* Mobile Sticky Action Bar */}
+      <div className="lg:hidden fixed bottom-0 left-0 right-0 z-[60] bg-white border-t border-gray-100 p-4 shadow-[0_-10px_40px_rgba(0,0,0,0.1)] flex items-center justify-between gap-4">
+        <div className="flex flex-col">
+          <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Total Payable</span>
+          <span className={`text-xl font-black text-${theme.primary} font-mono tracking-tighter leading-none`}>{fC(finalTotal)}</span>
+        </div>
+        <button 
+          disabled={cart.length === 0}
+          onClick={() => {
+             const cartPanel = document.getElementById('cart-panel');
+             if (cartPanel) {
+                cartPanel.scrollIntoView({ behavior: 'smooth' });
+             } else {
+                // If scroll fails, try to just trigger pay if full paid or if customer selected
+                if (!checkoutData.paidAmount && checkoutData.paidAmount !== 0) {
+                  setCheckoutData({...checkoutData, paidAmount: finalTotal});
+                }
+                setTimeout(() => handleCheckout(), 0);
+             }
+          }}
+          className={`flex-1 py-3.5 bg-${theme.primary} text-white rounded-xl font-black text-xs uppercase tracking-widest shadow-lg ${theme.shadow} flex items-center justify-center gap-2 active:scale-95 transition-all`}
+        >
+          <Banknote className="w-4 h-4" />
+          {cart.length === 0 ? 'Empty Cart' : 'Checkout Now'}
+        </button>
+      </div>
+
       <AnimatePresence>
-        {isCheckoutModalOpen && (
-          <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/80 backdrop-blur-md">
-            <motion.div 
-              initial={{ scale: 0.9, opacity: 0, y: 20 }}
-              animate={{ scale: 1, opacity: 1, y: 0 }}
-              exit={{ scale: 0.9, opacity: 0, y: 20 }}
-              className="bg-white w-full max-w-xl rounded-[3rem] shadow-2xl overflow-hidden border border-white/20"
-            >
-              <div className={`p-10 bg-${theme.primary} text-white flex justify-between items-start relative overflow-hidden`}>
-                <div className="absolute -top-10 -right-10 w-40 h-40 bg-white/10 rounded-full blur-3xl"></div>
-                <div className="relative z-10">
-                   <p className="text-xs font-black uppercase tracking-widest opacity-70 mb-2">Checkout Total</p>
-                   <h3 className="text-5xl font-black font-mono tracking-tighter">{fC(finalTotal)}</h3>
-                   <div className="flex items-center gap-2 mt-4">
-                      <div className="px-3 py-1 bg-white/20 rounded-full text-[10px] font-black uppercase tracking-widest backdrop-blur-sm">Payment Processing</div>
-                      <div className="w-2 h-2 bg-green-400 rounded-full animate-pulse shadow-[0_0_8px_rgba(74,222,128,0.5)]"></div>
-                   </div>
-                </div>
-                <button onClick={() => setIsCheckoutModalOpen(false)} className="bg-white/10 p-3 rounded-2xl hover:bg-white/20 transition-all relative z-10">
-                  <X className="w-6 h-6" />
-                </button>
-              </div>
-
-              <div className="p-10 space-y-8 bg-white">
-                <div className="space-y-3">
-                  <label className="text-xs font-black text-gray-400 uppercase tracking-widest ml-4">Select Customer</label>
-                  <div className="relative group">
-                    <Users className="absolute left-5 top-1/2 -translate-y-1/2 text-gray-400 w-5 h-5 group-focus-within:text-emerald-500 transition-colors" />
-                    <select 
-                      className="w-full pl-14 pr-6 py-5 bg-gray-50 border-none rounded-3xl text-sm font-bold focus:ring-2 focus:ring-emerald-500 shadow-inner appearance-none outline-none"
-                      value={checkoutData.customerId}
-                      onChange={(e) => setCheckoutData({...checkoutData, customerId: e.target.value})}
-                    >
-                      <option value="">Walk-in Customer</option>
-                      {customers.map(c => <option key={c.id} value={c.id}>{c.name} ({c.phone})</option>)}
-                    </select>
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-2 gap-8">
-                  <div className="space-y-3">
-                    <label className="text-xs font-black text-gray-400 uppercase tracking-widest ml-4">Paid Amount</label>
-                    <div className="relative">
-                      <DollarSign className="absolute left-5 top-1/2 -translate-y-1/2 text-gray-400 w-5 h-5" />
-                      <input 
-                        type="number"
-                        className="w-full pl-14 pr-6 py-5 bg-gray-50 border-none rounded-3xl text-xl font-black text-gray-900 focus:ring-2 focus:ring-emerald-500 shadow-inner outline-none"
-                        value={checkoutData.paidAmount}
-                        onChange={(e) => setCheckoutData({...checkoutData, paidAmount: Number(e.target.value)})}
-                        onFocus={(e) => e.target.select()}
-                      />
-                    </div>
-                  </div>
-                  <div className="space-y-3 text-right">
-                    <label className="text-xs font-black text-gray-400 uppercase tracking-widest mr-4">Remaining Due</label>
-                    <div className={`p-5 rounded-3xl text-right flex flex-col justify-center h-[68px] ${finalTotal - checkoutData.paidAmount > 0 ? 'bg-red-50' : 'bg-emerald-50'} shadow-inner`}>
-                      <p className={`text-2xl font-black font-mono ${finalTotal - checkoutData.paidAmount > 0 ? 'text-red-500' : 'text-emerald-500'}`}>
-                        {fC(Math.max(0, finalTotal - checkoutData.paidAmount))}
-                      </p>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="p-2 bg-gray-50 rounded-[2rem] border border-gray-100 shadow-inner flex items-center justify-between">
-                  {(['cash', 'card', 'mobile_banking'] as const).map(method => (
-                    <button
-                      key={method}
-                      onClick={() => setCheckoutData({...checkoutData, paymentMethod: method})}
-                      className={`flex-1 py-4 px-2 rounded-2xl flex flex-col items-center gap-2 transition-all duration-500 font-black text-[10px] uppercase tracking-wider ${checkoutData.paymentMethod === method ? `bg-white text-${theme.primary} shadow-xl ring-1 ring-black/5 scale-[1.02] transform` : 'text-gray-400 hover:text-gray-600'}`}
-                    >
-                      {method === 'cash' ? <Banknote className="w-6 h-6" /> : method === 'card' ? <CreditCard className="w-6 h-6" /> : <Smartphone className="w-6 h-6" />}
-                      {method.replace('_', ' ')}
-                    </button>
-                  ))}
-                </div>
-
-                <div className="pt-8 flex gap-4">
-                  <button 
-                    onClick={() => setIsCheckoutModalOpen(false)}
-                    className="flex-1 py-5 bg-gray-100 text-gray-400 rounded-3xl font-black uppercase tracking-widest hover:bg-gray-200 transition-all text-xs"
-                  >
-                    Cancel
-                  </button>
-                  <button 
-                    onClick={() => {
-                      handleCheckout();
-                      setIsCheckoutModalOpen(false);
-                    }}
-                    className={`flex-[2] py-5 bg-${theme.primary} text-white rounded-3xl font-black text-lg shadow-xl ${theme.shadow} hover:opacity-90 transition-all transform active:scale-95 uppercase tracking-widest`}
-                  >
-                    Complete Order
-                  </button>
-                </div>
-              </div>
-            </motion.div>
-          </div>
-        )}
       </AnimatePresence>
     </motion.div>
   );
 }
 
-function Inventory({ products, categories, stockRecords, sales, onViewHistory, setNotification, isOnline }: { 
+function Inventory({ products, categories, stockRecords, sales, onViewHistory, setNotification, isOnline, settings }: { 
   products: Product[], 
   categories: Category[], 
   stockRecords: StockRecord[],
   sales: Sale[],
   onViewHistory: (p: Product) => void,
   setNotification: (n: { message: string, type: 'success' | 'error' | 'info' } | null) => void,
-  isOnline: boolean
+  isOnline: boolean,
+  settings: ShopSettings
 }) {
   const [productSortBy, setProductSortBy] = useState<string>('name');
   const [productSortOrder, setProductSortOrder] = useState<'asc' | 'desc'>('asc');
@@ -7084,43 +7544,74 @@ Return the result as JSON with a "category" field containing exactly one string 
     return () => clearTimeout(timer);
   }, [editingProduct?.name, isModalOpen]);
 
-  const handleVoiceCommand = (rawText: string) => {
-    let lower = rawText.toLowerCase().trim();
+  const handleVoiceCommand = async (rawText: string) => {
+    setNotification({ type: 'info', message: 'Processing AI Voice Command...' });
     
-    // Check for "new product" triggers
-    if (lower.includes('নতুন প্রোডাক্ট') || lower.includes('নতুন ইনভেন্টরি') || lower.includes('new product') || lower.includes('প্রোডাক্ট অ্যাড') || lower.includes('নতুন ফোডাক্ট')) {
-       // Optional: try to extract name, price, stock
-       const { name, price, stock, unit } = parseNewProductVoiceCommand(rawText);
+    try {
+      const aiResult = await parsePosVoiceCommandAI(
+        rawText,
+        products.map(p => ({ id: p.id!, name: p.name })),
+        []
+      );
 
-       setIsModalOpen(true);
-       setEditingProduct({
-         name: name,
-         price: price || 0,
-         stock: stock || 0,
-         unit: unit || 'unit',
-         cost: 0,
-         barcode: '',
-         category: 'General',
-         department: '',
-         location: '',
-         expiryDate: ''
-       });
-       setNotification({ type: 'success', message: 'Voice: Opened Add Product Modal with details' });
-       return;
+      if (aiResult) {
+        if (aiResult.action === 'newProduct') {
+           setIsModalOpen(true);
+           setEditingProduct({
+             name: aiResult.productId ? (products.find(p => p.id === aiResult.productId)?.name || rawText) : rawText.replace(/(নতুন|new|প্রোডাক্ট|product|অ্যাড|add|করো|কর|do)/gi, '').trim(),
+             price: 0,
+             stock: aiResult.quantity || 0,
+             unit: 'unit',
+             cost: 0,
+             barcode: '',
+             category: 'General',
+             department: '',
+             location: '',
+             expiryDate: ''
+           });
+           setNotification({ type: 'success', message: aiResult.message || 'Opened Add Product Modal' });
+           return;
+        } else if (aiResult.action === 'addProduct' && aiResult.productId) {
+           const match = products.find(p => p.id === aiResult.productId);
+           if (match) {
+             setSearchTerm(match.name);
+             setNotification({ type: 'success', message: aiResult.message || `Searched for: ${match.name}` });
+             return;
+           }
+        }
+      }
+      
+      // Fallback
+      const { searchName } = parseVoiceCommandQuantity(rawText);
+      let lower = rawText.toLowerCase().trim();
+      if (lower.includes('নতুন প্রোডাক্ট') || lower.includes('নতুন ইনভেন্টরি') || lower.includes('new product') || lower.includes('প্রোডাক্ট অ্যাড') || lower.includes('নতুন ফোডাক্ট')) {
+         const { name, price, stock, unit } = parseNewProductVoiceCommand(rawText);
+         setIsModalOpen(true);
+         setEditingProduct({ name, price: price || 0, stock: stock || 0, unit: unit || 'unit', cost: 0, barcode: '', category: 'General', department: '', location: '', expiryDate: '' });
+         setNotification({ type: 'success', message: 'Voice: Opened Add Product Modal' });
+         return;
+      }
+      
+      setSearchTerm(searchName.trim());
+      setNotification({ type: 'info', message: `Voice searched for: ${searchName.trim()}` });
+      
+    } catch (e: any) {
+      console.error(e);
+      if (e.message === 'QUOTA_EXCEEDED') {
+        setNotification({ type: 'error', message: 'AI Voice Quota Exceeded. Using local search.' });
+      }
+      setSearchTerm(rawText.trim());
     }
-    
-    // Fallback: search products
-    setSearchTerm(rawText.trim());
-    setNotification({ type: 'info', message: `Voice searched for: ${rawText.trim()}` });
   };
 
+  const voiceLang = settings.systemLanguage === 'bn' ? 'bn-BD' : (settings.systemLanguage === 'ar' ? 'ar-SA' : 'en-US');
   const { isListening, voiceFeedback, toggleVoiceSearch } = useVoiceSearch(handleVoiceCommand, (err) => {
     if (err === 'not-allowed') {
       setNotification({ message: "Microphone access denied. Please allow microphone in browser settings (click lock icon in address bar).", type: 'error' });
     } else {
       setNotification({ message: `Voice search error: ${err}`, type: 'error' });
     }
-  });
+  }, voiceLang);
 
   // Clear confirmation state if user clicks elsewhere
   useEffect(() => {
@@ -7207,7 +7698,7 @@ Return the result as JSON with a "category" field containing exactly one string 
   const paginatedProducts = filteredProducts.slice((validCurrentPage - 1) * itemsPerPage, validCurrentPage * itemsPerPage);
 
   useEffect(() => {
-    if (editingProduct?.imageUrl) {
+    if (editingProduct?.imageUrl && !editingProduct.imageUrl.includes('wikimedia.org') && !editingProduct.imageUrl.includes('wikipedia.org')) {
       setProductImage(editingProduct.imageUrl);
     } else {
       setProductImage(null);
@@ -7556,12 +8047,26 @@ Return the result as JSON with a "category" field containing exactly one string 
             whileHover={{ scale: 1.05 }}
             whileTap={{ scale: 0.95 }}
             onClick={toggleVoiceSearch}
-            className={`px-5 py-4 rounded-2xl transition-all flex items-center gap-3 font-bold text-sm border shadow-sm ${isListening ? 'bg-red-500 text-white border-red-400 shadow-red-200' : 'bg-white text-gray-500 hover:text-indigo-600 border-gray-100 hover:border-indigo-100 hover:shadow-indigo-50'}`}
+            className={`px-5 py-4 rounded-2xl transition-all flex items-center gap-3 font-bold text-sm border shadow-sm relative ${isListening ? 'bg-red-500 text-white border-red-400 shadow-red-200' : 'bg-white text-gray-500 hover:text-indigo-600 border-gray-100 hover:border-indigo-100 hover:shadow-indigo-50'}`}
           >
             <div className={`w-8 h-8 rounded-full flex items-center justify-center ${isListening ? 'bg-white/20' : 'bg-gray-50'}`}>
               <Mic className={`w-4 h-4 ${isListening ? 'animate-bounce' : ''}`} />
             </div>
             {isListening ? 'Listening...' : 'Voice Search'}
+            
+            <AnimatePresence>
+              {voiceFeedback && (
+                <motion.div
+                  initial={{ opacity: 0, y: 10, scale: 0.8 }}
+                  animate={{ opacity: 1, y: -45, scale: 1 }}
+                  exit={{ opacity: 0, y: 10, scale: 0.8 }}
+                  className="absolute left-1/2 -translate-x-1/2 whitespace-nowrap px-4 py-2 bg-indigo-600 text-white text-[10px] font-black rounded-xl shadow-2xl z-50 border border-white/20"
+                >
+                  <div className="absolute bottom-[-6px] left-1/2 -translate-x-1/2 w-3 h-3 bg-indigo-600 rotate-45 border-r border-b border-white/10"></div>
+                  "{voiceFeedback}"
+                </motion.div>
+              )}
+            </AnimatePresence>
           </motion.button>
           
           <motion.button 
@@ -7661,7 +8166,7 @@ Return the result as JSON with a "category" field containing exactly one string 
                               whileHover={{ scale: 1.15, rotate: 2 }}
                               className="w-14 h-14 bg-gray-50 rounded-2xl flex items-center justify-center text-gray-300 border border-gray-100 overflow-hidden shrink-0 shadow-sm relative group/img"
                             >
-                              {p.imageUrl ? (
+                              {p.imageUrl && !p.imageUrl.includes('wikimedia.org') && !p.imageUrl.includes('wikipedia.org') ? (
                                 <img src={p.imageUrl} alt={p.name} className="w-full h-full object-cover group-hover/img:scale-110 transition-transform duration-500" />
                               ) : (
                                 <Package className="w-7 h-7 opacity-20" />
@@ -8237,14 +8742,122 @@ function SalesHistory({ sales, onEdit, onDelete, settings, isOnline }: { sales: 
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedSale, setSelectedSale] = useState<Sale | null>(null);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+  const [isFilterPaneOpen, setIsFilterPaneOpen] = useState(false);
+  const [statusFilter, setStatusFilter] = useState<'all' | 'settled' | 'pending'>('all');
+  const [startDate, setStartDate] = useState('');
+  const [endDate, setEndDate] = useState('');
+  const [reportTab, setReportTab] = useState<'logs' | 'product_report' | 'customer_report'>('logs');
 
-  const filteredSales = sales.filter(sale => 
-    sale.id.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    (sale.customerName && sale.customerName.toLowerCase().includes(searchTerm.toLowerCase())) ||
-    (sale.customerPhone && sale.customerPhone.includes(searchTerm))
-  );
+  const filteredSales = sales.filter(sale => {
+    // Search filter
+    const matchesSearch = sale.id.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      (sale.customerName && sale.customerName.toLowerCase().includes(searchTerm.toLowerCase())) ||
+      (sale.customerPhone && sale.customerPhone.includes(searchTerm));
+    
+    if (!matchesSearch) return false;
+
+    // Status filter
+    if (statusFilter === 'settled' && sale.dueAmount > 0) return false;
+    if (statusFilter === 'pending' && sale.dueAmount <= 0) return false;
+
+    // Date filter
+    const saleDate = safeDate(sale.timestamp);
+    if (startDate) {
+      const start = new Date(startDate);
+      start.setHours(0, 0, 0, 0);
+      if (saleDate < start) return false;
+    }
+    if (endDate) {
+      const end = new Date(endDate);
+      end.setHours(23, 59, 59, 999);
+      if (saleDate > end) return false;
+    }
+
+    return true;
+  });
+
+  const getSalesByProduct = () => {
+    const productSales: Record<string, { id: string, name: string, quantity: number, revenue: number }> = {};
+    filteredSales.forEach(sale => {
+      sale.items?.forEach(item => {
+        const id = item.productId || item.name;
+        if (!productSales[id]) {
+            productSales[id] = { id, name: item.name, quantity: 0, revenue: 0 };
+        }
+        productSales[id].quantity += item.quantity;
+        productSales[id].revenue += item.quantity * item.price; 
+      });
+    });
+    return Object.values(productSales).sort((a,b) => b.revenue - a.revenue);
+  };
+
+  const getSalesByCustomer = () => {
+    const customerSales: Record<string, { id: string, name: string, phone: string, purchases: number, revenue: number, due: number }> = {};
+    filteredSales.forEach(sale => {
+      const id = sale.customerId || sale.customerName || 'Walk-in';
+      if (!customerSales[id]) {
+        customerSales[id] = { id, name: sale.customerName || 'Walk-in', phone: sale.customerPhone || '', purchases: 0, revenue: 0, due: 0 };
+      }
+      customerSales[id].purchases += 1;
+      customerSales[id].revenue += sale.finalAmount;
+      customerSales[id].due += sale.dueAmount;
+    });
+    return Object.values(customerSales).sort((a,b) => b.revenue - a.revenue);
+  };
+
+  const handleExportCSV = () => {
+     let csvData: any[] = [];
+     let filename = '';
+     if (reportTab === 'logs') {
+       csvData = filteredSales.map(s => ({
+         'Date': safeDate(s.timestamp).toLocaleString(),
+         'Invoice ID': s.id,
+         'Customer Name': s.customerName || 'Walk-in',
+         'Customer Phone': s.customerPhone || '',
+         'Total Amount': s.finalAmount,
+         'Paid Amount': s.paidAmount,
+         'Due Amount': s.dueAmount,
+         'Payment Method': s.paymentMethod || 'cash',
+         'Items Count': s.items ? s.items.length : 0,
+         'Status': s.dueAmount > 0 ? 'Pending' : 'Settled'
+       }));
+       filename = `sales_logs_${format(new Date(), 'yyyy-MM-dd')}.csv`;
+     } else if (reportTab === 'product_report') {
+       csvData = getSalesByProduct().map(p => ({
+         'Product Name': p.name,
+         'Units Sold': p.quantity,
+         'Total Revenue': p.revenue
+       }));
+       filename = `product_sales_${format(new Date(), 'yyyy-MM-dd')}.csv`;
+     } else if (reportTab === 'customer_report') {
+       csvData = getSalesByCustomer().map(c => ({
+         'Customer Name': c.name,
+         'Phone': c.phone,
+         'Total Purchases': c.purchases,
+         'Total Revenue': c.revenue,
+         'Current Due': c.due
+       }));
+       filename = `customer_sales_${format(new Date(), 'yyyy-MM-dd')}.csv`;
+     }
+
+     const csv = Papa.unparse(csvData);
+     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+     const link = document.createElement('a');
+     link.href = URL.createObjectURL(blob);
+     link.setAttribute('download', filename);
+     document.body.appendChild(link);
+     link.click();
+     document.body.removeChild(link);
+  };
 
   const theme = PAGE_THEMES.sales;
+
+  const resetFilters = () => {
+    setStatusFilter('all');
+    setStartDate('');
+    setEndDate('');
+    setSearchTerm('');
+  };
 
   return (
     <motion.div 
@@ -8306,31 +8919,133 @@ function SalesHistory({ sales, onEdit, onDelete, settings, isOnline }: { sales: 
         </div>
       </motion.header>
 
+      <div className="flex bg-white p-1.5 rounded-[2rem] shadow-sm border border-gray-100 max-w-fit ring-1 ring-black/[0.02]">
+        <button
+          onClick={() => setReportTab('logs')}
+          className={`px-6 py-3 rounded-[1.5rem] text-xs font-black uppercase tracking-widest transition-all ${
+            reportTab === 'logs' ? 'bg-violet-600 text-white shadow-md' : 'text-gray-400 hover:text-gray-600 hover:bg-gray-50'
+          }`}
+        >
+          Activity Logs
+        </button>
+        <button
+          onClick={() => setReportTab('product_report')}
+          className={`px-6 py-3 rounded-[1.5rem] text-xs font-black uppercase tracking-widest transition-all ${
+            reportTab === 'product_report' ? 'bg-violet-600 text-white shadow-md' : 'text-gray-400 hover:text-gray-600 hover:bg-gray-50'
+          }`}
+        >
+          By Product
+        </button>
+        <button
+          onClick={() => setReportTab('customer_report')}
+          className={`px-6 py-3 rounded-[1.5rem] text-xs font-black uppercase tracking-widest transition-all ${
+            reportTab === 'customer_report' ? 'bg-violet-600 text-white shadow-md' : 'text-gray-400 hover:text-gray-600 hover:bg-gray-50'
+          }`}
+        >
+          By Customer
+        </button>
+      </div>
+
       <motion.div 
         variants={{
           hidden: { opacity: 0, x: -20 },
           visible: { opacity: 1, x: 0 }
         }}
-        className="bg-white p-4 rounded-[2rem] shadow-sm border border-gray-100 flex flex-col sm:flex-row items-center gap-3 ring-1 ring-black/[0.02]"
+        className="space-y-4"
       >
-        <div className="relative flex-1 group w-full">
-          <Search className="absolute left-5 top-1/2 -translate-y-1/2 text-gray-400 w-5 h-5 group-focus-within:text-violet-500 transition-colors" />
-          <input 
-            type="text"
-            placeholder="Search invoice, customer name or phone..."
-            className="w-full pl-14 pr-6 py-4 bg-gray-50/50 border-none rounded-2xl text-sm font-bold focus:ring-2 focus:ring-violet-500 transition-all outline-none placeholder:text-gray-400"
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-          />
+        <div className="bg-white p-4 rounded-[2rem] shadow-sm border border-gray-100 flex flex-col sm:flex-row items-center gap-3 ring-1 ring-black/[0.02]">
+          <div className="relative flex-1 group w-full">
+            <Search className="absolute left-5 top-1/2 -translate-y-1/2 text-gray-400 w-5 h-5 group-focus-within:text-violet-500 transition-colors" />
+            <input 
+              type="text"
+              placeholder="Search invoice, customer name or phone..."
+              className="w-full pl-14 pr-6 py-4 bg-gray-50/50 border-none rounded-2xl text-sm font-bold focus:ring-2 focus:ring-violet-500 transition-all outline-none placeholder:text-gray-400"
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+            />
+          </div>
+          <button 
+            onClick={handleExportCSV}
+            className="px-8 py-4 rounded-2xl font-black text-xs uppercase tracking-widest transition-all shadow-sm flex items-center justify-center gap-3 border w-full sm:w-auto bg-white text-emerald-600 border-emerald-100 hover:bg-emerald-50 hover:border-emerald-200"
+          >
+            <Download className="w-4 h-4" />
+            Export CSV
+          </button>
+          <motion.button 
+            whileHover={{ scale: 1.02 }}
+            whileTap={{ scale: 0.98 }}
+            onClick={() => setIsFilterPaneOpen(!isFilterPaneOpen)}
+            className={`px-8 py-4 rounded-2xl font-black text-xs uppercase tracking-widest transition-all shadow-sm flex items-center justify-center gap-3 border w-full sm:w-auto ${isFilterPaneOpen ? 'bg-violet-600 text-white border-violet-600' : 'bg-white text-gray-500 border-gray-100 hover:border-violet-100 hover:text-violet-600'}`}
+          >
+            <Filter className="w-4 h-4" />
+            {isFilterPaneOpen ? 'Close Filter' : 'Advanced Filter'}
+          </motion.button>
         </div>
-        <motion.button 
-          whileHover={{ scale: 1.02 }}
-          whileTap={{ scale: 0.98 }}
-          className="px-8 py-4 bg-white text-gray-500 rounded-2xl font-black text-xs uppercase tracking-widest hover:text-violet-600 transition-all shadow-sm flex items-center justify-center gap-3 border border-gray-100 hover:border-violet-100 w-full sm:w-auto"
-        >
-          <Filter className="w-4 h-4" />
-          Advanced Filter
-        </motion.button>
+
+        <AnimatePresence>
+          {isFilterPaneOpen && (
+            <motion.div
+              initial={{ height: 0, opacity: 0, overflow: 'hidden' }}
+              animate={{ height: 'auto', opacity: 1 }}
+              exit={{ height: 0, opacity: 0 }}
+              className="bg-white rounded-[2rem] border border-gray-100 shadow-xl shadow-gray-200/20 p-6 md:p-8"
+            >
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
+                <div className="space-y-4">
+                  <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest block pl-1">Financial Status</label>
+                  <div className="flex bg-gray-50 p-1.5 rounded-2xl border border-gray-100">
+                    {(['all', 'settled', 'pending'] as const).map((status) => (
+                      <button
+                        key={status}
+                        onClick={() => setStatusFilter(status)}
+                        className={`flex-1 py-3 px-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${statusFilter === status ? 'bg-white text-violet-600 shadow-md ring-1 ring-black/[0.02]' : 'text-gray-400 hover:text-gray-600'}`}
+                      >
+                        {status}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="space-y-4">
+                  <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest block pl-1">Start Date</label>
+                  <div className="relative group">
+                    <Calendar className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 group-focus-within:text-violet-500 transition-colors" />
+                    <input 
+                      type="date"
+                      value={startDate}
+                      onChange={(e) => setStartDate(e.target.value)}
+                      className="w-full pl-12 pr-4 py-3.5 bg-gray-50 border border-transparent rounded-2xl text-xs font-bold focus:ring-2 focus:ring-violet-500 transition-all outline-none"
+                    />
+                  </div>
+                </div>
+
+                <div className="space-y-4">
+                  <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest block pl-1">End Date</label>
+                  <div className="relative group">
+                    <Calendar className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 group-focus-within:text-violet-500 transition-colors" />
+                    <input 
+                      type="date"
+                      value={endDate}
+                      onChange={(e) => setEndDate(e.target.value)}
+                      className="w-full pl-12 pr-4 py-3.5 bg-gray-50 border border-transparent rounded-2xl text-xs font-bold focus:ring-2 focus:ring-violet-500 transition-all outline-none"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              <div className="mt-8 pt-6 border-t border-gray-50 flex items-center justify-between">
+                <p className="text-[10px] font-bold text-gray-400 italic">Showing {filteredSales.length} matches from {sales.length} records</p>
+                <button 
+                  onClick={resetFilters}
+                  className="flex items-center gap-2 text-[10px] font-black text-rose-500 uppercase tracking-[0.2em] hover:text-rose-600 transition-colors"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                  Reset Parameters
+                </button>
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
       </motion.div>
 
       <motion.div 
@@ -8341,7 +9056,9 @@ function SalesHistory({ sales, onEdit, onDelete, settings, isOnline }: { sales: 
         className="bg-white rounded-[2.5rem] shadow-[0_10px_40px_-15px_rgba(0,0,0,0.08)] border border-gray-100 overflow-hidden ring-1 ring-black/[0.02]"
       >
         <div className="overflow-x-auto">
-          <table className="w-full text-left border-collapse min-w-[900px]">
+          {reportTab === 'logs' && (
+            <>
+              <table className="w-full text-left border-collapse min-w-[900px]">
             <thead>
               <tr className="bg-gray-50/50">
                 <th className="p-6 text-[11px] font-black text-gray-400 uppercase tracking-widest border-b border-gray-100">Timestamp</th>
@@ -8458,16 +9175,92 @@ function SalesHistory({ sales, onEdit, onDelete, settings, isOnline }: { sales: 
               </AnimatePresence>
             </tbody>
           </table>
+            {filteredSales.length === 0 && (
+              <div className="p-24 text-center flex flex-col items-center justify-center">
+                <div className="w-24 h-24 bg-gray-50 rounded-[2.5rem] flex items-center justify-center mb-6">
+                  <Search className="w-10 h-10 text-gray-200" />
+                </div>
+                <h4 className="text-xl font-black text-gray-900 uppercase tracking-tight">No Sales Records Found</h4>
+                <p className="text-gray-400 text-sm font-bold mt-2">Try searching with a different keyword or invoice ID.</p>
+              </div>
+            )}
+            </>
+          )}
+
+          {reportTab === 'product_report' && (
+            <>
+              <table className="w-full text-left border-collapse min-w-[900px]">
+                <thead>
+                  <tr className="bg-gray-50/50">
+                    <th className="p-6 text-[11px] font-black text-gray-400 uppercase tracking-widest border-b border-gray-100">Product Name</th>
+                    <th className="p-6 text-[11px] font-black text-gray-400 uppercase tracking-widest border-b border-gray-100 text-right">Units Sold</th>
+                    <th className="p-6 text-[11px] font-black text-gray-400 uppercase tracking-widest border-b border-gray-100 text-right">Total Revenue Generated</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-50/80">
+                  {getSalesByProduct().map((p, idx) => (
+                    <motion.tr 
+                      key={p.id || idx}
+                      initial={{ opacity: 0 }}
+                      animate={{ opacity: 1 }}
+                      transition={{ delay: idx * 0.02 }}
+                      className="group hover:bg-gray-50/50"
+                    >
+                      <td className="p-6">
+                        <div className="font-bold text-gray-900">{p.name || 'Unknown Item'}</div>
+                      </td>
+                      <td className="p-6 text-right font-mono font-black text-gray-600">{p.quantity}</td>
+                      <td className="p-6 text-right font-mono font-black text-emerald-600">{fC(p.revenue)}</td>
+                    </motion.tr>
+                  ))}
+                </tbody>
+              </table>
+              {getSalesByProduct().length === 0 && (
+                <div className="p-24 text-center">
+                  <p className="text-gray-400 font-bold uppercase tracking-widest text-xs">No product sales found.</p>
+                </div>
+              )}
+            </>
+          )}
+
+          {reportTab === 'customer_report' && (
+            <>
+              <table className="w-full text-left border-collapse min-w-[900px]">
+                <thead>
+                  <tr className="bg-gray-50/50">
+                    <th className="p-6 text-[11px] font-black text-gray-400 uppercase tracking-widest border-b border-gray-100">Customer Name</th>
+                    <th className="p-6 text-[11px] font-black text-gray-400 uppercase tracking-widest border-b border-gray-100">Phone</th>
+                    <th className="p-6 text-[11px] font-black text-gray-400 uppercase tracking-widest border-b border-gray-100 text-right">Total Purchases</th>
+                    <th className="p-6 text-[11px] font-black text-gray-400 uppercase tracking-widest border-b border-gray-100 text-right">Total Revenue</th>
+                    <th className="p-6 text-[11px] font-black text-gray-400 uppercase tracking-widest border-b border-gray-100 text-right">Outstanding Dues</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-50/80">
+                  {getSalesByCustomer().map((c, idx) => (
+                    <motion.tr 
+                      key={c.id || idx}
+                      initial={{ opacity: 0 }}
+                      animate={{ opacity: 1 }}
+                      transition={{ delay: idx * 0.02 }}
+                      className="group hover:bg-gray-50/50"
+                    >
+                      <td className="p-6 font-bold text-gray-900">{c.name}</td>
+                      <td className="p-6 text-gray-600 font-mono text-[13px]">{c.phone || '-'}</td>
+                      <td className="p-6 text-right font-mono font-black text-gray-600">{c.purchases}</td>
+                      <td className="p-6 text-right font-mono font-black text-emerald-600">{fC(c.revenue)}</td>
+                      <td className="p-6 text-right font-mono font-black text-rose-600">{c.due > 0 ? fC(c.due) : '-'}</td>
+                    </motion.tr>
+                  ))}
+                </tbody>
+              </table>
+              {getSalesByCustomer().length === 0 && (
+                <div className="p-24 text-center">
+                  <p className="text-gray-400 font-bold uppercase tracking-widest text-xs">No customer sales found.</p>
+                </div>
+              )}
+            </>
+          )}
         </div>
-        {filteredSales.length === 0 && (
-          <div className="p-24 text-center flex flex-col items-center justify-center">
-            <div className="w-24 h-24 bg-gray-50 rounded-[2.5rem] flex items-center justify-center mb-6">
-              <Search className="w-10 h-10 text-gray-200" />
-            </div>
-            <h4 className="text-xl font-black text-gray-900 uppercase tracking-tight">No Sales Records Found</h4>
-            <p className="text-gray-400 text-sm font-bold mt-2">Try searching with a different keyword or invoice ID.</p>
-          </div>
-        )}
       </motion.div>
 
       {/* Sale Details Modal */}
@@ -9184,16 +9977,25 @@ function Customers({
     );
   }, [customers, searchTerm]);
 
-  const sendCustomerWhatsApp = (customer: Customer, lang: 'en' | 'bn') => {
-    const template = lang === 'bn' 
-      ? (shopSettings.waTemplateBengali || "প্রিয় {{customerName}}, {{shopName}}-এ আপনার বকেয়া {{dueAmount}} টাকা। অনুগ্রহ করে সময়মতো পরিশোধ করুন।") 
-      : (shopSettings.waTemplateEnglish || "Dear {{customerName}}, your due amount at {{shopName}} is {{dueAmount}}. Please pay on time.");
+  const sendCustomerWhatsApp = async (customer: Customer, lang: 'en' | 'bn') => {
+    let message = "";
     
-    // Basic variable substitution
-    const message = template
-      .replace('{{customerName}}', customer.name || 'Customer')
-      .replace('{{shopName}}', shopSettings.name || 'Shop')
-      .replace('{{dueAmount}}', (customer.currentDue || 0).toString());
+    if (shopSettings.aiWhatsAppEnabled) {
+      const aiMsg = await generatePersonalizedMessage(customer, null, 'reminder', lang, shopSettings);
+      if (aiMsg) message = aiMsg;
+    }
+
+    if (!message) {
+      const template = lang === 'bn' 
+        ? (shopSettings.waTemplateBengali || "প্রিয় {{customerName}}, {{shopName}}-এ আপনার বকেয়া {{dueAmount}} টাকা। অনুগ্রহ করে সময়মতো পরিশোধ করুন।") 
+        : (shopSettings.waTemplateEnglish || "Dear {{customerName}}, your due amount at {{shopName}} is {{dueAmount}}. Please pay on time.");
+      
+      // Basic variable substitution
+      message = template
+        .replace('{{customerName}}', customer.name || 'Customer')
+        .replace('{{shopName}}', shopSettings.name || 'Shop')
+        .replace('{{dueAmount}}', (customer.currentDue || 0).toString());
+    }
 
     const cleanPhone = customer.phone.replace(/\D/g, '');
     window.open(`https://wa.me/${cleanPhone}?text=${encodeURIComponent(message)}`, '_blank');
