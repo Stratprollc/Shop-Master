@@ -169,6 +169,8 @@ interface ShopSettings {
   address: string;
   logoUrl?: string;
   logoBase64?: string;
+  faviconBase64?: string;
+  platformTitle?: string;
   phone?: string;
   whatsappSender?: string;
   receiptWidth?: '58mm' | '80mm';
@@ -1957,6 +1959,7 @@ function SettingsPanel({ settings, onSaveSettings, users, onAddUser, onDeleteUse
   const [activeSubTab, setActiveSubTab] = useState<'shop' | 'users'>('shop');
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [logoPreview, setLogoPreview] = useState<string | null>(settings.logoBase64 || null);
+  const [faviconPreview, setFaviconPreview] = useState<string | null>(settings.faviconBase64 || null);
 
   useEffect(() => {
     const handleClick = () => setConfirmDeleteId(null);
@@ -1975,13 +1978,21 @@ function SettingsPanel({ settings, onSaveSettings, users, onAddUser, onDeleteUse
       logoBase64 = await fileToBase64(logoFile);
     }
 
+    const faviconFile = (form.querySelector('input[name="favicon"]') as HTMLInputElement)?.files?.[0];
+    let faviconBase64 = faviconPreview || settings.faviconBase64;
+    if (faviconFile) {
+      faviconBase64 = await fileToBase64(faviconFile);
+    }
+
     onSaveSettings({
       ...settings,
       name: formData.get('name') as string,
+      platformTitle: formData.get('platformTitle') as string,
       address: formData.get('address') as string,
       phone: formData.get('phone') as string,
       logoUrl: formData.get('logoUrl') as string,
       logoBase64: logoBase64,
+      faviconBase64: faviconBase64,
       whatsappSender: formData.get('whatsappSender') as string,
       waGatewayType: formData.get('waGatewayType') as any,
       waApiUrl: formData.get('waApiUrl') as string,
@@ -2077,6 +2088,46 @@ function SettingsPanel({ settings, onSaveSettings, users, onAddUser, onDeleteUse
                 <label className="block text-sm font-medium text-gray-700 mb-2">Shop Name</label>
                 <input name="name" defaultValue={settings.name || ''} required className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-indigo-500 outline-none" />
               </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Platform Title (Tabs Title)</label>
+                <input name="platformTitle" defaultValue={settings.platformTitle || ''} className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-indigo-500 outline-none" placeholder="ShopMaster - My Shop" />
+              </div>
+
+              <div className="md:col-span-2 grid grid-cols-1 md:grid-cols-2 gap-6 pt-4 border-t border-gray-100">
+                <div className="space-y-4">
+                  <h4 className="font-bold text-gray-900 flex items-center gap-2">
+                    <Globe className="w-5 h-5 text-indigo-600" />
+                    Favicon Settings
+                  </h4>
+                  <div className="flex items-center gap-6 p-6 bg-gray-50 rounded-2xl border border-dashed border-gray-200">
+                    <div className="w-16 h-16 bg-white rounded-xl border border-gray-100 flex items-center justify-center overflow-hidden shadow-sm">
+                      {faviconPreview ? (
+                        <img src={faviconPreview} alt="Favicon" className="w-full h-full object-contain" />
+                      ) : (
+                        <Globe className="w-6 h-6 text-gray-300" />
+                      )}
+                    </div>
+                    <div className="flex-1">
+                      <label className="block text-sm font-bold text-gray-900 mb-1">Upload Favicon</label>
+                      <p className="text-[10px] text-gray-500 mb-3">Square icon recommended (32x32px)</p>
+                      <input 
+                        type="file" 
+                        name="favicon"
+                        accept="image/*" 
+                        onChange={async (e) => {
+                          const file = e.target.files?.[0];
+                          if (file) {
+                            const base64 = await fileToBase64(file);
+                            setFaviconPreview(base64);
+                          }
+                        }}
+                        className="text-xs text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-xs file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100 cursor-pointer"
+                      />
+                    </div>
+                  </div>
+                </div>
+              </div>
+
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">Phone Number</label>
                 <input name="phone" defaultValue={settings.phone || ''} className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-indigo-500 outline-none" />
@@ -2761,6 +2812,7 @@ export default function App() {
   }, [products]);
   const [shopSettings, setShopSettings] = useState<ShopSettings>({
     name: 'Bismillah Store',
+    platformTitle: 'Bismillah Store - ShopMaster',
     address: 'Your Shop Address',
     phone: '',
     receiptWidth: '58mm',
@@ -2851,16 +2903,25 @@ export default function App() {
 
 
   useEffect(() => {
-    if (shopSettings?.logoBase64) {
+    const iconBase64 = shopSettings?.faviconBase64 || shopSettings?.logoBase64;
+    if (iconBase64) {
       let link = document.querySelector("link[rel~='icon']") as HTMLLinkElement;
       if (!link) {
         link = document.createElement('link');
         link.rel = 'icon';
         document.head.appendChild(link);
       }
-      link.href = shopSettings.logoBase64;
+      link.href = iconBase64;
     }
-  }, [shopSettings?.logoBase64]);
+  }, [shopSettings?.logoBase64, shopSettings?.faviconBase64]);
+
+  useEffect(() => {
+    if (shopSettings?.platformTitle) {
+      document.title = shopSettings.platformTitle;
+    } else if (shopSettings?.name) {
+      document.title = shopSettings.name;
+    }
+  }, [shopSettings?.platformTitle, shopSettings?.name]);
 
   useEffect(() => {
     document.documentElement.dir = shopSettings?.systemLanguage === 'ar' ? 'rtl' : 'ltr';
@@ -2879,6 +2940,7 @@ export default function App() {
       setAppUsers([]);
       setShopSettings({
         name: 'Bismillah Store',
+        platformTitle: 'Bismillah Store - ShopMaster',
         address: 'Your Shop Address',
         phone: '',
         receiptWidth: '58mm',
