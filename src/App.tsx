@@ -456,6 +456,8 @@ const SYSTEM_TRANSLATIONS = {
     expiryAlertsDesc: 'The following products are nearing their expiry date (within 30 days).',
     businessSnapshot: 'Business Snapshot',
     totalExpenses: 'Total Expenses',
+    loginSubtitleMerchant: 'Use your Google account to access your merchant dashboard.',
+    loginSubtitleStaff: 'Use your company provided credentials to access operations.',
   },
   bn: {
 
@@ -553,6 +555,8 @@ const SYSTEM_TRANSLATIONS = {
     expiryAlertsDesc: 'নিচের পণ্যগুলোর মেয়াদের তারিখ সন্নিকটে (৩০ দিনের মধ্যে)',
     businessSnapshot: 'আপনার ব্যবসার সংক্ষিপ্ত চিত্র',
     totalExpenses: 'মোট খরচ',
+    loginSubtitleMerchant: 'লগইন করতে আপনার গুগল একাউন্ট ব্যবহার করুন।',
+    loginSubtitleStaff: 'আপনার কোম্পানি থেকে দেওয়া আইডি দিয়ে লগইন করুন।',
   },
   ar: {
     dashboard: 'لوحة القيادة',
@@ -641,6 +645,8 @@ const SYSTEM_TRANSLATIONS = {
     expiryAlertsDesc: 'المنتجات التالية تقترب من تاريخ انتهاء صلاحيتها (خلال 30 يومًا).',
     businessSnapshot: 'لقطة للأعمال',
     totalExpenses: 'إجمالي المصاريف',
+    loginSubtitleMerchant: 'استخدم حساب Google للوصول إلى لوحة تحكم التاجر.',
+    loginSubtitleStaff: 'استخدم بيانات الاعتماد المقدمة من شركتك للوصول إلى العمليات.',
   }
 };
 
@@ -2678,37 +2684,65 @@ export default function App() {
 
   // Auth State Sync
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, (firebaseUser) => {
+    const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
+      setLoading(true);
       if (firebaseUser && !firebaseUser.isAnonymous) {
         // Authenticated real user
         const isMaster = firebaseUser.email?.toLowerCase().trim() === 'stratproamz@gmail.com';
-        const userData = {
-          uid: firebaseUser.uid,
-          email: firebaseUser.email || '',
-          displayName: firebaseUser.displayName || firebaseUser.email?.split('@')[0] || 'User',
-          role: isMaster ? 'admin' : 'sales_team',
-          shopId: firebaseUser.uid // Default shopId for merchants based on uid
-        };
         
-        // If we have a saved user, preserve the role/shopId if this non-master admin was logging in as Staff
-        const savedUserStr = localStorage.getItem('shopmaster_user');
-        if (savedUserStr && !isMaster) {
-           try {
-              const savedUser = JSON.parse(savedUserStr);
-              if (savedUser.uid === firebaseUser.uid && savedUser.role) {
-                 userData.role = savedUser.role;
-                 userData.shopId = savedUser.shopId || firebaseUser.uid;
-              }
-           } catch(e) {}
+        if (isMaster) {
+          const userData = {
+            uid: firebaseUser.uid,
+            email: firebaseUser.email || '',
+            displayName: 'Master Admin',
+            role: 'admin',
+            shopId: 'master'
+          };
+          setUser(userData);
+          localStorage.setItem('shopmaster_user', JSON.stringify(userData));
+        } else {
+          // Check if it's a staff member (in users collection) or a merchant
+          try {
+            const userDoc = await getDoc(doc(db, 'users', firebaseUser.uid));
+            if (userDoc.exists()) {
+              const data = userDoc.data();
+              const userData = {
+                uid: firebaseUser.uid,
+                email: firebaseUser.email || '',
+                displayName: data.displayName || data.username || 'Staff',
+                role: data.role || 'sales_team',
+                shopId: data.shopId
+              };
+              setUser(userData);
+              localStorage.setItem('shopmaster_user', JSON.stringify(userData));
+            } else {
+              // Might be a Merchant (logged in via Google or first time)
+              const userData = {
+                uid: firebaseUser.uid,
+                email: firebaseUser.email || '',
+                displayName: firebaseUser.displayName || 'Merchant',
+                role: 'admin',
+                shopId: firebaseUser.uid // Merchants use their UID as shopId
+              };
+              setUser(userData);
+              localStorage.setItem('shopmaster_user', JSON.stringify(userData));
+            }
+          } catch (err) {
+            console.error("Error fetching user profile:", err);
+            // Fallback to basic data
+            const userData = {
+              uid: firebaseUser.uid,
+              email: firebaseUser.email || '',
+              displayName: firebaseUser.displayName || 'User',
+              role: 'sales_team',
+              shopId: firebaseUser.uid
+            };
+            setUser(userData);
+          }
         }
-        
-        setUser(userData);
-        localStorage.setItem('shopmaster_user', JSON.stringify(userData));
       } else {
         // Logged out or Anonymous
         setUser(null);
-        // Do not clear local storage here to persist session across reloads if internet drops,
-        // BUT if they are explicitly signing out, the logout function handles the clearing.
       }
       setLoading(false);
     });
@@ -3092,33 +3126,20 @@ export default function App() {
     setAuthError(null);
     setLoading(true);
     
-    // Check against appUsers collection
-    const foundUser = appUsers.find(u => u.username === username && u.password === password);
-
-    if (foundUser) {
-      try {
-        const email = `${username}@bismillahstore.local`;
-        await signInWithEmailAndPassword(auth, email, password);
-
-        const userData = { 
-          uid: foundUser.id, 
-          email: email, 
-          displayName: foundUser.displayName, 
-          role: foundUser.role,
-          shopId: foundUser.shopId
-        };
-        setUser(userData);
-        localStorage.setItem('shopmaster_user', JSON.stringify(userData));
-      } catch (authErr: any) {
-         console.warn("Firebase Auth fallback failed for staff:", authErr);
-         // If they were created before secondaryAuth was added, they might not have a firebase account.
-         // We can try to sign them in anonymously as a fallback but that won't work well with Firestore rules.
-         setAuthError("Auth sync failed. Admin needs to recreate this user.");
+    try {
+      const email = `${username}@bismillahstore.local`;
+      await signInWithEmailAndPassword(auth, email, password);
+      // Profile will be fetched and user state set by onAuthStateChanged
+    } catch (authErr: any) {
+      console.warn("Firebase Auth failed for staff:", authErr);
+      if (authErr.code === 'auth/user-not-found' || authErr.code === 'auth/wrong-password' || authErr.code === 'auth/invalid-credential') {
+        setAuthError(st('loginTitle') === 'Business Management Suite' ? "Invalid username or password" : "ইউজারনাম বা পাসওয়ার্ড সঠিক নয়");
+      } else {
+        setAuthError(st('loginTitle') === 'Business Management Suite' ? "Login failed. Contact Admin." : "লগইন ব্যর্থ হয়েছে। অ্যাডমিনের সাথে যোগাযোগ করুন।");
       }
-    } else {
-      setAuthError("Invalid username or password");
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
   };
 
   const handleLogout = async () => {
@@ -3899,6 +3920,28 @@ export default function App() {
           {/* Right Side: Login Form */}
           <div className="flex-1 p-8 md:p-12 flex flex-col">
             <div className="mb-10">
+              <div className="flex items-center justify-between mb-8">
+                <div className="flex gap-2">
+                  {[
+                    { id: 'bn', label: 'বাংলা' },
+                    { id: 'en', label: 'EN' },
+                    { id: 'ar', label: 'العربية' }
+                  ].map(lang => (
+                    <button
+                      key={lang.id}
+                      onClick={() => setShopSettings(prev => ({ ...prev, systemLanguage: lang.id as any }))}
+                      className={`px-3 py-1.5 rounded-xl text-[10px] font-black transition-all ${shopSettings.systemLanguage === lang.id ? 'bg-indigo-600 text-white shadow-lg' : 'bg-gray-100 text-gray-400 hover:bg-gray-200'}`}
+                    >
+                      {lang.label}
+                    </button>
+                  ))}
+                </div>
+                <div className="text-[10px] font-bold text-gray-400 uppercase tracking-widest flex items-center gap-2">
+                  <Globe className="w-3 h-3" />
+                  {st('systemStatus')}
+                </div>
+              </div>
+
               <div className="flex p-1.5 bg-gray-100 rounded-2xl mb-8 font-semibold text-sm">
                 <button 
                   onClick={() => setLoginMode('merchant')}
@@ -3925,7 +3968,7 @@ export default function App() {
                   >
                     <div className="text-center md:text-left mb-8">
                       <h2 className="text-2xl font-bold text-gray-900 mb-2">{st('merchantLogin')}</h2>
-                      <p className="text-gray-500 text-sm"> লগইন করতে আপনার গুগল একাউন্ট ব্যবহার করুন।</p>
+                      <p className="text-gray-500 text-sm">{st('loginSubtitleMerchant')}</p>
                     </div>
 
                     <button 
@@ -3955,7 +3998,7 @@ export default function App() {
                   >
                     <div className="text-center md:text-left mb-8">
                       <h2 className="text-2xl font-bold text-gray-900 mb-2">{st('staffLogin')}</h2>
-                      <p className="text-gray-500 text-sm">আপনার কোম্পানি থেকে দেওয়া ইউজার আইডি দিয়ে লগইন করুন।</p>
+                      <p className="text-gray-500 text-sm">{st('loginSubtitleStaff')}</p>
                     </div>
 
                     <form onSubmit={handleAuth} className="space-y-5">

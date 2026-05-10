@@ -78,7 +78,7 @@ service cloud.firestore {
     
     // Global Shops Registry
     match /shops/{shopId} {
-      allow read: if isMasterAdmin() || (isSignedIn() && request.auth.uid == shopId);
+      allow read: if isMasterAdmin() || userBelongsToShop(shopId);
       allow create: if isVerified() && request.auth.uid == shopId && isValidShop(request.resource.data);
       allow update: if isMasterAdmin() || (isSignedIn() && request.auth.uid == shopId);
       allow delete: if isMasterAdmin();
@@ -90,7 +90,16 @@ service cloud.firestore {
       allow write: if isMasterAdmin() || (isSignedIn() && request.auth.uid == shopId);
     }
 
-    // Catch-all for sub-collections tied to shopId
+    // Specific match for users to avoid recursion and allow self-lookup
+    match /users/{userId} {
+      allow get: if isMasterAdmin() || (isSignedIn() && request.auth.uid == userId) || userBelongsToShop(resource.data.shopId);
+      allow list: if isMasterAdmin() || (isSignedIn() && (resource.data.shopId == request.auth.uid || (exists(/databases/$(database)/documents/users/$(request.auth.uid)) && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.shopId == resource.data.shopId)));
+      allow create: if isMasterAdmin() || (isSignedIn() && request.auth.uid == incoming().shopId);
+      allow update: if isMasterAdmin() || (isSignedIn() && request.auth.uid == existing().shopId);
+      allow delete: if isMasterAdmin() || (isSignedIn() && request.auth.uid == existing().shopId);
+    }
+
+    // Catch-all for other sub-collections tied to shopId
     match /{collection}/{docId} {
       // Dynamic matching for common shop data
       // For list queries, the query MUST be scoped to a specific shopId OR user must be master admin
