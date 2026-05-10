@@ -111,6 +111,7 @@ import {
   onAuthStateChanged,
   signInWithEmailAndPassword,
   createUserWithEmailAndPassword,
+  signInAnonymously,
   collection,
   doc,
   setDoc,
@@ -2422,12 +2423,12 @@ function ShopManagement({ shops }: { shops: any[] }) {
                 )}
               </div>
               <span className="px-3 py-1 bg-indigo-50 text-indigo-600 rounded-full text-[10px] font-black uppercase tracking-widest">
-                {shop.type}
+                {shop?.type || 'Shop'}
               </span>
             </div>
             
-            <h3 className="text-lg font-black text-gray-900 mb-1">{shop.name}</h3>
-            <p className="text-gray-500 text-sm mb-4 line-clamp-2 min-h-[40px]">{shop.address}</p>
+            <h3 className="text-lg font-black text-gray-900 mb-1">{shop?.name || 'Unnamed Shop'}</h3>
+            <p className="text-gray-500 text-sm mb-4 line-clamp-2 min-h-[40px]">{shop?.address || 'No address'}</p>
             
             <div className="space-y-2 pt-4 border-t border-gray-50">
               <div className="flex items-center gap-2 text-gray-400">
@@ -2583,10 +2584,8 @@ export default function App() {
   // Auth State Sync
   useEffect(() => {
     // Try to sign in anonymously if needed, ignore failure as public mode is fine
-    import('firebase/auth').then(({ signInAnonymously }) => {
-      signInAnonymously(auth).catch(() => {
-        // Silent fail
-      });
+    signInAnonymously(auth).catch(() => {
+      // Silent fail
     });
 
     const unsubscribe = onAuthStateChanged(auth, (firebaseUser) => {
@@ -4741,7 +4740,7 @@ function Dashboard({ products, sales, customers, expenses, dailyClosings, settin
             </div>
           </div>
           <div className="h-[350px] w-full min-h-[350px] min-w-full">
-            <ResponsiveContainer width="100%" height="100%">
+            <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={300}>
               <BarChart data={chartData}>
                 <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
                 <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{fill: '#94a3b8', fontSize: 12}} />
@@ -4988,8 +4987,8 @@ function Calculator({ settings }: { settings: ShopSettings }) {
       if (display === '0' || display === 'Error') return;
       try {
         setLastEquation(display);
-        // eslint-disable-next-line no-eval
-        const result = eval(display);
+        // eslint-disable-next-line no-new-func
+        const result = new Function('return ' + display)();
         setDisplay(String(result ?? '0'));
       } catch {
         setDisplay('Error');
@@ -8318,7 +8317,7 @@ function Inventory({ products, categories, stockRecords, sales, onViewHistory, s
           }
 
           // Calculate final total stock
-          const finalProductsSnapshot = await getDocs(collection(db, 'products'));
+          const finalProductsSnapshot = await getDocs(query(collection(db, 'products'), where('shopId', '==', user.shopId)));
           report.totalStock = finalProductsSnapshot.docs.reduce((acc, doc) => acc + (doc.data().stock || 0), 0);
           
           setImportReport({ ...report, total: report.added + report.updated } as any);
@@ -8658,7 +8657,7 @@ Return the result as JSON with a "category" field containing exactly one string 
             
             // Fetch fresh list of IDs to ensure everything is deleted
             setUploadProgress({ status: 'Querying current inventory...', current: 0, total: 0 });
-            const querySnapshot = await getDocs(collection(db, 'products'));
+            const querySnapshot = await getDocs(query(collection(db, 'products'), where('shopId', '==', user.shopId)));
             const productIds = querySnapshot.docs.map(doc => doc.id);
             
             setUploadProgress({ status: 'Deleting current inventory...', current: 0, total: productIds.length });

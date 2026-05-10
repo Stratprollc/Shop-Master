@@ -15,10 +15,6 @@ service cloud.firestore {
       return isSignedIn() && request.auth.token.email_verified == true;
     }
 
-    function isMasterAdmin() {
-      return isSignedIn() && request.auth.token.email.lower() == "stratproamz@gmail.com";
-    }
-
     function incoming() {
       return request.resource.data;
     }
@@ -32,11 +28,18 @@ service cloud.firestore {
     }
 
     // Identity Logic
+    function isMasterAdmin() {
+      return isSignedIn() && 
+             request.auth.token.email != null && 
+             (request.auth.token.email == "stratproamz@gmail.com" || request.auth.token.email == "STRATPROAMZ@GMAIL.COM");
+    }
+
     // For merchants, their shopId IS their uid.
     // For staff, we must verify their association.
     function userBelongsToShop(shopId) {
       return isSignedIn() && (
         request.auth.uid == shopId || // Merchant self
+        isMasterAdmin() ||            // Master Admin escape hatch
         (exists(/databases/$(database)/documents/users/$(request.auth.uid)) && 
          get(/databases/$(database)/documents/users/$(request.auth.uid)).data.shopId == shopId) // Staff lookup
       );
@@ -44,46 +47,62 @@ service cloud.firestore {
 
     // Validation Blueprints
     function isValidProduct(data) {
-      return data.shopId is string &&
+      return data.shopId is string && data.shopId.size() > 0 &&
              data.name is string && data.name.size() > 0 && data.name.size() < 200 &&
              data.price is number && data.price >= 0;
     }
 
     function isValidSale(data) {
-      return data.shopId is string &&
+      return data.shopId is string && data.shopId.size() > 0 &&
              data.items is list && data.items.size() > 0 &&
              data.finalAmount is number && data.finalAmount >= 0;
     }
 
     function isValidCustomer(data) {
-      return data.shopId is string &&
+      return data.shopId is string && data.shopId.size() > 0 &&
              data.name is string && data.name.size() > 0 && data.name.size() < 100;
     }
 
     function isValidUser(data) {
-      return data.shopId is string &&
-             data.username is string && data.role in ['admin', 'staff', 'manager', 'sales', 'inventory', 'cashier'];
+      return data.shopId is string && data.shopId.size() > 0 &&
+             data.username is string && data.role in ['admin', 'staff', 'manager', 'sales', 'inventory', 'cashier', 'assistant_manager', 'sales_team', 'sales_manager'];
     }
 
     function isValidShop(data) {
-      return data.shopId is string && data.name is string && data.ownerUid == request.auth.uid;
+      return data.shopId is string && data.shopId.size() > 0 && 
+             data.name is string && data.name.size() > 0 &&
+             data.ownerUid == request.auth.uid;
     }
 
     // 4. Detailed Match Blocks
     
-    // Core Business Collections
+    // Global Shops Registry
+    match /shops/{shopId} {
+      allow read: if isMasterAdmin() || (isSignedIn() && request.auth.uid == shopId);
+      allow create: if isVerified() && request.auth.uid == shopId && isValidShop(request.resource.data);
+      allow update: if isMasterAdmin() || (isSignedIn() && request.auth.uid == shopId);
+      allow delete: if isMasterAdmin();
+    }
+
+    // Settings
+    match /settings/{shopId} {
+      allow read: if isMasterAdmin() || userBelongsToShop(shopId);
+      allow write: if isMasterAdmin() || (isSignedIn() && request.auth.uid == shopId);
+    }
+
+    // Catch-all for sub-collections tied to shopId
     match /{collection}/{docId} {
-      // Use dynamic matching for common shop data
+      // Dynamic matching for common shop data
+      // For list queries, the query MUST be scoped to a specific shopId OR user must be master admin
       allow list: if isMasterAdmin() || (
         isSignedIn() && (
-          // Master check for list: can we verify the shopId in the query?
-          // Since we can't get() in list, we rely on the merchant check or master admin
-          request.auth.uid == resource.data.shopId || 
-          isMasterAdmin()
+          resource.data.shopId == request.auth.uid ||
+          (exists(/databases/$(database)/documents/users/$(request.auth.uid)) && 
+           get(/databases/$(database)/documents/users/$(request.auth.uid)).data.shopId == resource.data.shopId)
         )
       );
 
-      allow get: if isMasterAdmin() || userBelongsToShop(existing().shopId);
+      allow get: if isMasterAdmin() || userBelongsToShop(resource.data.shopId);
 
       allow create: if isMasterAdmin() || (
         userBelongsToShop(incoming().shopId) &&
@@ -104,27 +123,14 @@ service cloud.firestore {
       allow update: if isMasterAdmin() || (
         userBelongsToShop(existing().shopId) &&
         incoming().shopId == existing().shopId &&
-        // Protect roles and sensitive fields
+        // Protect sensitive fields unless master admin
         (collection != 'users' || !incoming().diff(existing()).affectedKeys().hasAny(['role', 'shopId']))
       );
 
       allow delete: if isMasterAdmin() || (
-        userBelongsToShop(existing().shopId) &&
-        collection in ['recycleBin', 'categories', 'products']
+        isSignedIn() && userBelongsToShop(existing().shopId) &&
+        collection in ['recycleBin', 'categories', 'products', 'daily_closings', 'sales', 'expenses', 'investments', 'staff_salaries', 'stockRecords']
       );
-    }
-
-    // Settings
-    match /settings/{shopId} {
-      allow read, write: if isMasterAdmin() || userBelongsToShop(shopId);
-    }
-
-    // Global Shops Registry
-    match /shops/{shopId} {
-      allow read: if isMasterAdmin() || (isSignedIn() && request.auth.uid == shopId);
-      allow create: if isVerified() && request.auth.uid == shopId && isValidShop(request.resource.data);
-      allow update: if isMasterAdmin() || (isSignedIn() && request.auth.uid == shopId);
-      allow delete: if isMasterAdmin();
     }
   }
 }
