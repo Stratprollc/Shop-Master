@@ -2602,19 +2602,20 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
+    const handleKeyUp = (e: KeyboardEvent) => {
       // Toggle fullscreen on Escape key
-      // If NOT in fullscreen, enter it.
-      // If ALREADY in fullscreen, browser default behavior for Escape is to exit.
+      // Use keyup to avoid repeating triggers and potential conflict with browser's immediate exit logic
       if (e.key === 'Escape') {
         if (!document.fullscreenElement) {
-          e.preventDefault();
-          document.documentElement.requestFullscreen().catch(() => {});
+          // Enter fullscreen if not already in it
+          document.documentElement.requestFullscreen().catch((err) => {
+            console.warn("Fullscreen request failed:", err);
+          });
         }
       }
     };
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
+    window.addEventListener('keyup', handleKeyUp);
+    return () => window.removeEventListener('keyup', handleKeyUp);
   }, []);
 
 
