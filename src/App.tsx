@@ -461,6 +461,8 @@ const SYSTEM_TRANSLATIONS = {
     totalExpenses: 'Total Expenses',
     loginSubtitleMerchant: 'Use your Google account to access your merchant dashboard.',
     loginSubtitleStaff: 'Use your company provided credentials to access operations.',
+    fullScreenOn: 'Full Screen On',
+    fullScreenOff: 'Leave Full Screen',
   },
   bn: {
 
@@ -560,6 +562,8 @@ const SYSTEM_TRANSLATIONS = {
     totalExpenses: 'মোট খরচ',
     loginSubtitleMerchant: 'লগইন করতে আপনার গুগল একাউন্ট ব্যবহার করুন।',
     loginSubtitleStaff: 'আপনার কোম্পানি থেকে দেওয়া আইডি দিয়ে লগইন করুন।',
+    fullScreenOn: 'ফুল স্ক্রিন করুন',
+    fullScreenOff: 'ফুল স্ক্রিন বন্ধ করুন',
   },
   ar: {
     dashboard: 'لوحة القيادة',
@@ -648,6 +652,8 @@ const SYSTEM_TRANSLATIONS = {
     expiryAlertsDesc: 'المنتجات التالية تقترب من تاريخ انتهاء صلاحيتها (خلال 30 يومًا).',
     businessSnapshot: 'لقطة للأعمال',
     totalExpenses: 'إجمالي المصاريف',
+    fullScreenOn: 'ملء الشاشة',
+    fullScreenOff: 'خروج من ملء الشاشة',
     loginSubtitleMerchant: 'استخدم حساب Google للوصول إلى لوحة تحكم التاجر.',
     loginSubtitleStaff: 'استخدم بيانات الاعتماد المقدمة من شركتك للوصول إلى العمليات.',
   }
@@ -2597,13 +2603,13 @@ export default function App() {
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      // Toggle fullscreen on Escape key
+      // If NOT in fullscreen, enter it.
+      // If ALREADY in fullscreen, browser default behavior for Escape is to exit.
       if (e.key === 'Escape') {
         if (!document.fullscreenElement) {
+          e.preventDefault();
           document.documentElement.requestFullscreen().catch(() => {});
-        } else {
-          if (document.exitFullscreen) {
-            document.exitFullscreen().catch(() => {});
-          }
         }
       }
     };
@@ -4257,6 +4263,21 @@ export default function App() {
             <motion.button 
               whileHover={{ scale: 1.02 }}
               whileTap={{ scale: 0.98 }}
+              onClick={() => {
+                if (!isFullScreen) {
+                  document.documentElement.requestFullscreen().catch(() => {});
+                } else {
+                  document.exitFullscreen().catch(() => {});
+                }
+              }}
+              className="w-full flex items-center justify-center gap-3 py-3 mb-2 text-indigo-600 hover:text-white hover:bg-indigo-600 rounded-xl transition-all font-bold text-sm border border-indigo-100 hover:border-indigo-600 shadow-sm"
+            >
+              {isFullScreen ? <Minimize2 className="w-5 h-5" /> : <Maximize2 className="w-5 h-5" />}
+              {isFullScreen ? st('fullScreenOff') : st('fullScreenOn')}
+            </motion.button>
+            <motion.button 
+              whileHover={{ scale: 1.02 }}
+              whileTap={{ scale: 0.98 }}
               onClick={handleLogout}
               className="w-full flex items-center justify-center gap-3 py-3 text-red-500 hover:text-white hover:bg-red-500 rounded-xl transition-all font-bold text-sm border border-red-100 hover:border-red-500 shadow-sm"
             >
@@ -4650,25 +4671,6 @@ export default function App() {
         />
         <Calculator settings={shopSettings} />
         
-        {/* Fullscreen Toggle Button */}
-        <motion.button
-          initial={{ opacity: 0, scale: 0.8 }}
-          animate={{ opacity: 1, scale: 1 }}
-          whileHover={{ scale: 1.1 }}
-          whileTap={{ scale: 0.9 }}
-          onClick={() => {
-            if (!isFullScreen) {
-              document.documentElement.requestFullscreen().catch(() => {});
-            } else {
-              document.exitFullscreen().catch(() => {});
-            }
-          }}
-          className="fixed bottom-24 right-6 p-4 bg-white/80 backdrop-blur-md text-indigo-600 rounded-2xl shadow-xl border border-white/50 z-[100] group"
-          title="Toggle Fullscreen (Esc)"
-        >
-          {isFullScreen ? <Minimize2 className="w-6 h-6" /> : <Maximize2 className="w-6 h-6" />}
-        </motion.button>
-
         <NotificationToast notification={notification} onClose={() => setNotification(null)} />
         {selectedProductForHistory && (
           <ProductHistory 
