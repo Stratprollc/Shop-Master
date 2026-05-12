@@ -79,18 +79,20 @@ import {
   QrCode,
   ChevronDown,
   List,
+  FileSpreadsheet,
+  Receipt,
   Filter,
   Activity,
   FileText,
   Target,
   MessageSquare,
   Phone,
-  User,
   UserPlus,
   ClipboardList,
   Coins,
   BarChart3,
   Smartphone,
+  Monitor as MonitorIcon,
   Landmark,
   Lock,
   Wallet,
@@ -466,6 +468,9 @@ const SYSTEM_TRANSLATIONS = {
     loginSubtitleStaff: 'Use your company provided credentials to access operations.',
     fullScreenOn: 'Full Screen On',
     fullScreenOff: 'Leave Full Screen',
+    downloadAndroid: 'Download Android App',
+    downloadDesktop: 'Download Desktop App',
+    downloadTab: 'Download',
   },
   bn: {
 
@@ -567,6 +572,9 @@ const SYSTEM_TRANSLATIONS = {
     loginSubtitleStaff: 'আপনার কোম্পানি থেকে দেওয়া আইডি দিয়ে লগইন করুন।',
     fullScreenOn: 'ফুল স্ক্রিন করুন',
     fullScreenOff: 'ফুল স্ক্রিন বন্ধ করুন',
+    downloadAndroid: 'অ্যান্ড্রয়েড অ্যাপ ডাউনলোড',
+    downloadDesktop: 'ডেস্কটপ অ্যাপ ডাউনলোড',
+    downloadTab: 'ডাউনলোড',
   },
   ar: {
     dashboard: 'لوحة القيادة',
@@ -659,6 +667,8 @@ const SYSTEM_TRANSLATIONS = {
     fullScreenOff: 'خروج من ملء الشاشة',
     loginSubtitleMerchant: 'استخدم حساب Google للوصول إلى لوحة تحكم التاجر.',
     loginSubtitleStaff: 'استخدم بيانات الاعتماد المقدمة من شركتك للوصول إلى العمليات.',
+    downloadAndroid: 'تنزيل تطبيق أندرويد',
+    downloadDesktop: 'تنزيل تطبيق سطح المكتب',
   }
 };
 
@@ -1973,8 +1983,32 @@ const ErrorBoundary = ({ children }: { children: React.ReactNode }) => {
   return <>{children}</>;
 };
 
-function SettingsPanel({ settings, onSaveSettings, users, onAddUser, onDeleteUser, isSaving }: { settings: ShopSettings, onSaveSettings: (s: ShopSettings) => void, users: AppUser[], onAddUser: (u: Omit<AppUser, 'id'>) => void, onDeleteUser: (id: string) => void, isSaving: boolean }) {
-  const [activeSubTab, setActiveSubTab] = useState<'shop' | 'users'>('shop');
+function SettingsPanel({ 
+  settings, 
+  onSaveSettings, 
+  users, 
+  onAddUser, 
+  onDeleteUser, 
+  isSaving,
+  products = [],
+  sales = [],
+  customers = [],
+  expenses = []
+}: { 
+  settings: ShopSettings, 
+  onSaveSettings: (s: ShopSettings) => void, 
+  users: AppUser[], 
+  onAddUser: (u: Omit<AppUser, 'id'>) => void, 
+  onDeleteUser: (id: string) => void, 
+  isSaving: boolean,
+  products?: Product[],
+  sales?: Sale[],
+  customers?: Customer[],
+  expenses?: Expense[]
+}) {
+  const systemLang = settings.systemLanguage || 'bn';
+  const st = (key: keyof typeof SYSTEM_TRANSLATIONS['en']) => (SYSTEM_TRANSLATIONS[systemLang] as any)[key] || (SYSTEM_TRANSLATIONS['en'] as any)[key];
+  const [activeSubTab, setActiveSubTab] = useState<'shop' | 'users' | 'download'>('shop');
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [logoPreview, setLogoPreview] = useState<string | null>(settings.logoBase64 || null);
   const [faviconPreview, setFaviconPreview] = useState<string | null>(settings.faviconBase64 || null);
@@ -2043,8 +2077,9 @@ function SettingsPanel({ settings, onSaveSettings, users, onAddUser, onDeleteUse
   };
 
   return (
-    <motion.div 
-      initial={{ opacity: 0, x: 20 }}
+    <>
+      <motion.div 
+        initial={{ opacity: 0, x: 20 }}
       animate={{ opacity: 1, x: 0 }}
       exit={{ opacity: 0, x: -20 }}
       className="space-y-8"
@@ -2067,9 +2102,15 @@ function SettingsPanel({ settings, onSaveSettings, users, onAddUser, onDeleteUse
         >
           User Management
         </button>
+        <button 
+          onClick={() => setActiveSubTab('download')}
+          className={`px-6 py-3 font-bold transition-all border-b-2 ${activeSubTab === 'download' ? 'border-indigo-600 text-indigo-600' : 'border-transparent text-gray-400'}`}
+        >
+          {st('downloadTab')}
+        </button>
       </div>
 
-      {activeSubTab === 'shop' ? (
+      {activeSubTab === 'shop' && (
         <div className="bg-white p-8 rounded-3xl shadow-sm border border-gray-100">
           <h3 className="text-xl font-bold mb-6 flex items-center gap-2">
             <Building2 className="w-6 h-6 text-indigo-600" />
@@ -2306,7 +2347,9 @@ function SettingsPanel({ settings, onSaveSettings, users, onAddUser, onDeleteUse
             </button>
           </form>
         </div>
-      ) : (
+      )}
+
+      {activeSubTab === 'users' && (
         <div className="space-y-8">
           <div className="bg-white p-8 rounded-3xl shadow-sm border border-gray-100">
             <h3 className="text-lg font-bold mb-6">Add New User</h3>
@@ -2393,116 +2436,175 @@ function SettingsPanel({ settings, onSaveSettings, users, onAddUser, onDeleteUse
           </div>
         </div>
       )}
-    </motion.div>
-  );
+
+      {activeSubTab === 'download' && (
+        <div className="space-y-8">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div className="bg-white p-8 rounded-3xl shadow-sm border border-gray-100">
+              <h3 className="text-xl font-bold mb-6 flex items-center gap-2">
+                <Download className="w-6 h-6 text-indigo-600" />
+                Inventory & Products
+              </h3>
+              <p className="text-gray-500 mb-6 text-sm">Download your current stock list, prices, and categories in CSV format.</p>
+              <button 
+                onClick={() => {
+                  const data = products.map(p => ({
+                    'Product ID': p.id,
+                    'Name': p.name,
+                    'Category': p.category,
+                    'Price': p.price,
+                    'Stock': p.stock,
+                    'Unit': p.unit,
+                    'Barcode': p.barcode || 'N/A'
+                  }));
+                  const csv = Papa.unparse(data);
+                  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+                  const link = document.createElement('a');
+                  link.href = URL.createObjectURL(blob);
+                  link.setAttribute('download', `inventory_${format(new Date(), 'yyyy-MM-dd')}.csv`);
+                  document.body.appendChild(link);
+                  link.click();
+                  document.body.removeChild(link);
+                }}
+                className="w-full py-4 bg-indigo-50 text-indigo-700 font-bold rounded-2xl border border-indigo-100 hover:bg-indigo-100 transition-all flex items-center justify-center gap-3"
+              >
+                <FileSpreadsheet className="w-5 h-5" />
+                Download Inventory CSV
+              </button>
+            </div>
+
+            <div className="bg-white p-8 rounded-3xl shadow-sm border border-gray-100">
+              <h3 className="text-xl font-bold mb-6 flex items-center gap-2">
+                <Users className="w-6 h-6 text-indigo-600" />
+                Customer Database
+              </h3>
+              <p className="text-gray-500 mb-6 text-sm">Download your customer list with contact details and current due balances.</p>
+              <button 
+                onClick={() => {
+                  const data = customers.map(c => ({
+                    'Customer ID': c.id,
+                    'Name': c.name,
+                    'Phone': c.phone,
+                    'Address': c.address || '',
+                    'Initial Due': c.initialDue || 0,
+                    'Created At': safeDate(c.createdAt).toLocaleDateString()
+                  }));
+                  const csv = Papa.unparse(data);
+                  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+                  const link = document.createElement('a');
+                  link.href = URL.createObjectURL(blob);
+                  link.setAttribute('download', `customers_${format(new Date(), 'yyyy-MM-dd')}.csv`);
+                  document.body.appendChild(link);
+                  link.click();
+                  document.body.removeChild(link);
+                }}
+                className="w-full py-4 bg-indigo-50 text-indigo-700 font-bold rounded-2xl border border-indigo-100 hover:bg-indigo-100 transition-all flex items-center justify-center gap-3"
+              >
+                <FileSpreadsheet className="w-5 h-5" />
+                Download Customer CSV
+              </button>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div className="bg-white p-8 rounded-3xl shadow-sm border border-gray-100">
+              <h3 className="text-xl font-bold mb-6 flex items-center gap-2">
+                <Smartphone className="w-6 h-6 text-emerald-600" />
+                {st('downloadAndroid')}
+              </h3>
+              <p className="text-gray-500 mb-6 text-sm">Get our Android app for mobile-first inventory management on the go.</p>
+              <button 
+                onClick={() => window.open('https://play.google.com/store', '_blank')}
+                className="w-full py-4 bg-emerald-50 text-emerald-700 font-bold rounded-2xl border border-emerald-100 hover:bg-emerald-100 transition-all flex items-center justify-center gap-3"
+              >
+                <Smartphone className="w-5 h-5" />
+                Download APK / Play Store
+              </button>
+            </div>
+
+            <div className="bg-white p-8 rounded-3xl shadow-sm border border-gray-100">
+              <h3 className="text-xl font-bold mb-6 flex items-center gap-2">
+                <MonitorIcon className="w-6 h-6 text-indigo-600" />
+                {st('downloadDesktop')}
+              </h3>
+              <p className="text-gray-500 mb-6 text-sm">Download the desktop application for a seamless offline-capable experience.</p>
+              <button 
+                onClick={() => window.open('#', '_blank')}
+                className="w-full py-4 bg-indigo-50 text-indigo-700 font-bold rounded-2xl border border-indigo-100 hover:bg-indigo-100 transition-all flex items-center justify-center gap-3"
+              >
+                <MonitorIcon className="w-5 h-5" />
+                Download for Windows / Mac
+              </button>
+            </div>
+
+            <div className="bg-white p-8 rounded-3xl shadow-sm border border-gray-100">
+              <h3 className="text-xl font-bold mb-6 flex items-center gap-2">
+                <Banknote className="w-6 h-6 text-indigo-600" />
+                Sales History (Last 1000)
+              </h3>
+              <p className="text-gray-500 mb-6 text-sm">Export recent transaction logs including payment methods and amounts.</p>
+              <button 
+                onClick={() => {
+                  const data = sales.slice(0, 1000).map(s => ({
+                    'Invoice ID': s.id,
+                    'Date': safeDate(s.timestamp).toLocaleString(),
+                    'Customer': s.customerName || 'Walk-in',
+                    'Total': s.finalAmount,
+                    'Paid': s.paidAmount,
+                    'Due': s.dueAmount,
+                    'Method': s.paymentMethod
+                  }));
+                  const csv = Papa.unparse(data);
+                  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+                  const link = document.createElement('a');
+                  link.href = URL.createObjectURL(blob);
+                  link.setAttribute('download', `sales_history_${format(new Date(), 'yyyy-MM-dd')}.csv`);
+                  document.body.appendChild(link);
+                  link.click();
+                  document.body.removeChild(link);
+                }}
+                className="w-full py-4 bg-indigo-50 text-indigo-700 font-bold rounded-2xl border border-indigo-100 hover:bg-indigo-100 transition-all flex items-center justify-center gap-3"
+              >
+                <FileSpreadsheet className="w-5 h-5" />
+                Download Sales CSV
+              </button>
+            </div>
+
+            <div className="bg-white p-8 rounded-3xl shadow-sm border border-gray-100">
+              <h3 className="text-xl font-bold mb-6 flex items-center gap-2">
+                <Receipt className="w-6 h-6 text-indigo-600" />
+                Expense Records
+              </h3>
+              <p className="text-gray-500 mb-6 text-sm">Download breakdown of categorized expenses for your bookkeeping.</p>
+              <button 
+                onClick={() => {
+                  const data = expenses.map(e => ({
+                    'ID': e.id,
+                    'Date': safeDate(e.timestamp).toLocaleDateString(),
+                    'Category': e.category,
+                    'Description': e.description,
+                    'Amount': e.amount
+                  }));
+                  const csv = Papa.unparse(data);
+                  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+                  const link = document.createElement('a');
+                  link.href = URL.createObjectURL(blob);
+                  link.setAttribute('download', `expenses_${format(new Date(), 'yyyy-MM-dd')}.csv`);
+                  document.body.appendChild(link);
+                  link.click();
+                  document.body.removeChild(link);
+                }}
+                className="w-full py-4 bg-indigo-50 text-indigo-700 font-bold rounded-2xl border border-indigo-100 hover:bg-indigo-100 transition-all flex items-center justify-center gap-3"
+              >
+                <FileSpreadsheet className="w-5 h-5" />
+                Download Expense CSV
+              </button>
+            </div>
+          </div>
+    );
 }
 
-function RecycleBin({ items, onRestore }: { items: RecycleItem[], onRestore: (item: RecycleItem) => void }) {
-  const [searchTerm, setSearchTerm] = useState('');
-  
-  const filteredItems = items.filter(item => {
-    const dataStr = JSON.stringify(item.data);
-    return isPhoneticMatch(item.entityType, searchTerm) || isPhoneticMatch(dataStr, searchTerm);
-  });
-
-  return (
-    <motion.div 
-      initial={{ opacity: 0, y: 20 }}
-      animate={{ opacity: 1, y: 0 }}
-      className="space-y-6"
-    >
-      <header className="flex items-center justify-between">
-        <div>
-          <h2 className="text-3xl font-bold text-gray-900">Recycle Bin</h2>
-          <p className="text-gray-500">Items are kept for 30 days before permanent deletion.</p>
-        </div>
-      </header>
-
-      <div className="flex flex-col md:flex-row gap-4 mb-6">
-        <div className="relative flex-1">
-          <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400 w-5 h-5" />
-          <input 
-            type="text"
-            placeholder="Search deleted items..."
-            className="w-full pl-12 pr-4 py-3 bg-white border border-gray-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none shadow-sm"
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-          />
-        </div>
-      </div>
-
-      <div className="bg-white rounded-3xl shadow-sm border border-gray-100 overflow-hidden">
-        <table className="w-full text-left">
-          <thead className="bg-gray-50 border-b border-gray-100">
-            <tr>
-              <th className="px-6 py-4 text-sm font-semibold text-gray-600">Type</th>
-              <th className="px-6 py-4 text-sm font-semibold text-gray-600">Name/Description</th>
-              <th className="px-6 py-4 text-sm font-semibold text-gray-600">Deleted Date</th>
-              <th className="px-6 py-4 text-sm font-semibold text-gray-600">Auto Delete</th>
-              <th className="px-6 py-4 text-sm font-semibold text-gray-600 text-right">Actions</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-gray-100">
-            {filteredItems.length === 0 ? (
-              <tr>
-                <td colSpan={5} className="px-6 py-20 text-center text-gray-400 font-medium">
-                  No items found in the recycle bin.
-                </td>
-              </tr>
-            ) : (
-              filteredItems.map(item => {
-                const deletedDate = safeDate(item.deletedAt);
-                const expiryDate = safeDate(item.expiresAt);
-                const daysRemaining = Math.ceil((expiryDate.getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24));
-                
-                let displayName = "Unknown";
-                if (item.entityType === 'product') displayName = item.data.name;
-                if (item.entityType === 'sale') displayName = `Invoice #${item.data.id} - ${item.data.customerName || 'Walk-in'}`;
-                if (item.entityType === 'customer') displayName = item.data.name;
-                if (item.entityType === 'user') displayName = item.data.displayName;
-                if (item.entityType === 'employee') displayName = item.data.name;
-                if (item.entityType === 'expense') displayName = item.data.description;
-                if (item.entityType === 'investment') displayName = item.data.description;
-                if (item.entityType === 'salary') displayName = item.data.staffName;
-                if (item.entityType === 'daily_closing') displayName = `Daily Closing - ${format(safeDate(item.data.timestamp), 'dd MMM yyyy')}`;
-
-                return (
-                  <tr key={item.id} className="hover:bg-gray-50/50 transition-colors">
-                    <td className="px-6 py-4">
-                      <span className="px-3 py-1 bg-gray-100 text-gray-600 rounded-full text-[10px] font-bold uppercase">
-                        {item.entityType.replace('_', ' ')}
-                      </span>
-                    </td>
-                    <td className="px-6 py-4 font-medium text-gray-900">{displayName}</td>
-                    <td className="px-6 py-4 text-sm text-gray-600">{format(deletedDate, 'dd MMM yyyy, hh:mm a')}</td>
-                    <td className="px-6 py-4">
-                      <div className="flex flex-col">
-                        <span className={`text-sm ${daysRemaining <= 5 ? 'text-red-500 font-bold' : 'text-gray-600'}`}>
-                          {daysRemaining > 0 ? `${daysRemaining} days left` : 'Cleaning up soon...'}
-                        </span>
-                        <span className="text-[10px] text-gray-400">{format(expiryDate, 'dd MMM yyyy')}</span>
-                      </div>
-                    </td>
-                    <td className="px-6 py-4 text-right">
-                      <button 
-                        onClick={() => onRestore(item)}
-                        className="flex items-center gap-1 ml-auto px-3 py-1 bg-green-50 text-green-600 rounded-lg hover:bg-green-100 transition-all font-semibold text-xs border border-green-100"
-                        title="Restore Item"
-                      >
-                        <RotateCcw className="w-3 h-3" />
-                        Restore
-                      </button>
-                    </td>
-                  </tr>
-                );
-              })
-            )}
-          </tbody>
-        </table>
-      </div>
-    </motion.div>
-  );
-}
+function RecycleBin() { return null; }
+*/
 
 function ShopManagement({ shops }: { shops: any[] }) {
   return (
@@ -4582,14 +4684,18 @@ export default function App() {
                 onAddUser={handleAddUser}
                 onDeleteUser={handleDeleteUser}
                 isSaving={isSavingSettings}
+                products={products}
+                sales={sales}
+                customers={customers}
+                expenses={expenses}
               />
             )}
-            {activeTab === 'recycle_bin' && (
+            {/* {activeTab === 'recycle_bin' && (
               <RecycleBin 
                 items={recycleBin} 
                 onRestore={handleRestoreRecycleItem} 
               />
-            )}
+            )} */}
           </AnimatePresence>
         </main>
 
@@ -5085,6 +5191,24 @@ function Dashboard({ products, sales, customers, expenses, dailyClosings, settin
         <motion.div variants={itemVariants} whileHover={{ y: -5 }}><StatCard icon={TrendingUp} label={st('totalProfit')} value={fC(netProfit)} color="bg-green-50 text-green-600" /></motion.div>
         <motion.div variants={itemVariants} whileHover={{ y: -5 }}><StatCard icon={AlertCircle} label={st('totalDue')} value={fC(totalMarketDue)} color="bg-orange-50 text-orange-600" /></motion.div>
         <motion.div variants={itemVariants} whileHover={{ y: -5 }}><StatCard icon={CheckCircle2} label={st('cashReceived')} value={fC(stats.periodCash)} color="bg-purple-50 text-purple-600" /></motion.div>
+        
+        <motion.div 
+          variants={itemVariants} 
+          whileHover={{ y: -5 }}
+          onClick={() => window.open('https://play.google.com/store', '_blank')}
+          className="cursor-pointer"
+        >
+          <StatCard icon={Smartphone} label={st('downloadAndroid')} value="v1.0.4" color="bg-emerald-50 text-emerald-600" />
+        </motion.div>
+        
+        <motion.div 
+          variants={itemVariants} 
+          whileHover={{ y: -5 }}
+          onClick={() => window.open('#', '_blank')}
+          className="cursor-pointer"
+        >
+          <StatCard icon={MonitorIcon} label={st('downloadDesktop')} value="v2.1.0" color="bg-indigo-50 text-indigo-600" />
+        </motion.div>
       </div>
 
       <motion.div variants={itemVariants} className="grid grid-cols-1 lg:grid-cols-3 gap-8">
