@@ -2572,8 +2572,19 @@ export default function App() {
   const [isOnboarded, setIsOnboarded] = useState<boolean | null>(null);
   const [loading, setLoading] = useState(false);
   const [activeTab, setActiveTab] = useState('dashboard');
-  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+  const [isSidebarOpen, setIsSidebarOpen] = useState(window.innerWidth >= 1024);
   const [isOnline, setIsOnline] = useState(navigator.onLine);
+
+  useEffect(() => {
+    const handleResize = () => {
+      if (window.innerWidth >= 1024) {
+        // Optional: you could auto-open here, but let's just leave it to the user's last state
+        // if they shrunk the window and then expanded it.
+      }
+    };
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
 
   useEffect(() => {
     const handleOnline = () => {
@@ -2670,6 +2681,21 @@ export default function App() {
           await updateDoc(doc(db, 'customers', customerId), {
             currentDue: increment(-amount)
           });
+        } else if (item.type === 'customer') {
+          const { customerData, customId } = item.data;
+          await setDoc(doc(db, 'customers', customId), {
+            ...customerData,
+            timestamp: serverTimestamp()
+          });
+        } else if (item.type === 'customer_update') {
+          const { customerId, customerData, logData } = item.data;
+          await updateDoc(doc(db, 'customers', customerId), customerData);
+          if (logData) {
+            await addDoc(collection(db, 'customer_logs'), {
+              ...logData,
+              timestamp: serverTimestamp()
+            });
+          }
         }
         
         await removeFromSyncQueue(item.id!);
@@ -2798,7 +2824,18 @@ export default function App() {
   const [shops, setShops] = useState<any[]>([]);
   const [appUsers, setAppUsers] = useState<AppUser[]>([]);
   const [employees, setEmployees] = useState<Employee[]>([]);
+  const [syncQueue, setSyncQueue] = useState<any[]>([]);
   const isMasterAdmin = user?.email?.toLowerCase().trim() === 'stratproamz@gmail.com';
+
+  useEffect(() => {
+    const fetchSyncQueue = async () => {
+      const queue = await getSyncQueue();
+      setSyncQueue(queue);
+    };
+    fetchSyncQueue();
+    const interval = setInterval(fetchSyncQueue, 3000); // Poll every 3s
+    return () => clearInterval(interval);
+  }, []);
 
   useEffect(() => {
     if (!isMasterAdmin) {
@@ -4152,23 +4189,34 @@ export default function App() {
 
         {/* Sidebar */}
         <aside className={`
-          fixed inset-y-0 ${isRtl ? 'right-0' : 'left-0'} z-50 w-72 bg-white border-r border-gray-200 flex flex-col transition-all duration-500 shadow-2xl lg:shadow-none
-          ${isSidebarOpen ? 'translate-x-0' : (isRtl ? 'translate-x-full' : '-translate-x-full')}
-          lg:translate-x-0 lg:static lg:h-screen
+          fixed inset-y-0 ${isRtl ? 'right-0' : 'left-0'} z-50 bg-white border-r border-gray-200 flex flex-col transition-all duration-500 shadow-2xl lg:shadow-none
+          ${isSidebarOpen ? 'w-72 translate-x-0' : 'w-0 ' + (isRtl ? 'translate-x-full' : '-translate-x-full')}
+          ${isSidebarOpen ? 'lg:static lg:w-72 lg:translate-x-0' : 'lg:fixed lg:w-0 lg:overflow-hidden lg:border-none'}
+          lg:h-screen
         `}>
-          <div className="p-6 hidden lg:flex items-center gap-3 relative overflow-hidden group">
+          <div className="p-6 hidden lg:flex items-center justify-between gap-3 relative overflow-hidden group">
             <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500"></div>
-            <motion.div 
-              whileHover={{ rotate: 360 }}
-              transition={{ duration: 0.8, ease: "anticipate" }}
-              className="w-11 h-11 bg-gradient-to-br from-indigo-600 to-indigo-800 rounded-2xl flex items-center justify-center shadow-lg shadow-indigo-100"
-            >
-              <Building2 className="w-6 h-6 text-white" />
-            </motion.div>
-            <div className="flex flex-col">
-              <span className="font-black text-xl text-gray-900 tracking-tight leading-none group-hover:text-indigo-600 transition-colors">{shopSettings.name}</span>
-              <span className="text-[10px] font-bold text-gray-400 mt-1 uppercase tracking-widest">Business Suite</span>
+            <div className="flex items-center gap-3">
+              <motion.div 
+                whileHover={{ rotate: 360 }}
+                transition={{ duration: 0.8, ease: "anticipate" }}
+                className="w-11 h-11 bg-gradient-to-br from-indigo-600 to-indigo-800 rounded-2xl flex items-center justify-center shadow-lg shadow-indigo-100"
+              >
+                <Building2 className="w-6 h-6 text-white" />
+              </motion.div>
+              <div className="flex flex-col">
+                <span className="font-black text-xl text-gray-900 tracking-tight leading-none group-hover:text-indigo-600 transition-colors uppercase">{shopSettings.name}</span>
+                <span className="text-[10px] font-bold text-gray-400 mt-1 uppercase tracking-widest">Business Suite</span>
+              </div>
             </div>
+            
+            <button 
+              onClick={() => setIsSidebarOpen(false)}
+              className="p-2 hover:bg-gray-100 rounded-xl transition-all text-gray-400 hover:text-indigo-600 border border-transparent hover:border-indigo-100"
+              title="Hide Sidebar"
+            >
+              <X className="w-5 h-5" />
+            </button>
           </div>
 
           <nav className="flex-1 px-4 py-6 overflow-y-auto custom-scrollbar space-y-1.5 bg-gray-50/30">
@@ -4227,7 +4275,9 @@ export default function App() {
                     whileTap={{ scale: 0.98 }}
                     onClick={() => {
                       setActiveTab(item.id);
-                      setIsSidebarOpen(false);
+                      if (window.innerWidth < 1024) {
+                        setIsSidebarOpen(false);
+                      }
                     }}
                     className={`w-full flex items-center justify-between group px-4 py-3 rounded-2xl transition-all duration-300 relative overflow-hidden ${
                       activeTab === item.id                
@@ -4293,7 +4343,19 @@ export default function App() {
         </aside>
 
         {/* Main Content */}
-        <main className="flex-1 p-4 lg:p-8 overflow-x-hidden">
+        <main className="flex-1 p-4 lg:p-8 overflow-x-hidden relative">
+          {!isSidebarOpen && (
+            <motion.button 
+              initial={{ scale: 0, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              whileHover={{ scale: 1.1 }}
+              whileTap={{ scale: 0.9 }}
+              onClick={() => setIsSidebarOpen(true)}
+              className="hidden lg:flex fixed left-6 top-6 z-40 p-3.5 bg-white border border-gray-200 rounded-2xl text-indigo-600 shadow-2xl shadow-indigo-100 hover:bg-indigo-50 transition-all group"
+            >
+              <Menu className="w-6 h-6 group-hover:rotate-12 transition-transform" />
+            </motion.button>
+          )}
           <AnimatePresence mode="wait">
             {activeTab === 'dashboard' && (
               <Dashboard 
@@ -4403,6 +4465,7 @@ export default function App() {
                 duePayments={duePayments}
                 recycleBin={recycleBin}
                 isOnline={isOnline}
+                syncQueue={syncQueue}
               />
             )}
             {activeTab === 'employees' && (
@@ -11466,7 +11529,8 @@ function Customers({
   customerLogs,
   duePayments,
   recycleBin,
-  isOnline
+  isOnline,
+  syncQueue
 }: { 
   customers: Customer[], 
   sales: Sale[],
@@ -11477,7 +11541,8 @@ function Customers({
   customerLogs: CustomerLog[],
   duePayments: DuePayment[],
   recycleBin: RecycleItem[],
-  isOnline: boolean
+  isOnline: boolean,
+  syncQueue: any[]
 }) {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingCustomer, setEditingCustomer] = useState<Partial<Customer> | null>(null);
@@ -11487,6 +11552,17 @@ function Customers({
   const [historyTab, setHistoryTab] = useState<'transactions' | 'payments' | 'edits'>('transactions');
   const [dateFilter, setDateFilter] = useState<'3m' | '6m' | '1y' | '2y' | 'all'>('all');
 
+  const allCustomers = useMemo(() => {
+    const pendingCustomers = syncQueue
+      .filter(item => item.type === 'customer')
+      .map(item => ({ 
+        id: item.data.customId, 
+        ...item.data.customerData, 
+        isSyncing: true 
+      }));
+    return [...pendingCustomers, ...customers];
+  }, [customers, syncQueue]);
+
   const handleVoiceCommand = (text: string) => {
     setSearchTerm(text.trim());
   };
@@ -11494,14 +11570,14 @@ function Customers({
   const { isListening, voiceFeedback, toggleVoiceSearch } = useVoiceSearch(handleVoiceCommand, undefined, voiceLang);
 
   const filteredCustomers = useMemo(() => {
-    if (!searchTerm) return customers;
-    return customers.filter(c => 
+    if (!searchTerm) return allCustomers;
+    return allCustomers.filter(c => 
       isPhoneticMatch(c.name, searchTerm) || 
       (c.phone && c.phone.includes(searchTerm)) || 
       isPhoneticMatch(c.address, searchTerm) ||
       isPhoneticMatch(c.fatherName, searchTerm)
     );
-  }, [customers, searchTerm]);
+  }, [allCustomers, searchTerm]);
 
   const sendCustomerWhatsApp = async (customer: Customer, lang: 'en' | 'bn') => {
     let message = "";
@@ -11546,25 +11622,55 @@ function Customers({
 
     try {
       if (editingCustomer?.id) {
-        await updateDoc(doc(db, 'customers', editingCustomer.id), customerData);
+        if (isOnline) {
+          await updateDoc(doc(db, 'customers', editingCustomer.id), customerData);
+          await addDoc(collection(db, 'customer_logs'), {
+            shopId: user.shopId,
+            customerId: editingCustomer.id,
+            type: 'profile_edit',
+            oldData: editingCustomer,
+            newData: customerData,
+            timestamp: serverTimestamp(),
+            performedBy: user?.displayName || user?.username || 'Admin',
+            performedByRole: user?.role || 'admin'
+          });
+        } else {
+          await addToSyncQueue('customer_update', {
+            customerId: editingCustomer.id,
+            customerData,
+            logData: {
+              shopId: user.shopId,
+              customerId: editingCustomer.id,
+              type: 'profile_edit',
+              oldData: editingCustomer,
+              newData: customerData,
+              performedBy: user?.displayName || user?.username || 'Admin',
+              performedByRole: user?.role || 'admin'
+            }
+          });
+          setNotification({ message: 'Saved offline. Data will sync when back online.', type: 'info' });
+        }
         setNotification({ message: 'Customer updated successfully', type: 'success' });
-        
-        await addDoc(collection(db, 'customer_logs'), {
-          shopId: user.shopId,
-          customerId: editingCustomer.id,
-          type: 'profile_edit',
-          oldData: editingCustomer,
-          newData: customerData,
-          timestamp: serverTimestamp(),
-          performedBy: user?.displayName || user?.username || 'Admin',
-          performedByRole: user?.role || 'admin'
-        });
       } else {
-        await addDoc(collection(db, 'customers'), {
+        const customId = `cust_${Date.now()}`;
+        const newCustomerData = {
           ...customerData,
           shopId: user.shopId,
           serialNumber: Date.now()
-        });
+        };
+        
+        if (isOnline) {
+           await setDoc(doc(db, 'customers', customId), {
+             ...newCustomerData,
+             timestamp: serverTimestamp()
+           });
+        } else {
+          await addToSyncQueue('customer', {
+            customId,
+            customerData: newCustomerData
+          });
+          setNotification({ message: 'Added offline. Data will sync when back online.', type: 'info' });
+        }
         setNotification({ message: 'Customer added successfully', type: 'success' });
       }
       setIsModalOpen(false);
@@ -11587,10 +11693,35 @@ function Customers({
     if (amount <= 0) return;
 
     try {
-      setIsPaymentModalOpen(false);
+      const paymentData = {
+        customerId: selectedCustomerForHistory.id,
+        amount,
+        previousDue: selectedCustomerForHistory.currentDue,
+        remainingDue: selectedCustomerForHistory.currentDue - amount,
+        method,
+        note,
+        shopId: user.shopId,
+        receivedBy: user?.displayName || user?.username || 'Admin'
+      };
+
       if (isOnline) {
+        await addDoc(collection(db, 'due_payments'), {
+          ...paymentData,
+          timestamp: serverTimestamp()
+        });
+        await updateDoc(doc(db, 'customers', selectedCustomerForHistory.id), {
+          currentDue: increment(-amount)
+        });
         setNotification({ message: `${fC(amount)} collected from ${selectedCustomerForHistory.name}`, type: 'success' });
+      } else {
+        await addToSyncQueue('payment', {
+          paymentData,
+          customerId: selectedCustomerForHistory.id,
+          amount
+        });
+        setNotification({ message: 'Collection saved offline. Data will sync when back online.', type: 'info' });
       }
+      setIsPaymentModalOpen(false);
       setSelectedCustomerForHistory({
         ...selectedCustomerForHistory,
         currentDue: selectedCustomerForHistory.currentDue - amount

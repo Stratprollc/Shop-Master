@@ -5,7 +5,7 @@ const STORE_NAME = 'sync-queue';
 
 interface SyncItem {
   id?: number;
-  type: 'sale' | 'payment';
+  type: 'sale' | 'payment' | 'customer' | 'customer_update';
   data: any;
   timestamp: number;
 }
@@ -26,7 +26,7 @@ const getDB = () => {
   return dbPromise;
 };
 
-export const addToSyncQueue = async (type: 'sale' | 'payment', data: any) => {
+export const addToSyncQueue = async (type: 'sale' | 'payment' | 'customer' | 'customer_update', data: any) => {
   const db = await getDB();
   await db.add(STORE_NAME, {
     type,
