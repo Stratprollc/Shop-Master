@@ -1,0 +1,210 @@
+2:import React, { useState, useEffect, useMemo, useRef, useDeferredValue } from 'react';
+4:import { useVoiceSearch } from './hooks/useVoiceSearch';
+1960:  const [hasError, setHasError] = useState(false);
+1961:  const [errorInfo, setErrorInfo] = useState<string | null>(null);
+1963:  useEffect(() => {
+2029:  const [activeSubTab, setActiveSubTab] = useState<'shop' | 'users' | 'download'>('shop');
+2030:  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+2031:  const [logoPreview, setLogoPreview] = useState<string | null>(settings.logoBase64 || null);
+2032:  const [faviconPreview, setFaviconPreview] = useState<string | null>(settings.faviconBase64 || null);
+2034:  useEffect(() => {
+2686:  const [searchTerm, setSearchTerm] = useState('');
+2836:  const [user, setUser] = useState<any>(null);
+2837:  const [isOnboarded, setIsOnboarded] = useState<boolean | null>(null);
+2838:  const [loading, setLoading] = useState(false);
+2839:  const [activeTab, setActiveTab] = useState('dashboard');
+2840:  const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
+2842:  useEffect(() => {
+2863:  const [isSidebarOpen, setIsSidebarOpen] = useState(() => {
+2867:  const [isOnline, setIsOnline] = useState(navigator.onLine);
+2869:  useEffect(() => {
+2873:  useEffect(() => {
+2881:  useEffect(() => {
+2897:  const [isFullScreen, setIsFullScreen] = useState(false);
+2899:  useEffect(() => {
+2907:  useEffect(() => {
+2931:  useEffect(() => {
+3000:  const [lastSale, setLastSale] = useState<Sale | null>(null);
+3001:  const [editingSale, setEditingSale] = useState<Sale | null>(null);
+3002:  const [isScannerOpen, setIsScannerOpen] = useState(false);
+3003:  const [notification, setNotification] = useState<{ message: string, type: 'success' | 'error' | 'info' } | null>(null);
+3004:  const [isCheckingOut, setIsCheckingOut] = useState(false);
+3005:  const [isSavingSettings, setIsSavingSettings] = useState(false);
+3006:  const [isSavingProduct, setIsSavingProduct] = useState(false);
+3007:  const [isCustomerModalOpen, setIsCustomerModalOpen] = useState(false);
+3008:  const [customerSuggestion, setCustomerSuggestion] = useState('');
+3009:  const [isCustomerVoiceListening, setIsCustomerVoiceListening] = useState(false);
+3034:  const [selectedProductForHistory, setSelectedProductForHistory] = useState<Product | null>(null);
+3035:  const [stockRecords, setStockRecords] = useState<StockRecord[]>([]);
+3038:  const [username, setUsername] = useState('');
+3039:  const [password, setPassword] = useState('');
+3040:  const [authError, setAuthError] = useState<string | null>(null);
+3041:  const [loginMode, setLoginMode] = useState<'merchant' | 'staff'>('merchant');
+3044:  useEffect(() => {
+3112:  const [products, setProducts] = useState<Product[]>([]);
+3113:  const [sales, setSales] = useState<Sale[]>([]);
+3114:  const [customers, setCustomers] = useState<Customer[]>([]);
+3115:  const [categories, setCategories] = useState<Category[]>([]);
+3116:  const [shops, setShops] = useState<any[]>([]);
+3117:  const [appUsers, setAppUsers] = useState<AppUser[]>([]);
+3118:  const [employees, setEmployees] = useState<Employee[]>([]);
+3119:  const [branches, setBranches] = useState<Branch[]>([]);
+3120:  const [selectedBranchId, setSelectedBranchId] = useState<string>('all');
+3121:  const [syncQueue, setSyncQueue] = useState<any[]>([]);
+3124:  useEffect(() => {
+3134:  useEffect(() => {
+3185:  const [expenses, setExpenses] = useState<Expense[]>([]);
+3186:  const [investments, setInvestments] = useState<Investment[]>([]);
+3187:  const [staffSalaries, setStaffSalaries] = useState<StaffSalary[]>([]);
+3188:  const [dailyClosings, setDailyClosings] = useState<DailyClosing[]>([]);
+3189:  const [recycleBin, setRecycleBin] = useState<RecycleItem[]>([]);
+3190:  const [customerLogs, setCustomerLogs] = useState<CustomerLog[]>([]);
+3191:  const [duePayments, setDuePayments] = useState<DuePayment[]>([]);
+3192:  const [notes, setNotes] = useState<Note[]>([]);
+3193:  const [expiringProducts, setExpiringProducts] = useState<Product[]>([]);
+3196:  useEffect(() => {
+3218:  const [shopSettings, setShopSettings] = useState<ShopSettings>({
+3237:  useEffect(() => {
+3274:  const [cart, setCart] = useState<CartItem[]>([]);
+3275:  const [searchTerm, setSearchTerm] = useState('');
+3276:  const [discount, setDiscount] = useState(0);
+3277:  const [taxRate, setTaxRate] = useState(0);
+3280:  useEffect(() => {
+3304:  useEffect(() => {
+3312:  useEffect(() => {
+3325:  useEffect(() => {
+3333:  useEffect(() => {
+3338:  useEffect(() => {
+3344:  useEffect(() => {
+3463:  useEffect(() => {
+3479:  const branchFilteredProducts = useMemo(() => {
+3483:  const branchFilteredSales = useMemo(() => {
+3487:  const branchFilteredCustomers = useMemo(() => {
+3491:  const branchFilteredEmployees = useMemo(() => {
+3495:  const branchFilteredExpenses = useMemo(() => {
+3499:  const branchFilteredInvestments = useMemo(() => {
+3503:  const branchFilteredDailyClosings = useMemo(() => {
+3507:  const branchFilteredNotes = useMemo(() => {
+3511:  const branchFilteredStaffSalaries = useMemo(() => {
+3715:  const [showReceiptModal, setShowReceiptModal] = useState(false);
+3716:  const [lastCompletedSale, setLastCompletedSale] = useState<Sale | null>(null);
+3718:  const cartTotal = useMemo(() => cart.reduce((sum, item) => sum + (item.discountedPrice * item.quantity), 0), [cart]);
+3723:  const [checkoutData, setCheckoutData] = useState({
+3732:  useEffect(() => {
+4035:  useEffect(() => {
+5463:  useEffect(() => {
+5510:  const [period, setPeriod] = useState<'day' | 'week' | 'month' | 'year'>('day');
+5511:  const [viewMetric, setViewMetric] = useState<'revenue' | 'profit'>('revenue');
+5519:  const lastClosingDate = useMemo(() => {
+5525:  const filteredSales = useMemo(() => {
+5583:  const stats = useMemo(() => {
+5598:  const chartData = useMemo(() => {
+6008:  const [display, setDisplay] = useState('0');
+6009:  const [isOpen, setIsOpen] = useState(false);
+6010:  const [lastEquation, setLastEquation] = useState<string | null>(null);
+6011:  const [isAiThinking, setIsAiThinking] = useState(false);
+6012:  const [calcHistory, setCalcHistory] = useState<{ equation: string; result: string; timestamp: string }[]>(() => {
+6020:  const [isAudioFeedbackEnabled, setIsAudioFeedbackEnabled] = useState(true);
+6021:  const [memory, setMemory] = useState<number>(0);
+6024:  useEffect(() => {
+6126:  useEffect(() => {
+6260:  const { isListening, voiceFeedback, toggleVoiceSearch } = useVoiceSearch(handleVoiceCommand, (err) => {
+6264:  useEffect(() => {
+6544:  const [isOpen, setIsOpen] = useState(false);
+6545:  const [newNote, setNewNote] = useState('');
+6546:  const [selectedColor, setSelectedColor] = useState('bg-yellow-200');
+6554:  const { isListening, voiceFeedback, toggleVoiceSearch } = useVoiceSearch(handleVoiceCommand, (err) => {
+6699:  const [isModalOpen, setIsModalOpen] = useState(false);
+6700:  const [editingEmployee, setEditingEmployee] = useState<Employee | null>(null);
+6701:  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+6703:  useEffect(() => {
+6708:  const [searchTerm, setSearchTerm] = useState('');
+7079:  const [newNote, setNewNote] = useState('');
+7080:  const [selectedColor, setSelectedColor] = useState('blue');
+7081:  const [editingId, setEditingId] = useState<string | null>(null);
+7082:  const [editText, setEditText] = useState('');
+7083:  const [searchTerm, setSearchTerm] = useState('');
+7133:  const { isListening, voiceFeedback, toggleVoiceSearch } = useVoiceSearch(handleVoiceCommand, (err) => {
+7399:  const [activeTab, setActiveTab] = useState('list');
+7594:  const [activeTab, setActiveTab] = useState('active');
+7788:  const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
+7789:  const [activeView, setActiveView] = useState<'generate' | 'history' | 'qr'>('generate');
+7790:  const [warning, setWarning] = useState<string | null>(null);
+7791:  const [generatedValue, setGeneratedValue] = useState<string>('');
+7792:  const [qrInput, setQrInput] = useState<string>('');
+7925:  useEffect(() => {
+8258:  const [searchTerm, setSearchTerm] = useState('');
+8261:  const loanRecords = useMemo(() => {
+8506:  const [searchTerm, setSearchTerm] = useState('');
+8509:  const suppliers = useMemo(() => {
+8810:  const [searchTerm, setSearchTerm] = useState('');
+8813:  const warrantyProducts = useMemo(() => {
+9020:  const [searchTerm, setSearchTerm] = useState('');
+9022:  const [categoryFilter, setCategoryFilter] = useState('');
+9023:  const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
+9028:  const filteredProducts = useMemo(() => {
+9139:  const { isListening, voiceFeedback, toggleVoiceSearch } = useVoiceSearch(handleVoiceCommand, (err) => {
+9736:  const [productSortBy, setProductSortBy] = useState<string>('serial');
+9737:  const [productSortOrder, setProductSortOrder] = useState<'asc' | 'desc'>('asc');
+9738:  const [currentPage, setCurrentPage] = useState(1);
+9740:  const [isModalOpen, setIsModalOpen] = useState(false);
+9741:  const [addingStockProduct, setAddingStockProduct] = useState<Product | null>(null);
+9742:  const [editingProduct, setEditingProduct] = useState<Partial<Product> | null>(null);
+9743:  const [productImage, setProductImage] = useState<string | null>(null);
+9744:  const [isUploading, setIsUploading] = useState(false);
+9745:  const [uploadProgress, setUploadProgress] = useState<{
+9750:  const [importReport, setImportReport] = useState<{
+9757:  const [searchTerm, setSearchTerm] = useState('');
+9759:  const [categorySearch, setCategorySearch] = useState('');
+9760:  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+9761:  const [selectedProductIds, setSelectedProductIds] = useState<string[]>([]);
+9762:  const [isBulkStockModalOpen, setIsBulkStockModalOpen] = useState(false);
+9763:  const [aiSuggestion, setAiSuggestion] = useState<string | null>(null);
+9764:  const [isAiThinking, setIsAiThinking] = useState(false);
+9765:  const [bulkStockData, setBulkStockData] = useState<Record<string, { quantity: number; batchNumber: string; expiryDate: string }>>({});
+9921:  useEffect(() => {
+9992:  const { isListening, voiceFeedback, toggleVoiceSearch } = useVoiceSearch(handleVoiceCommand, (err) => {
+10001:  useEffect(() => {
+10014:  const salesCount: Record<string, number> = useMemo(() => {
+10024:  const lastSaleDate: Record<string, number> = useMemo(() => {
+10039:  const sortedProducts = useMemo(() => {
+10104:  useEffect(() => {
+10112:  useEffect(() => {
+11365:  const [searchTerm, setSearchTerm] = useState('');
+11366:  const [selectedSale, setSelectedSale] = useState<Sale | null>(null);
+11367:  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+11368:  const [isFilterPaneOpen, setIsFilterPaneOpen] = useState(false);
+11369:  const [statusFilter, setStatusFilter] = useState<'all' | 'settled' | 'pending'>('all');
+11370:  const [paymentMethodFilter, setPaymentMethodFilter] = useState<'all' | 'cash' | 'bkash' | 'nagad' | 'card'>('all');
+11371:  const [segmentFilter, setSegmentFilter] = useState<'all' | 'vip' | 'regular'>('all');
+11372:  const [startDate, setStartDate] = useState('');
+11373:  const [endDate, setEndDate] = useState('');
+11374:  const [reportTab, setReportTab] = useState<'logs' | 'product_report' | 'customer_report'>('logs');
+11380:  const { isListening, voiceFeedback, toggleVoiceSearch } = useVoiceSearch(handleVoiceCommand, undefined, voiceLang);
+12101:  const [activeTab, setActiveTab] = useState<'overview' | 'expenses' | 'investments' | 'salaries' | 'dues'>('overview');
+12102:  const [isExpenseModalOpen, setIsExpenseModalOpen] = useState(false);
+12103:  const [isInvestmentModalOpen, setIsInvestmentModalOpen] = useState(false);
+12104:  const [isSalaryModalOpen, setIsSalaryModalOpen] = useState(false);
+12106:  const totalSales = useMemo(() => sales.reduce((sum, s) => sum + (s.finalAmount || 0), 0), [sales]);
+12107:  const totalCost = useMemo(() => {
+12115:  const totalExpenses = useMemo(() => expenses.reduce((sum, e) => sum + (e.amount || 0), 0), [expenses]);
+12116:  const totalInvestments = useMemo(() => investments.reduce((sum, i) => sum + (i.amount || 0), 0), [investments]);
+12117:  const totalSalaries = useMemo(() => staffSalaries.reduce((sum, s) => sum + (s.amount || 0), 0), [staffSalaries]);
+12118:  const totalMarketDue = useMemo(() => customers.reduce((sum, c) => sum + (c.currentDue || 0), 0), [customers]);
+12121:  const highDueCustomers = useMemo(() => {
+12666:  const [isModalOpen, setIsModalOpen] = useState(false);
+12667:  const [editingCustomer, setEditingCustomer] = useState<Partial<Customer> | null>(null);
+12668:  const [selectedCustomerForHistory, setSelectedCustomerForHistory] = useState<Customer | null>(null);
+12669:  const [searchTerm, setSearchTerm] = useState('');
+12670:  const [isPaymentModalOpen, setIsPaymentModalOpen] = useState(false);
+12671:  const [historyTab, setHistoryTab] = useState<'transactions' | 'payments' | 'edits'>('transactions');
+12672:  const [dateFilter, setDateFilter] = useState<'3m' | '6m' | '1y' | '2y' | 'all'>('all');
+12674:  const allCustomers = useMemo(() => {
+12689:  const { isListening, voiceFeedback, toggleVoiceSearch } = useVoiceSearch(handleVoiceCommand, undefined, voiceLang);
+12691:  const filteredCustomers = useMemo(() => {
+13720:  const [isModalOpen, setIsModalOpen] = useState(false);
+13721:  const [closingToDelete, setClosingToDelete] = useState<DailyClosing | null>(null);
+13725:  const lastClosingDate = useMemo(() => {
+13765:  const [denominations, setDenominations] = useState<{ [key: string]: number }>({
+13768:  const [bkashBalance, setBkashBalance] = useState(0);
+13769:  const [notes, setNotes] = useState('');

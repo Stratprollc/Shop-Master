@@ -43,7 +43,11 @@
   "devDependencies": {
     "@firebase/eslint-plugin-security-rules": "^0.0.2",
     "@types/node": "^22.14.0",
+    "@typescript-eslint/eslint-plugin": "^8.59.4",
+    "@typescript-eslint/parser": "^8.59.4",
     "autoprefixer": "^10.4.21",
+    "eslint-plugin-react-hooks": "^7.1.1",
+    "puppeteer": "^25.0.4",
     "tsx": "^4.21.0"
   }
 }

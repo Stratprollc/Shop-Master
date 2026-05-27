@@ -10,7 +10,7 @@ async function startServer() {
   const app = express();
   const PORT = process.env.PORT || 3000;
   
-  const isProd = process.env.NODE_ENV === 'production' || fs.existsSync(path.join(__dirname, 'dist', 'index.html'));
+  const isProd = process.env.NODE_ENV === 'production';
 
   // For development (AI Studio / Local dev)
   if (!isProd) {
@@ -26,9 +26,14 @@ async function startServer() {
     const distPath = path.join(__dirname, 'dist');
     app.use(express.static(distPath));
     
-    // Support SPA routing (redirect all non-file requests to index.html)
+    // Support SPA routing (redirect all non-file requests to index.html with existence guarantee)
     app.use((req, res) => {
-      res.sendFile(path.join(distPath, 'index.html'));
+      const indexPath = path.join(distPath, 'index.html');
+      if (fs.existsSync(indexPath)) {
+        res.sendFile(indexPath);
+      } else {
+        res.status(404).send('Application is building or index.html is temporarily unavailable. Please refresh in a few seconds.');
+      }
     });
   }
 

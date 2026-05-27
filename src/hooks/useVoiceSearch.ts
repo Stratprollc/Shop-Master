@@ -94,10 +94,14 @@ export function useVoiceSearch(onCommand: (text: string) => void, onError?: (err
       if (e.error !== 'no-speech' && e.error !== 'aborted') {
           console.error("Speech recognition error:", e.error);
           if (onErrorRef.current) {
-            onErrorRef.current(e.error);
+            setTimeout(() => {
+                if (onErrorRef.current) onErrorRef.current(e.error);
+            }, 0);
           }
       }
-      setIsListening(false);
+      setTimeout(() => {
+        setIsListening(false);
+      }, 0);
     };
     
     return () => {
