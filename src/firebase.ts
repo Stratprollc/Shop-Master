@@ -1,6 +1,6 @@
 import { initializeApp } from 'firebase/app';
 import { getAuth, GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged, signInWithEmailAndPassword, createUserWithEmailAndPassword, signInAnonymously } from 'firebase/auth';
-import { initializeFirestore, collection, doc, getDoc, getDocs, setDoc, addDoc, updateDoc, deleteDoc, query, where, orderBy, limit, onSnapshot, getDocFromServer, increment, serverTimestamp, writeBatch, persistentLocalCache, persistentMultipleTabManager } from 'firebase/firestore';
+import { initializeFirestore, collection, doc, getDoc, getDocs, setDoc, addDoc, updateDoc, deleteDoc, query, where, orderBy, limit, onSnapshot, getDocFromServer, increment, serverTimestamp, writeBatch, memoryLocalCache } from 'firebase/firestore';
 import firebaseConfig from '../firebase-applet-config.json';
 
 // Initialize Firebase
@@ -8,10 +8,10 @@ const app = initializeApp(firebaseConfig);
 export const secondaryApp = initializeApp(firebaseConfig, "Secondary");
 export const secondaryAuth = getAuth(secondaryApp);
 
-// Using initializeFirestore with cache settings for persistence
+// Using initializeFirestore with memory cache settings to avoid IDB issues
 export const db = initializeFirestore(app, {
   experimentalForceLongPolling: true,
-  localCache: persistentLocalCache({ tabManager: persistentMultipleTabManager() })
+  localCache: memoryLocalCache()
 }, firebaseConfig.firestoreDatabaseId);
 
 export const auth = getAuth(app);

@@ -297,9 +297,11 @@ export function CustomerPortal({ onBack, lang }: CustomerPortalProps) {
   });
 
   const filteredShops = shops.filter(s => {
-    return s.name?.toLowerCase().includes(searchShopQuery.toLowerCase()) || 
-           s.address?.toLowerCase().includes(searchShopQuery.toLowerCase()) ||
-           s.shopCode?.includes(searchShopQuery);
+    // Only show shops if search query is exactly 6 characters (the shop code length)
+    if (searchShopQuery.length !== 6) return false;
+    
+    // Show exact match
+    return s.shopCode === searchShopQuery;
   });
 
   return (
