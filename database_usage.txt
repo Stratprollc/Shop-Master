@@ -1,3 +1,0 @@
-6235:                                   <Database className="w-2.5 h-2.5 text-emerald-500" />
-6379:                     <Database className="w-6 h-6" />
-9266:                title="Export Database"

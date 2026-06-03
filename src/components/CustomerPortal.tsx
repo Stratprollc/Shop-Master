@@ -297,11 +297,29 @@ export function CustomerPortal({ onBack, lang }: CustomerPortalProps) {
   });
 
   const filteredShops = shops.filter(s => {
-    // Only show shops if search query is exactly 6 characters (the shop code length)
-    if (searchShopQuery.length !== 6) return false;
-    
-    // Show exact match
-    return s.shopCode === searchShopQuery;
+    const q = searchShopQuery.trim().toLowerCase();
+    if (!q) return true; // Show all shops if empty
+
+    const codeMatch = s.shopCode?.toString().trim().toLowerCase() === q;
+    const idMatch = s.id?.toString().trim().toLowerCase() === q;
+    const shopIdMatch = s.shopId?.toString().trim().toLowerCase() === q;
+
+    // If query is exactly 6 characters, restrict strictly to exact match of shopCode or ID
+    if (q.length === 6) {
+      return codeMatch || idMatch || shopIdMatch;
+    }
+
+    // Direct check in case the merchant typed a longer/shorter exact shop ID
+    if (idMatch || shopIdMatch || codeMatch) {
+      return true;
+    }
+
+    // Otherwise, standard general soft match
+    const matchesName = s.name?.toLowerCase().includes(q);
+    const matchesAddress = s.address?.toLowerCase().includes(q);
+    const matchesCode = s.shopCode?.toString().toLowerCase().includes(q);
+
+    return matchesName || matchesAddress || matchesCode;
   });
 
   return (

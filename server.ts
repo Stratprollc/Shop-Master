@@ -1,16 +1,12 @@
 import express from 'express';
 import path from 'path';
-import { fileURLToPath } from 'url';
 import fs from 'fs';
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
 
 async function startServer() {
   const app = express();
-  const PORT = process.env.PORT || 3000;
+  const PORT = Number(process.env.PORT) || 3000;
   
-  const isProd = process.env.NODE_ENV === 'production';
+  const isProd = process.env.NODE_ENV === 'production' && process.env.DISABLE_HMR !== 'true';
 
   // For development (AI Studio / Local dev)
   if (!isProd) {
@@ -23,7 +19,7 @@ async function startServer() {
   } 
   // For production (Hostinger)
   else {
-    const distPath = path.join(__dirname, 'dist');
+    const distPath = path.join(process.cwd(), 'dist');
     app.use(express.static(distPath));
     
     // Support SPA routing (redirect all non-file requests to index.html with existence guarantee)

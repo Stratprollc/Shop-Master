@@ -1,6 +1,0 @@
-7:  LayoutDashboard, 
-347:    dashboard: 'Dashboard',
-3225:              { id: 'dashboard', icon: LayoutDashboard, label: st('dashboard'), roles: ['admin', 'manager'], color: 'text-blue-600', bg: 'bg-blue-50', border: 'border-blue-100' },
-3320:              <Dashboard 
-3570:function Dashboard({ products, sales, customers, expenses, dailyClosings, settings, onDelete, onViewProductHistory, isOnline }: { products: Product[], sales: Sale[], customers: Customer[], expenses: Expense[], dailyClosings: DailyClosing[], settings: ShopSettings, onDelete: (closing: DailyClosing) => void, onViewProductHistory: (p: Product) => void, isOnline: boolean }) {
-3708:            <LayoutDashboard className="w-8 h-8" />

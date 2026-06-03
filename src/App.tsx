@@ -486,7 +486,6 @@ const SYSTEM_TRANSLATIONS = {
     downloadAndroid: 'Download Android App',
     downloadDesktop: 'Download Desktop App',
     downloadTab: 'Download',
-    jarvisAI: 'AI Assistant',
   },
   bn: {
     jarvisAI: 'এআই অ্যাসিস্ট্যান্ট',
@@ -2900,6 +2899,23 @@ function ShopManagement({ shops }: { shops: any[] }) {
               <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest">
                 Registered: {shop.setupDate ? new Date(shop.setupDate).toLocaleDateString() : (shop.createdAt ? new Date(shop.createdAt).toLocaleDateString() : 'N/A')}
               </p>
+              <button 
+                onClick={async () => {
+                   const confirmed = window.confirm('Are you sure you want to delete this merchant and all their data? This action is irreversible.');
+                   if (!confirmed) return;
+                   
+                   try {
+                       await deleteDoc(doc(db, 'shops', shop.id));
+                       alert('Merchant deleted successfully.');
+                   } catch (e) {
+                       console.error('Error deleting merchant:', e);
+                       alert('Failed to delete merchant. Please try again.');
+                   }
+                }}
+                className="p-2 text-red-500 hover:bg-red-50 rounded-xl transition-all"
+              >
+                <Trash2 className="w-5 h-5" />
+              </button>
               <button className="p-2 text-indigo-600 hover:bg-indigo-50 rounded-xl transition-all">
                 <ChevronRight className="w-5 h-5" />
               </button>

@@ -7,6 +7,7 @@
   </head>
   <body>
     <script>
+      window.process = { env: {} };
       // Fix for "Uncaught TypeError: Cannot set property fetch of #<Window> which has only a getter"
       (function() {
         try {
