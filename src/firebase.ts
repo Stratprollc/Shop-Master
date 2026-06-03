@@ -1,6 +1,6 @@
 import { initializeApp } from 'firebase/app';
 import { getAuth, GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged, signInWithEmailAndPassword, createUserWithEmailAndPassword, signInAnonymously } from 'firebase/auth';
-import { initializeFirestore, collection, doc, getDoc, getDocs, setDoc, addDoc, updateDoc, deleteDoc, query, where, orderBy, limit, onSnapshot, getDocFromServer, increment, serverTimestamp, enableIndexedDbPersistence, writeBatch } from 'firebase/firestore';
+import { initializeFirestore, collection, doc, getDoc, getDocs, setDoc, addDoc, updateDoc, deleteDoc, query, where, orderBy, limit, onSnapshot, getDocFromServer, increment, serverTimestamp, writeBatch, persistentLocalCache, persistentMultipleTabManager } from 'firebase/firestore';
 import firebaseConfig from '../firebase-applet-config.json';
 
 // Initialize Firebase
@@ -8,22 +8,11 @@ const app = initializeApp(firebaseConfig);
 export const secondaryApp = initializeApp(firebaseConfig, "Secondary");
 export const secondaryAuth = getAuth(secondaryApp);
 
-// Using initializeFirestore with experimentalForceLongPolling can help in environments 
-// where standard streams/sockets might be blocked or unstable.
+// Using initializeFirestore with cache settings for persistence
 export const db = initializeFirestore(app, {
   experimentalForceLongPolling: true,
+  localCache: persistentLocalCache({ tabManager: persistentMultipleTabManager() })
 }, firebaseConfig.firestoreDatabaseId);
-
-// Enable offline persistence
-if (typeof window !== 'undefined') {
-  enableIndexedDbPersistence(db).catch((err) => {
-    if (err.code === 'failed-precondition') {
-      console.warn('Multiple tabs open, persistence can only be enabled in one tab at a time.');
-    } else if (err.code === 'unimplemented') {
-      console.warn('The current browser doesn\'t support all of the features needed to enable persistence');
-    }
-  });
-}
 
 export const auth = getAuth(app);
 export const googleProvider = new GoogleAuthProvider();
@@ -58,6 +47,18 @@ export interface FirestoreErrorInfo {
 }
 
 export function handleFirestoreError(error: unknown, operationType: OperationType, path: string | null) {
+  let userFriendlyMessage = "An unexpected database error occurred.";
+  if (error instanceof Error) {
+    const errorMsg = error.message.toLowerCase();
+    if (errorMsg.includes('unavailable') || errorMsg.includes('network') || errorMsg.includes('offline') || (error as any).code === 'unavailable') {
+      userFriendlyMessage = "Network error: The operation failed. Please check your internet connection and try again.";
+    } else if (errorMsg.includes('permission-denied') || (error as any).code === 'permission-denied') {
+      userFriendlyMessage = "Permission denied: You do not have access to perform this operation.";
+    } else {
+      userFriendlyMessage = `Error performing ${operationType}: ${error.message}`;
+    }
+  }
+
   const errInfo: FirestoreErrorInfo = {
     error: error instanceof Error ? error.message : String(error),
     authInfo: {
@@ -76,8 +77,8 @@ export function handleFirestoreError(error: unknown, operationType: OperationTyp
     operationType,
     path
   }
-  console.error('Firestore Error: ', JSON.stringify(errInfo));
-  throw new Error(JSON.stringify(errInfo));
+  console.error('Firestore Error:', userFriendlyMessage, JSON.stringify(errInfo));
+  return userFriendlyMessage;
 }
 
 // Connection test

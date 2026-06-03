@@ -12,6 +12,7 @@ import {
   ChevronLeft,
   Package, 
   ShoppingCart, 
+  ShoppingBag,
   History, 
   Users, 
   Settings, 
@@ -107,7 +108,8 @@ import {
   Volume2,
   VolumeX,
   Copy,
-  Delete
+  Delete,
+  Star
 } from 'lucide-react';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
@@ -115,6 +117,8 @@ import Papa from 'papaparse';
 import { CategoryManagement } from './components/CategoryManagement';
 import { JarvisAI } from './components/JarvisAI';
 import { NetworkConsole } from './components/NetworkConsole';
+import { CustomerPortal } from './components/CustomerPortal';
+import { SellerOrdersView } from './components/SellerOrdersView';
 
 import { fuzzyMatchProduct } from './utils/productMatcher';
 import { motion, AnimatePresence } from 'motion/react';
@@ -160,7 +164,8 @@ import {
   Line,
   PieChart,
   Pie,
-  Cell
+  Cell,
+  ResponsiveContainer
 } from 'recharts';
 import { format, isPast } from 'date-fns';
 import { GoogleGenAI, Type } from "@google/genai";
@@ -182,6 +187,7 @@ interface AppUser {
 interface ShopSettings {
   name: string;
   address: string;
+  shopCode?: string;
   logoUrl?: string;
   logoBase64?: string;
   faviconBase64?: string;
@@ -396,7 +402,6 @@ const SYSTEM_TRANSLATIONS = {
     onlineShop: 'Online Shop',
     mainAdmin: 'Main Admin',
     warehouse: 'Warehouse',
-    branch: 'Branch',
     recycleBin: 'Recycle Bin',
     employees: 'Employees',
     dailyClosing: 'Daily Closing',
@@ -503,7 +508,6 @@ const SYSTEM_TRANSLATIONS = {
     onlineShop: 'অনলাইন শপ (Online Shop)',
     mainAdmin: 'মেইন অ্যাডমিন (Main Admin)',
     warehouse: 'ওয়্যারহাউস (Warehouse)',
-    branch: 'শাখা (Branch)',
     recycleBin: 'রিসাইকেল বিন',
     employees: 'কর্মচারী ব্যবস্থাপনা',
     dailyClosing: 'দৈনিক ক্লোজিং',
@@ -606,7 +610,6 @@ const SYSTEM_TRANSLATIONS = {
     onlineShop: 'متجر على الانترنت',
     mainAdmin: 'المسؤول الرئيسي',
     warehouse: 'المستودع',
-    branch: 'فرع',
     recycleBin: 'سلة المهملات',
     employees: 'إدارة الموظفين',
     dailyClosing: 'الإغلاق اليومي',
@@ -1003,11 +1006,12 @@ const safeDate = (timestamp: any): Date => {
   return new Date(timestamp);
 };
 
-const generateInvoiceId = (): string => {
+const generateInvoiceId = (prefix?: string): string => {
   const now = new Date();
   // Formula: time (h:mm) + date (dd) + month (MM) + year (yy)
   // Example: 9:29 on 24th April 2026 -> 929240426
-  return format(now, 'hmmddMMyy');
+  const baseId = format(now, 'hmmddMMyy');
+  return prefix ? `${prefix}${baseId}` : baseId;
 };
 
 const formatCurrency = (amount: number | undefined | null, symbol: string = 'TK', lang: string = 'bn'): string => {
@@ -1073,8 +1077,9 @@ const fileToBase64 = (file: File): Promise<string> => {
   });
 };
 
-const moveToRecycleBin = async (entityType: RecycleItem['entityType'], originalId: string, data: any, shopId: string) => {
+const moveToRecycleBin = async (entityType: RecycleItem['entityType'], originalId: string, data: any, shopId: string | undefined | null) => {
   try {
+    const finalShopId = shopId || (window as any)._currentShopId || (user as any)?.shopId;
     const deletedAt = new Date();
     const expiresAt = new Date();
     expiresAt.setDate(expiresAt.getDate() + 30);
@@ -1087,7 +1092,7 @@ const moveToRecycleBin = async (entityType: RecycleItem['entityType'], originalI
       deletedAt,
       expiresAt,
       deletedBy: auth.currentUser?.uid || 'unknown',
-      shopId
+      shopId: finalShopId || 'unknown'
     };
     
     await addDoc(collection(db, 'recycleBin'), recycleItem);
@@ -2009,7 +2014,9 @@ function SettingsPanel({
   customers = [],
   expenses = [],
   deferredPrompt,
-  onInstallPWA
+  onInstallPWA,
+  isMasterAdmin = false,
+  currentUserEmail = ''
 }: { 
   settings: ShopSettings, 
   onSaveSettings: (s: ShopSettings) => void, 
@@ -2022,11 +2029,13 @@ function SettingsPanel({
   customers?: Customer[],
   expenses?: Expense[],
   deferredPrompt: any,
-  onInstallPWA: () => void
+  onInstallPWA: () => void,
+  isMasterAdmin?: boolean,
+  currentUserEmail?: string
 }) {
   const systemLang = settings.systemLanguage || 'bn';
   const st = (key: keyof typeof SYSTEM_TRANSLATIONS['en']) => (SYSTEM_TRANSLATIONS[systemLang] as any)[key] || (SYSTEM_TRANSLATIONS['en'] as any)[key];
-  const [activeSubTab, setActiveSubTab] = useState<'shop' | 'users' | 'download'>('shop');
+  const [activeSubTab, setActiveSubTab] = useState<'shop' | 'users' | 'download' | 'network'>('shop');
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [logoPreview, setLogoPreview] = useState<string | null>(settings.logoBase64 || null);
   const [faviconPreview, setFaviconPreview] = useState<string | null>(settings.faviconBase64 || null);
@@ -2056,6 +2065,7 @@ function SettingsPanel({
 
     onSaveSettings({
       ...settings,
+      shopCode: settings.shopCode || Math.floor(100000 + Math.random() * 900000).toString(),
       name: formData.get('name') as string,
       platformTitle: formData.get('platformTitle') as string,
       address: formData.get('address') as string,
@@ -2109,25 +2119,33 @@ function SettingsPanel({
         <p className="text-gray-500">Manage your shop profile and team access.</p>
       </header>
 
-      <div className="flex gap-4 border-b border-gray-200">
+      <div className="flex gap-4 border-b border-gray-200 overflow-x-auto hide-scrollbar">
         <button 
           onClick={() => setActiveSubTab('shop')}
-          className={`px-6 py-3 font-bold transition-all border-b-2 ${activeSubTab === 'shop' ? 'border-indigo-600 text-indigo-600' : 'border-transparent text-gray-400'}`}
+          className={`px-6 py-3 font-bold transition-all border-b-2 whitespace-nowrap ${activeSubTab === 'shop' ? 'border-indigo-600 text-indigo-600' : 'border-transparent text-gray-400'}`}
         >
           Shop Profile
         </button>
         <button 
           onClick={() => setActiveSubTab('users')}
-          className={`px-6 py-3 font-bold transition-all border-b-2 ${activeSubTab === 'users' ? 'border-indigo-600 text-indigo-600' : 'border-transparent text-gray-400'}`}
+          className={`px-6 py-3 font-bold transition-all border-b-2 whitespace-nowrap ${activeSubTab === 'users' ? 'border-indigo-600 text-indigo-600' : 'border-transparent text-gray-400'}`}
         >
           User Management
         </button>
         <button 
           onClick={() => setActiveSubTab('download')}
-          className={`px-6 py-3 font-bold transition-all border-b-2 ${activeSubTab === 'download' ? 'border-indigo-600 text-indigo-600' : 'border-transparent text-gray-400'}`}
+          className={`px-6 py-3 font-bold transition-all border-b-2 whitespace-nowrap ${activeSubTab === 'download' ? 'border-indigo-600 text-indigo-600' : 'border-transparent text-gray-400'}`}
         >
           {st('downloadTab')}
         </button>
+        {isMasterAdmin && (
+          <button 
+            onClick={() => setActiveSubTab('network')}
+            className={`px-6 py-3 font-bold transition-all border-b-2 whitespace-nowrap ${activeSubTab === 'network' ? 'border-red-600 text-red-600' : 'border-transparent text-gray-400'}`}
+          >
+            Network (Master)
+          </button>
+        )}
       </div>
 
       {activeSubTab === 'shop' && (
@@ -2161,6 +2179,29 @@ function SettingsPanel({
                     }}
                     className="text-xs text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-xs file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100 cursor-pointer"
                   />
+                </div>
+              </div>
+              <div className="md:col-span-2 grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Unique Shop Code <span className="text-xs text-gray-400 font-normal ml-2">(Share with customers to find your shop)</span></label>
+                  <div className="flex items-center gap-2">
+                    <input value={settings.shopCode || 'Not Generated Yet'} readOnly className="w-full px-4 py-3 rounded-xl border border-gray-200 bg-gray-50 font-mono font-black text-indigo-700 tracking-widest text-center cursor-default outline-none" />
+                    <button type="button" onClick={() => {
+                      if (settings.shopCode) {
+                        navigator.clipboard.writeText(settings.shopCode);
+                      }
+                    }} className="p-3 bg-indigo-50 text-indigo-600 rounded-xl hover:bg-indigo-100 transition-colors" title="Copy Code">
+                      <Copy className="w-5 h-5" />
+                    </button>
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Shop Account Email / Gmail</label>
+                  <div className="flex items-center gap-2">
+                    <input value={currentUserEmail} readOnly className="w-full px-4 py-3 rounded-xl border border-gray-200 bg-gray-50 text-gray-600 font-medium cursor-default outline-none" />
+                  </div>
+                  <p className="text-[10px] text-gray-400 mt-1">This email address is your main Shop ID and credential.</p>
                 </div>
               </div>
               <div>
@@ -2677,6 +2718,12 @@ function SettingsPanel({
           </div>
         </div>
       )}
+
+      {isMasterAdmin && activeSubTab === 'network' && (
+        <div className="bg-white rounded-3xl shadow-sm border border-gray-100 overflow-hidden min-h-[600px]">
+          <NetworkConsole />
+        </div>
+      )}
     </motion.div>
     </>
   );
@@ -2797,28 +2844,41 @@ function ShopManagement({ shops }: { shops: any[] }) {
                   <Building2 className="w-8 h-8 text-gray-300" />
                 )}
               </div>
-              <span className="px-3 py-1 bg-indigo-50 text-indigo-600 rounded-full text-[10px] font-black uppercase tracking-widest">
-                {shop?.type || 'Shop'}
-              </span>
+              <div className="flex flex-col items-end gap-2">
+                <span className="px-3 py-1 bg-indigo-50 text-indigo-600 rounded-full text-[10px] font-black uppercase tracking-widest">
+                  {shop?.type || 'Shop'}
+                </span>
+                {shop?.shopCode && (
+                  <span className="px-3 py-1 bg-slate-100 text-slate-700 rounded-full text-[10px] font-black uppercase tracking-widest font-mono">
+                    #{shop.shopCode}
+                  </span>
+                )}
+              </div>
             </div>
             
             <h3 className="text-lg font-black text-gray-900 mb-1">{shop?.name || 'Unnamed Shop'}</h3>
-            <p className="text-gray-500 text-sm mb-4 line-clamp-2 min-h-[40px]">{shop?.address || 'No address'}</p>
+            <p className="text-gray-500 text-sm mb-4 line-clamp-2 min-h-[40px]">{shop?.address || 'No address provided'}</p>
             
             <div className="space-y-2 pt-4 border-t border-gray-50">
               <div className="flex items-center gap-2 text-gray-400">
-                <Phone className="w-4 h-4" />
-                <span className="text-xs font-bold text-gray-600">{shop.phone}</span>
+                <Phone className="w-4 h-4 text-indigo-400" />
+                <span className="text-xs font-bold text-gray-600">{shop.phone || 'N/A'}</span>
               </div>
               <div className="flex items-center gap-2 text-gray-400">
-                <MapPin className="w-4 h-4" />
-                <span className="text-xs font-bold text-gray-600">{shop.domain || 'No custom domain'}</span>
+                <UserIcon className="w-4 h-4 text-emerald-400" />
+                <span className="text-xs font-bold text-gray-600">{shop.ownerEmail || shop.email || 'No email provided'}</span>
               </div>
+              {shop.domain && (
+                <div className="flex items-center gap-2 text-gray-400">
+                  <MapPin className="w-4 h-4 text-rose-400" />
+                  <span className="text-xs font-bold text-gray-600">{shop.domain}</span>
+                </div>
+              )}
             </div>
             
             <div className="mt-6 pt-4 border-t border-gray-50 flex items-center justify-between">
               <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest">
-                Registered: {shop.setupDate ? new Date(shop.setupDate).toLocaleDateString() : 'N/A'}
+                Registered: {shop.setupDate ? new Date(shop.setupDate).toLocaleDateString() : (shop.createdAt ? new Date(shop.createdAt).toLocaleDateString() : 'N/A')}
               </p>
               <button className="p-2 text-indigo-600 hover:bg-indigo-50 rounded-xl transition-all">
                 <ChevronRight className="w-5 h-5" />
@@ -2832,7 +2892,9 @@ function ShopManagement({ shops }: { shops: any[] }) {
 }
 
 export default function App() {
-  console.log("ShopMaster App Initializing...");
+  useEffect(() => {
+    console.log("ShopMaster App Initializing...");
+  }, []);
   const [user, setUser] = useState<any>(null);
   const [isOnboarded, setIsOnboarded] = useState<boolean | null>(null);
   const [loading, setLoading] = useState(false);
@@ -2860,9 +2922,13 @@ export default function App() {
         });
     }
   };
+  const [isDesktop, setIsDesktop] = useState(() => typeof window !== 'undefined' ? window.innerWidth >= 1024 : true);
   const [isSidebarOpen, setIsSidebarOpen] = useState(() => {
+    if (typeof window !== 'undefined' && window.innerWidth >= 1024) {
+      return true;
+    }
     const saved = localStorage.getItem('sidebar_visible');
-    return saved !== null ? saved === 'true' : window.innerWidth >= 1024;
+    return saved !== null ? saved === 'true' : true;
   });
   const [isOnline, setIsOnline] = useState(navigator.onLine);
 
@@ -2872,9 +2938,14 @@ export default function App() {
 
   useEffect(() => {
     const handleResize = () => {
-      // Auto-adjust if needed, but let's respect user choice mostly
+      const desktop = window.innerWidth >= 1024;
+      setIsDesktop(desktop);
+      if (desktop) {
+        setIsSidebarOpen(true);
+      }
     };
     window.addEventListener('resize', handleResize);
+    handleResize();
     return () => window.removeEventListener('resize', handleResize);
   }, []);
 
@@ -2937,65 +3008,93 @@ export default function App() {
     if (queue.length === 0) return;
 
     console.log(`Syncing ${queue.length} offline operations...`);
+    let successCount = 0;
+    let failCount = 0;
 
     for (const item of queue) {
-      try {
-        if (item.type === 'sale') {
-          const { saleData, customId, cart } = item.data;
-          // Create sale
-          await setDoc(doc(db, 'sales', customId), {
-            ...saleData,
-            timestamp: serverTimestamp()
-          });
-
-          // Update stock
-          for (const cartItem of cart) {
-            await updateDoc(doc(db, 'products', cartItem.id), {
-              stock: increment(-cartItem.quantity)
-            });
-          }
-
-          // Update customer if exists
-          if (saleData.customerId) {
-            const customerRef = doc(db, 'customers', saleData.customerId);
-            await updateDoc(customerRef, {
-              currentDue: increment(saleData.dueAmount),
-              totalSpent: increment(saleData.finalAmount)
-            });
-          }
-        } else if (item.type === 'payment') {
-          const { paymentData, customerId, amount } = item.data;
-          await addDoc(collection(db, 'due_payments'), {
-            ...paymentData,
-            shopId: user?.shopId,
-            timestamp: serverTimestamp()
-          });
-          await updateDoc(doc(db, 'customers', customerId), {
-            currentDue: increment(-amount)
-          });
-        } else if (item.type === 'customer') {
-          const { customerData, customId } = item.data;
-          await setDoc(doc(db, 'customers', customId), {
-            ...customerData,
-            timestamp: serverTimestamp()
-          });
-        } else if (item.type === 'customer_update') {
-          const { customerId, customerData, logData } = item.data;
-          await updateDoc(doc(db, 'customers', customerId), customerData);
-          if (logData) {
-            await addDoc(collection(db, 'customer_logs'), {
-              ...logData,
+      // Retry mechanism: try up to 3 times for each item
+      let success = false;
+      let lastErr: any = null;
+      for (let attempt = 1; attempt <= 3; attempt++) {
+        try {
+          if (item.type === 'sale') {
+            const { saleData, customId, cart } = item.data;
+            // Create sale
+            await setDoc(doc(db, 'sales', customId), {
+              ...saleData,
               timestamp: serverTimestamp()
             });
+
+            // Update stock
+            for (const cartItem of cart) {
+              await updateDoc(doc(db, 'products', cartItem.id), {
+                stock: increment(-cartItem.quantity)
+              });
+            }
+
+            // Update customer if exists
+            if (saleData.customerId) {
+              const customerRef = doc(db, 'customers', saleData.customerId);
+              await updateDoc(customerRef, {
+                currentDue: increment(saleData.dueAmount),
+                totalSpent: increment(saleData.finalAmount)
+              });
+            }
+          } else if (item.type === 'payment') {
+            const { paymentData, customerId, amount } = item.data;
+            await addDoc(collection(db, 'due_payments'), {
+              ...paymentData,
+              shopId: user?.shopId,
+              timestamp: serverTimestamp()
+            });
+            await updateDoc(doc(db, 'customers', customerId), {
+              currentDue: increment(-amount)
+            });
+          } else if (item.type === 'customer') {
+            const { customerData, customId } = item.data;
+            await setDoc(doc(db, 'customers', customId), {
+              ...customerData,
+              timestamp: serverTimestamp()
+            });
+          } else if (item.type === 'customer_update') {
+            const { customerId, customerData, logData } = item.data;
+            await updateDoc(doc(db, 'customers', customerId), customerData);
+            if (logData) {
+              await addDoc(collection(db, 'customer_logs'), {
+                ...logData,
+                timestamp: serverTimestamp()
+              });
+            }
           }
+          
+          await removeFromSyncQueue(item.id!);
+          successCount++;
+          success = true;
+          break; // Break the retry loop
+        } catch (err: any) {
+          lastErr = err;
+          const isNetworkError = err?.message?.toLowerCase().includes('network') || err?.message?.toLowerCase().includes('offline') || err?.code === 'unavailable';
+          if (!isNetworkError) {
+            // Fatal error, break retry loop but leave in queue or maybe we shouldn't delete yet for safety.
+            break;
+          }
+          console.warn(`Attempt ${attempt} to sync item failed. Retrying in 1s...`, item, err);
+          await new Promise(resolve => setTimeout(resolve, 1000));
         }
-        
-        await removeFromSyncQueue(item.id!);
-      } catch (err) {
-        console.error('Failed to sync item:', item, err);
+      }
+      if (!success) {
+        console.error('Failed to sync item after retries:', item, lastErr);
+        failCount++;
       }
     }
-    setNotification({ message: "All offline data synced successfully!", type: 'success' });
+    
+    if (successCount > 0 && failCount === 0) {
+      setNotification({ message: `Connection restored. Data successfully synchronized!`, type: 'success' });
+    } else if (successCount > 0 && failCount > 0) {
+      setNotification({ message: `Partial sync: ${successCount} synced, ${failCount} failed. Check internet.`, type: 'warning' });
+    } else if (failCount > 0) {
+      setNotification({ message: `Sync failed for ${failCount} items due to network issues.`, type: 'error' });
+    }
   };
   const [lastSale, setLastSale] = useState<Sale | null>(null);
   const [editingSale, setEditingSale] = useState<Sale | null>(null);
@@ -3039,6 +3138,7 @@ export default function App() {
   const [password, setPassword] = useState('');
   const [authError, setAuthError] = useState<string | null>(null);
   const [loginMode, setLoginMode] = useState<'merchant' | 'staff'>('merchant');
+  const [showCustomerPortal, setShowCustomerPortal] = useState<boolean>(false);
 
   // Auth State Sync
   useEffect(() => {
@@ -3113,11 +3213,10 @@ export default function App() {
   const [sales, setSales] = useState<Sale[]>([]);
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
+  const [customerOrders, setCustomerOrders] = useState<any[]>([]);
   const [shops, setShops] = useState<any[]>([]);
   const [appUsers, setAppUsers] = useState<AppUser[]>([]);
   const [employees, setEmployees] = useState<Employee[]>([]);
-  const [branches, setBranches] = useState<Branch[]>([]);
-  const [selectedBranchId, setSelectedBranchId] = useState<string>('all');
   const [dashboardPeriod, setDashboardPeriod] = useState<'day' | 'week' | 'month' | 'year'>('day');
   const [dashboardViewMetric, setDashboardViewMetric] = useState<'revenue' | 'profit'>('revenue');
   const [syncQueue, setSyncQueue] = useState<any[]>([]);
@@ -3151,12 +3250,16 @@ export default function App() {
       setLoading(true);
       if (!user || !user.shopId) throw new Error("User not authenticated");
 
+      // Generate a unique 6-digit shop code
+      const generatedShopCode = Math.floor(100000 + Math.random() * 900000).toString();
+
       // Save to global shops collection for master admin
       // We use the shopId (merchant uid) as the document ID for the shop
       const shopRef = doc(db, 'shops', user.shopId);
       await setDoc(shopRef, {
         ...formData,
         shopId: user.shopId,
+        shopCode: generatedShopCode,
         ownerEmail: user.email,
         ownerUid: user.uid,
         createdAt: serverTimestamp()
@@ -3167,6 +3270,7 @@ export default function App() {
       await setDoc(settingsRef, {
         ...shopSettings,
         shopId: user.shopId,
+        shopCode: generatedShopCode,
         name: formData.name,
         address: formData.address,
         phone: formData.phone,
@@ -3217,6 +3321,7 @@ export default function App() {
       }
     }
   }, [products]);
+
   const [shopSettings, setShopSettings] = useState<ShopSettings>({
     name: 'Bismillah Store',
     platformTitle: 'Bismillah Store - ShopMaster',
@@ -3235,6 +3340,27 @@ export default function App() {
     jarvisLanguage: 'bn',
     jarvisVoiceGender: 'male',
   });
+
+  const [prevPendingCount, setPrevPendingCount] = useState<number>(0);
+  useEffect(() => {
+    const pendingCount = customerOrders.filter(o => o.status === 'pending').length;
+    if (pendingCount > prevPendingCount) {
+      try {
+        const audio = new Audio("https://assets.mixkit.co/active_storage/sfx/2869/2869-120.wav");
+        audio.volume = 0.5;
+        audio.play().catch(() => {});
+      } catch (e) {}
+      
+      const isBn = shopSettings.systemLanguage === 'bn';
+      setNotification({
+        message: isBn 
+          ? `নতুন কাস্টমার অর্ডার এসেছে! (${pendingCount}টি পেন্ডিং রয়েছে)`
+          : `New customer order received! (${pendingCount} pending)`,
+        type: 'info'
+      });
+    }
+    setPrevPendingCount(pendingCount);
+  }, [customerOrders, prevPendingCount, shopSettings.systemLanguage]);
 
   useEffect(() => {
     // Master admin doesn't need to onboard
@@ -3277,6 +3403,18 @@ export default function App() {
   const [searchTerm, setSearchTerm] = useState('');
   const [discount, setDiscount] = useState(0);
   const [taxRate, setTaxRate] = useState(0);
+
+  const dynamicSettings = shopSettings;
+
+  // Handle tax settings
+  useEffect(() => {
+    setTaxRate(0); // default to zero or integrate with shopSettings if needed
+  }, []);
+
+  // Keep window._globalCurrencySymbol sync'ed dynamically
+  useEffect(() => {
+    (window as any)._globalCurrencySymbol = dynamicSettings.currencySymbol;
+  }, [dynamicSettings.currencySymbol]);
   
   // Auto-Cleanup logic for Recycle Bin (30 days)
   useEffect(() => {
@@ -3325,25 +3463,26 @@ export default function App() {
   }, [shopSettings?.logoBase64, shopSettings?.faviconBase64]);
 
   useEffect(() => {
-    if (shopSettings?.platformTitle) {
-      document.title = shopSettings.platformTitle;
-    } else if (shopSettings?.name) {
-      document.title = shopSettings.name;
+    if (dynamicSettings?.platformTitle) {
+      document.title = dynamicSettings.platformTitle;
+    } else if (dynamicSettings?.name) {
+      document.title = dynamicSettings.name;
     }
-  }, [shopSettings?.platformTitle, shopSettings?.name]);
+  }, [dynamicSettings?.platformTitle, dynamicSettings?.name]);
 
   useEffect(() => {
-    document.documentElement.dir = shopSettings?.systemLanguage === 'ar' ? 'rtl' : 'ltr';
-    document.documentElement.lang = shopSettings?.systemLanguage || 'bn';
-  }, [shopSettings?.systemLanguage]);
+    document.documentElement.dir = dynamicSettings?.systemLanguage === 'ar' ? 'rtl' : 'ltr';
+    document.documentElement.lang = dynamicSettings?.systemLanguage || 'bn';
+  }, [dynamicSettings?.systemLanguage]);
 
   useEffect(() => {
     // Sync global window variables for the fC helper
-    (window as any)._globalCurrencySymbol = shopSettings.currencySymbol;
-    (window as any)._globalLang = shopSettings.systemLanguage;
-  }, [shopSettings]);
+    (window as any)._globalCurrencySymbol = dynamicSettings.currencySymbol || 'TK';
+    (window as any)._globalLang = dynamicSettings.systemLanguage;
+  }, [dynamicSettings]);
 
   useEffect(() => {
+    (window as any)._currentShopId = user?.shopId || null;
     // These require the user to be logged in to determine the shopId
     if (!user || !user.shopId) {
       setAppUsers([]);
@@ -3367,6 +3506,7 @@ export default function App() {
     }
 
     const currentShopId = user.shopId;
+    if (!currentShopId) return; // Do not initialize snapshots if no shopId
 
     // Sync settings for this specific shop
     const unsubSettings = onSnapshot(doc(db, 'settings', currentShopId), (snapshot) => {
@@ -3436,9 +3576,9 @@ export default function App() {
       setNotes(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Note)));
     }, (err) => console.error("Notes sync error", err));
 
-    const unsubBranches = onSnapshot(query(collection(db, 'branches'), where('shopId', '==', currentShopId)), (snapshot) => {
-      setBranches(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Branch)));
-    }, (err) => console.error("Branches sync error", err));
+    const unsubCustomerOrders = onSnapshot(query(collection(db, 'customer_orders'), where('shopId', '==', currentShopId)), (snapshot) => {
+      setCustomerOrders(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+    }, (err) => console.error("Customer orders sync error", err));
 
     return () => {
       unsubSettings();
@@ -3457,62 +3597,9 @@ export default function App() {
       unsubCustomerLogs();
       unsubDuePayments();
       unsubNotes();
-      unsubBranches();
+      unsubCustomerOrders();
     };
   }, [user, auth.currentUser]);
-
-  // Dynamic Branch Manager restriction logic
-  useEffect(() => {
-    if (!user || user.role === 'admin' || branches.length === 0 || employees.length === 0) {
-      return;
-    }
-    const currentUserEmail = user.email?.toLowerCase().trim();
-    if (!currentUserEmail) return;
-
-    const matchedEmp = employees.find(emp => emp.email?.toLowerCase().trim() === currentUserEmail);
-    if (matchedEmp) {
-      const managedBranch = branches.find(b => b.managerId === matchedEmp.id);
-      if (managedBranch && selectedBranchId !== managedBranch.id) {
-        setSelectedBranchId(managedBranch.id);
-      }
-    }
-  }, [user, branches, employees, selectedBranchId]);
-
-  const branchFilteredProducts = useMemo(() => {
-    return products.filter(p => selectedBranchId === 'all' || p.branchId === selectedBranchId);
-  }, [products, selectedBranchId]);
-
-  const branchFilteredSales = useMemo(() => {
-    return sales.filter(s => selectedBranchId === 'all' || s.branchId === selectedBranchId);
-  }, [sales, selectedBranchId]);
-
-  const branchFilteredCustomers = useMemo(() => {
-    return customers.filter(c => selectedBranchId === 'all' || c.branchId === selectedBranchId);
-  }, [customers, selectedBranchId]);
-
-  const branchFilteredEmployees = useMemo(() => {
-    return employees.filter(e => selectedBranchId === 'all' || e.branchId === selectedBranchId);
-  }, [employees, selectedBranchId]);
-
-  const branchFilteredExpenses = useMemo(() => {
-    return expenses.filter(e => selectedBranchId === 'all' || e.branchId === selectedBranchId);
-  }, [expenses, selectedBranchId]);
-
-  const branchFilteredInvestments = useMemo(() => {
-    return investments.filter(i => selectedBranchId === 'all' || i.branchId === selectedBranchId);
-  }, [investments, selectedBranchId]);
-
-  const branchFilteredDailyClosings = useMemo(() => {
-    return dailyClosings.filter(d => selectedBranchId === 'all' || d.branchId === selectedBranchId);
-  }, [dailyClosings, selectedBranchId]);
-
-  const branchFilteredNotes = useMemo(() => {
-    return notes.filter(n => selectedBranchId === 'all' || n.branchId === selectedBranchId);
-  }, [notes, selectedBranchId]);
-
-  const branchFilteredStaffSalaries = useMemo(() => {
-    return staffSalaries.filter(s => selectedBranchId === 'all' || s.branchId === selectedBranchId);
-  }, [staffSalaries, selectedBranchId]);
 
   const handleAddNote = async (text: string, color: string, extra?: { priority?: string, dueDate?: string }) => {
     try {
@@ -3551,7 +3638,7 @@ export default function App() {
 
   const handleDeleteDailyClosing = async (closing: DailyClosing) => {
     try {
-      await moveToRecycleBin('daily_closing', closing.id, closing);
+      await moveToRecycleBin('daily_closing', closing.id, closing, closing.shopId || user?.shopId);
       await deleteDoc(doc(db, 'daily_closings', closing.id));
       setNotification({ message: 'Daily Closing moved to Recycle Bin', type: 'success' });
     } catch (error) {
@@ -3842,7 +3929,7 @@ export default function App() {
       }
 
       if (sendWhatsApp && isOnline) {
-        await sendWhatsAppInvoice(finalSale, shopSettings, shopSettings.systemLanguage === 'bn' ? 'bn' : (shopSettings.systemLanguage === 'ar' ? 'ar' : 'en'));
+        await sendWhatsAppInvoice(finalSale, dynamicSettings, dynamicSettings.systemLanguage === 'bn' ? 'bn' : (dynamicSettings.systemLanguage === 'ar' ? 'ar' : 'en'));
       }
 
       if (checkoutData.customerId && isOnline) {
@@ -3883,8 +3970,8 @@ export default function App() {
       setShowReceiptModal(true);
 
       // Auto Send WhatsApp if customer has phone and auto-send is enabled
-      if (finalSale.customerPhone && shopSettings.autoSendWhatsApp) {
-        sendWhatsAppInvoice(finalSale, shopSettings, shopSettings.systemLanguage === 'bn' ? 'bn' : (shopSettings.systemLanguage === 'ar' ? 'ar' : 'en'));
+      if (finalSale.customerPhone && dynamicSettings.autoSendWhatsApp) {
+        sendWhatsAppInvoice(finalSale, dynamicSettings, dynamicSettings.systemLanguage === 'bn' ? 'bn' : (dynamicSettings.systemLanguage === 'ar' ? 'ar' : 'en'));
       }
     } catch (error) {
       handleFirestoreError(error, OperationType.WRITE, 'sales');
@@ -3931,7 +4018,7 @@ export default function App() {
       }
 
       // Move to recycle bin
-      await moveToRecycleBin('sale', sale.id, sale);
+      await moveToRecycleBin('sale', sale.id, sale, sale.shopId || user?.shopId);
 
       // Delete original
       await deleteDoc(doc(db, 'sales', sale.id));
@@ -4041,13 +4128,13 @@ export default function App() {
 
   useEffect(() => {
     if (showReceiptModal && lastCompletedSale) {
-      printInvoice(lastCompletedSale, shopSettings);
+      printInvoice(lastCompletedSale, dynamicSettings);
     }
-  }, [showReceiptModal, lastCompletedSale]);
+  }, [showReceiptModal, lastCompletedSale, dynamicSettings]);
 
   const handleDeleteExpense = async (expense: Expense) => {
     try {
-      await moveToRecycleBin('expense', expense.id, expense);
+      await moveToRecycleBin('expense', expense.id, expense, expense.shopId || user?.shopId);
       await deleteDoc(doc(db, 'expenses', expense.id));
       setNotification({ message: 'Expense moved to Recycle Bin', type: 'success' });
     } catch (error) {
@@ -4057,7 +4144,7 @@ export default function App() {
 
   const handleDeleteInvestment = async (investment: Investment) => {
     try {
-      await moveToRecycleBin('investment', investment.id, investment);
+      await moveToRecycleBin('investment', investment.id, investment, investment.shopId || user?.shopId);
       await deleteDoc(doc(db, 'investments', investment.id));
       setNotification({ message: 'Investment moved to Recycle Bin', type: 'success' });
     } catch (error) {
@@ -4067,7 +4154,7 @@ export default function App() {
 
   const handleDeleteStaffSalary = async (salary: StaffSalary) => {
     try {
-      await moveToRecycleBin('salary', salary.id, salary);
+      await moveToRecycleBin('salary', salary.id, salary, salary.shopId || user?.shopId);
       await deleteDoc(doc(db, 'staff_salaries', salary.id));
       setNotification({ message: 'Salary record moved to Recycle Bin', type: 'success' });
     } catch (error) {
@@ -4077,7 +4164,7 @@ export default function App() {
 
   const handleDeleteStockRecord = async (record: StockRecord) => {
     try {
-      await moveToRecycleBin('stockRecord', record.id, record);
+      await moveToRecycleBin('stockRecord', record.id, record, record.shopId || user?.shopId);
       await deleteDoc(doc(db, 'stockRecords', record.id));
       setNotification({ message: 'Stock record moved to Recycle Bin', type: 'success' });
     } catch (error) {
@@ -4103,15 +4190,14 @@ export default function App() {
       
       // Update global shop overview for master admin
       const shopRef = doc(db, 'shops', user.shopId);
-      const shopSnap = await getDoc(shopRef);
-      if (shopSnap.exists()) {
-        await updateDoc(shopRef, {
-          name: newSettings.name,
-          address: newSettings.address,
-          phone: newSettings.phone,
-          updatedAt: serverTimestamp()
-        });
-      }
+      await setDoc(shopRef, {
+        name: newSettings.name || 'Unnamed',
+        address: newSettings.address || '',
+        phone: newSettings.phone || '',
+        shopCode: newSettings.shopCode || '',
+        ownerEmail: user.email || '',
+        updatedAt: serverTimestamp()
+      }, { merge: true });
 
       // Update shop-specific settings
       const payload: any = { ...newSettings, shopId: user.shopId };
@@ -4132,6 +4218,7 @@ export default function App() {
   };
 
   const handleAddUser = async (newUser: Omit<AppUser, 'id'>) => {
+    if (!user?.shopId) return;
     // Check if username already exists
     const exists = appUsers.some(u => u.username.toLowerCase() === newUser.username.toLowerCase());
     if (exists) {
@@ -4166,7 +4253,7 @@ export default function App() {
     try {
       const userToDelete = appUsers.find(u => u.id === userId);
       if (userToDelete) {
-        await moveToRecycleBin('user', userId, userToDelete);
+        await moveToRecycleBin('user', userId, userToDelete, userToDelete.shopId || user?.shopId);
       }
       await deleteDoc(doc(db, 'users', userId));
       setNotification({ message: 'User moved to Recycle Bin', type: 'success' });
@@ -4177,6 +4264,7 @@ export default function App() {
 
   const handleAddEmployee = async (newEmployee: Omit<Employee, 'id'>) => {
     try {
+      if (!user?.shopId) return;
       await addDoc(collection(db, 'employees'), { ...newEmployee, shopId: user.shopId });
       setNotification({ message: 'Employee added successfully', type: 'success' });
     } catch (error) {
@@ -4203,6 +4291,7 @@ export default function App() {
 
   const handleAddCustomer = async (newCustomer: Omit<Customer, 'id' | 'serialNumber'>): Promise<string | undefined> => {
     try {
+      if (!user?.shopId) return undefined;
       const docRef = await addDoc(collection(db, 'customers'), {
         ...newCustomer,
         shopId: user.shopId,
@@ -4212,6 +4301,65 @@ export default function App() {
     } catch (error) {
       handleFirestoreError(error, OperationType.WRITE, 'customers');
       return undefined;
+    }
+  };
+
+  const handleLoadOrderToPOS = async (order: any) => {
+    try {
+      let customerId = '';
+      const matchedCust = customers.find(c => c.phone === order.customerPhone);
+      if (matchedCust) {
+        customerId = matchedCust.id;
+      } else {
+        customerId = order.customerId || '';
+      }
+
+      const posCartItems: any[] = [];
+      for (const item of order.items) {
+        const p = products.find(prod => prod.id === item.productId);
+        if (p) {
+          posCartItems.push({
+            ...p,
+            quantity: item.quantity
+          });
+        } else {
+          posCartItems.push({
+            id: item.productId,
+            name: item.productName,
+            price: item.price,
+            cost: item.price * 0.7,
+            quantity: item.quantity,
+            category: 'Uncategorized',
+            unit: item.unit || 'unit',
+            stock: 99
+          });
+        }
+      }
+
+      setCart(posCartItems);
+      setCheckoutData({
+        customerId: customerId,
+        isWalkIn: !customerId,
+        walkInName: order.customerName,
+        walkInPhone: order.customerPhone,
+        paidAmount: order.totalAmount,
+        paymentMethod: 'cash'
+      });
+
+      setActiveTab('pos');
+
+      const orderRef = doc(db, 'customer_orders', order.id);
+      await updateDoc(orderRef, { status: 'approved' });
+
+      setNotification({
+        message: shopSettings.systemLanguage === 'bn' 
+          ? 'গ্রাহক অর্ডার সফলভাবে POS-এ লোড করা হয়েছে!' 
+          : 'Customer order successfully loaded to POS!',
+        type: 'success'
+      });
+    } catch (err: any) {
+      console.error(err);
+      setNotification({ message: 'Failed to load order to POS', type: 'error' });
     }
   };
 
@@ -4228,7 +4376,7 @@ export default function App() {
     try {
       const employeeToDelete = employees.find(e => e.id === id);
       if (employeeToDelete) {
-        await moveToRecycleBin('employee', id, employeeToDelete);
+        await moveToRecycleBin('employee', id, employeeToDelete, employeeToDelete.shopId || user?.shopId);
       }
       await deleteDoc(doc(db, 'employees', id));
       setNotification({ message: 'Employee moved to Recycle Bin', type: 'success' });
@@ -4240,6 +4388,7 @@ export default function App() {
 
   const handleAddExpense = async (newExpense: Omit<Expense, 'id'>) => {
     try {
+      if (!user?.shopId) return;
       await addDoc(collection(db, 'expenses'), { ...newExpense, shopId: user.shopId });
       setNotification({ message: 'Expense added successfully', type: 'success' });
     } catch (error) {
@@ -4249,6 +4398,7 @@ export default function App() {
 
   const handleAddInvestment = async (newInvestment: Omit<Investment, 'id'>) => {
     try {
+      if (!user?.shopId) return;
       await addDoc(collection(db, 'investments'), { ...newInvestment, shopId: user.shopId });
       setNotification({ message: 'Investment added successfully', type: 'success' });
     } catch (error) {
@@ -4258,6 +4408,7 @@ export default function App() {
 
   const handleAddStaffSalary = async (newSalary: Omit<StaffSalary, 'id'>) => {
     try {
+      if (!user?.shopId) return;
       await addDoc(collection(db, 'staff_salaries'), { ...newSalary, shopId: user.shopId });
       setNotification({ message: 'Salary payment recorded', type: 'success' });
     } catch (error) {
@@ -4306,10 +4457,10 @@ export default function App() {
     }
   };
 
-  const systemLang = shopSettings.systemLanguage || 'bn';
+  const systemLang = dynamicSettings.systemLanguage || 'bn';
   const st = (key: keyof typeof SYSTEM_TRANSLATIONS['en']) => (SYSTEM_TRANSLATIONS[systemLang] as any)[key] || (SYSTEM_TRANSLATIONS['en'] as any)[key];
   const isRtl = systemLang === 'ar';
-  (window as any)._globalCurrencySymbol = shopSettings.currencySymbol;
+  (window as any)._globalCurrencySymbol = dynamicSettings.currencySymbol || 'TK';
   (window as any)._globalLang = systemLang;
 
   if (loading) {
@@ -4321,6 +4472,15 @@ export default function App() {
           className="w-12 h-12 border-4 border-indigo-600 border-t-transparent rounded-full"
         />
       </div>
+    );
+  }
+
+  if (showCustomerPortal) {
+    return (
+      <CustomerPortal 
+        onBack={() => setShowCustomerPortal(false)} 
+        lang={shopSettings.systemLanguage || 'bn'} 
+      />
     );
   }
 
@@ -4512,6 +4672,20 @@ export default function App() {
                   </motion.div>
                 )}
               </AnimatePresence>
+
+              {/* Customer Portal Entry link */}
+              <div className="mt-8 border-t border-gray-100 pt-6">
+                <button
+                  type="button"
+                  onClick={() => setShowCustomerPortal(true)}
+                  className="w-full h-14 bg-indigo-50 border border-indigo-100 hover:bg-indigo-100 text-indigo-700 rounded-2xl font-black transition-all flex items-center justify-center gap-2.5 group"
+                >
+                  <Sparkles className="w-5 h-5 text-indigo-600 group-hover:scale-110 transition-transform" />
+                  <span>
+                    {isBn ? "গ্রাহক সেবা পোর্টাল (অর্ডার ও সাধারণ খতিয়ান)" : "Customer Self-Service Portal"}
+                  </span>
+                </button>
+              </div>
             </div>
             
             <div className="mt-auto text-center pt-8 border-t border-gray-100">
@@ -4569,26 +4743,15 @@ export default function App() {
         </AnimatePresence>
 
         {/* Sidebar */}
-        <AnimatePresence mode="wait">
-          {isSidebarOpen || window.innerWidth >= 1024 ? (
-            <motion.aside 
-              initial={window.innerWidth < 1024 ? { x: isRtl ? 300 : -300 } : { width: 0, opacity: 0 }}
-              animate={isSidebarOpen 
-                ? { x: 0, width: 288, opacity: 1 } 
-                : (window.innerWidth < 1024 
-                    ? { x: isRtl ? 300 : -300, width: 0, opacity: 0 }
-                    : { width: 0, opacity: 0, x: isRtl ? 50 : -50 }
-                  )
-              }
-              exit={window.innerWidth < 1024 ? { x: isRtl ? 300 : -300 } : { width: 0, opacity: 0 }}
-              transition={{ type: "spring", damping: 25, stiffness: 200 }}
-              className={`
-                fixed inset-y-0 ${isRtl ? 'right-0' : 'left-0'} z-50 bg-white border-r border-gray-100 flex flex-col shadow-2xl lg:shadow-none
-                lg:static lg:h-screen lg:w-72
-                ${!isSidebarOpen ? 'hidden lg:flex' : 'flex'}
-                overflow-hidden
-              `}
-            >
+        <aside 
+          className={`
+            fixed lg:static inset-y-0 ${isRtl ? 'right-0' : 'left-0'} z-50 bg-white border-r border-gray-100 flex flex-col shadow-2xl lg:shadow-none
+            h-screen w-72 lg:w-72
+            transition-all duration-300 ease-in-out
+            ${isSidebarOpen ? 'translate-x-0 opacity-100 flex' : (isRtl ? 'translate-x-full lg:translate-x-0 hidden lg:flex' : '-translate-x-full lg:translate-x-0 hidden lg:flex')}
+            overflow-hidden
+          `}
+        >
               <div className="p-6 flex items-center justify-between gap-3 relative overflow-hidden group">
                 <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500"></div>
                 <div className="flex items-center gap-3">
@@ -4607,7 +4770,7 @@ export default function App() {
                 
                 <button 
                   onClick={() => setIsSidebarOpen(false)}
-                  className="p-2 hover:bg-rose-50 rounded-xl transition-all text-gray-400 hover:text-rose-600 border border-transparent hover:border-rose-100"
+                  className="p-2 hover:bg-rose-50 rounded-xl transition-all text-gray-400 hover:text-rose-600 border border-transparent hover:border-rose-100 lg:hidden"
                   title="Hide Sidebar"
                 >
                   <ChevronLeft className={`w-5 h-5 transition-transform ${isRtl ? 'rotate-180' : ''}`} />
@@ -4616,15 +4779,7 @@ export default function App() {
 
           <nav className="flex-1 px-4 py-6 overflow-y-auto custom-scrollbar space-y-1.5 bg-white">
             {[
-              ...(isMasterAdmin ? [{ 
-                id: 'master', 
-                label: 'master_console', 
-                items: [
-                  { id: 'shops', icon: Globe, label: 'Network Console', roles: ['admin'], color: 'text-red-600', bg: 'bg-red-50', border: 'border-red-100' }
-                ] 
-              }] : []),
               { id: 'core', label: 'core', items: [
-                { id: 'jarvis', icon: Bot, label: st('jarvisAI'), roles: ['admin'], color: 'text-blue-600', bg: 'bg-blue-50', border: 'border-blue-100' },
                 { id: 'dashboard', icon: LayoutDashboard, label: st('dashboard'), roles: ['admin', 'manager'], color: 'text-blue-600', bg: 'bg-blue-50', border: 'border-blue-100' },
                 { id: 'pos', icon: ShoppingCart, label: st('pos'), roles: ['admin', 'manager', 'assistant_manager', 'sales_manager', 'sales_team'], color: 'text-emerald-600', bg: 'bg-emerald-50', border: 'border-emerald-100' },
               ]},
@@ -4638,6 +4793,7 @@ export default function App() {
               { id: 'sales_crm', label: 'sales_crm', items: [
                 { id: 'sales', icon: History, label: st('sales'), roles: ['admin', 'manager', 'assistant_manager', 'sales_manager'], color: 'text-violet-600', bg: 'bg-violet-50', border: 'border-violet-100' },
                 { id: 'customers', icon: Users, label: st('customers'), roles: ['admin', 'manager', 'assistant_manager', 'sales_manager'], color: 'text-pink-600', bg: 'bg-pink-50', border: 'border-pink-100' },
+                { id: 'customer_orders', icon: ShoppingBag, label: shopSettings.systemLanguage === 'bn' ? 'গ্রাহক অর্ডার' : 'Customer Orders', roles: ['admin', 'manager', 'assistant_manager', 'sales_manager'], color: 'text-indigo-600', bg: 'bg-indigo-50', border: 'border-indigo-100' },
                 { id: 'loan_management', icon: Banknote, label: st('loanManagement'), roles: ['admin', 'manager'], color: 'text-rose-600', bg: 'bg-rose-50', border: 'border-rose-100' },
               ]},
               { id: 'accounting', label: 'accounting', items: [
@@ -4646,14 +4802,14 @@ export default function App() {
                 { id: 'payment_method', icon: CreditCard, label: st('paymentMethod'), roles: ['admin', 'manager'], color: 'text-teal-600', bg: 'bg-teal-50', border: 'border-teal-100' },
               ]},
               { id: 'management', label: 'management', items: [
+                { id: 'shops', icon: Globe, label: 'Network Console', roles: [], color: 'text-red-600', bg: 'bg-red-50', border: 'border-red-100' },
+                { id: 'jarvis', icon: Bot, label: st('jarvisAI'), roles: ['admin'], color: 'text-sky-600', bg: 'bg-sky-50', border: 'border-sky-100' },
                 { id: 'online_shop', icon: Globe, label: st('onlineShop'), roles: ['admin', 'manager'], color: 'text-blue-600', bg: 'bg-blue-50', border: 'border-blue-100' },
                 { id: 'courier', icon: Truck, label: st('courier'), roles: ['admin', 'manager'], color: 'text-indigo-600', bg: 'bg-indigo-50', border: 'border-indigo-100' },
                 { id: 'warranty', icon: ShieldCheck, label: st('warranty'), roles: ['admin', 'manager'], color: 'text-cyan-600', bg: 'bg-cyan-50', border: 'border-cyan-100' },
                 { id: 'service_offer', icon: Gift, label: st('serviceOffer'), roles: ['admin', 'manager'], color: 'text-orange-600', bg: 'bg-orange-50', border: 'border-orange-100' },
                 { id: 'activation_code', icon: KeySquare, label: st('activationCode'), roles: ['admin', 'manager'], color: 'text-rose-600', bg: 'bg-rose-50', border: 'border-rose-100' },
-                { id: 'employees', icon: Briefcase, label: st('employees'), roles: ['admin', 'manager'], color: 'text-indigo-600', bg: 'bg-indigo-50', border: 'border-indigo-100' },
                 { id: 'note', icon: StickyNote, label: st('note'), roles: ['admin', 'manager'], color: 'text-teal-600', bg: 'bg-teal-50', border: 'border-teal-100' },
-                { id: 'branch', icon: Building, label: st('branch'), roles: ['admin', 'manager'], color: 'text-slate-600', bg: 'bg-slate-50', border: 'border-slate-100' },
                 { id: 'settings', icon: Settings, label: st('settings'), roles: ['admin'], color: 'text-gray-600', bg: 'bg-gray-100', border: 'border-gray-200' },
                 { id: 'recycle_bin', icon: Trash2, label: st('recycleBin'), roles: ['admin'], color: 'text-red-600', bg: 'bg-red-50', border: 'border-red-100' },
                 { id: 'main_admin', icon: UserCog, label: st('mainAdmin'), roles: ['admin'], color: 'text-indigo-600', bg: 'bg-indigo-50', border: 'border-indigo-100' },
@@ -4671,7 +4827,7 @@ export default function App() {
                     whileTap={{ scale: 0.98 }}
                     onClick={() => {
                       setActiveTab(item.id);
-                      if (window.innerWidth < 1024) {
+                      if (!isDesktop) {
                         setIsSidebarOpen(false);
                       }
                     }}
@@ -4716,7 +4872,7 @@ export default function App() {
               whileTap={{ scale: 0.98 }}
               onClick={() => {
                 window.dispatchEvent(new CustomEvent('open-calculator'));
-                if (window.innerWidth < 1024) {
+                if (!isDesktop) {
                   setIsSidebarOpen(false);
                 }
               }}
@@ -4750,9 +4906,7 @@ export default function App() {
               {st('logout')}
             </motion.button>
           </div>
-            </motion.aside>
-          ) : null}
-        </AnimatePresence>
+        </aside>
 
         {/* Main Content */}
         <main className={`flex-1 transition-all duration-300 ${(activeTab === 'pos' || activeTab === 'jarvis') ? 'p-0 sm:p-2 lg:p-3' : 'p-4 lg:p-8'} overflow-x-hidden relative bg-white`}>
@@ -4773,43 +4927,22 @@ export default function App() {
             <div className="mb-6 mt-12 lg:mt-0 flex flex-col md:flex-row md:items-center md:justify-between gap-4 p-4 md:p-6 bg-gradient-to-r from-gray-50 to-indigo-50/10 rounded-3xl border border-gray-100 shadow-sm">
               <div className="flex items-center gap-3">
                 <div className="p-3 bg-indigo-600/10 text-indigo-600 rounded-2xl">
-                  <Building className="w-6 h-6" />
+                  <LayoutDashboard className="w-6 h-6" />
                 </div>
                 <div>
                   <h2 className="text-[10px] font-black text-gray-400 uppercase tracking-widest leading-none mb-1">
-                    {shopSettings.systemLanguage === 'bn' ? 'কার্যকরী শাখা' : 'Active Branch'}
+                    {systemLang === 'bn' ? 'সিস্টেম স্ট্যাটাস' : systemLang === 'ar' ? 'حالة النظام' : 'System Status'}
                   </h2>
                   <p className="text-xl font-black text-gray-900 tracking-tight">
-                    {selectedBranchId === 'all' 
-                      ? (shopSettings.systemLanguage === 'bn' ? 'প্রধান শাখা এবং সকল শাখা' : 'Main / All Branches')
-                      : (branches.find(b => b.id === selectedBranchId)?.name || 'Branch')}
+                    {dynamicSettings.name || (systemLang === 'bn' ? 'আমার শপ' : systemLang === 'ar' ? 'متجري' : 'My Business')}
                   </p>
                 </div>
               </div>
               <div className="flex items-center gap-2">
-                {user?.role === 'admin' ? (
-                  <div className="relative">
-                    <select
-                      value={selectedBranchId}
-                      onChange={(e) => setSelectedBranchId(e.target.value)}
-                      className="appearance-none pl-4 pr-10 py-3 bg-white border border-gray-200 hover:border-indigo-500 rounded-2xl text-sm font-bold text-gray-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer shadow-sm min-w-[200px]"
-                    >
-                      <option value="all">🌐 {shopSettings.systemLanguage === 'bn' ? 'সকল শাখা (All)' : 'All Branches'}</option>
-                      {branches.map((b) => (
-                        <option key={b.id} value={b.id}>🏢 {b.name} ({b.code})</option>
-                      ))}
-                    </select>
-                    <div className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-gray-400">
-                      <ChevronDown className="w-5 h-5" />
-                    </div>
-                  </div>
-                ) : (
-                  <span className="inline-flex items-center gap-1.5 px-4 py-2 bg-indigo-100/60 text-indigo-700 rounded-2xl text-xs font-bold ring-1 ring-indigo-200">
-                    🔒 {shopSettings.systemLanguage === 'bn' ? 'শাখা লকড' : 'Branch Locked'} (
-                    {branches.find(b => b.id === selectedBranchId)?.name || (shopSettings.systemLanguage === 'bn' ? 'প্রধান শাখা' : 'Main Branch')}
-                    )
-                  </span>
-                )}
+                <div className="flex items-center gap-2 px-4 py-2 bg-emerald-100/60 text-emerald-700 rounded-2xl text-xs font-bold ring-1 ring-emerald-200">
+                  <div className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse"></div>
+                  {systemLang === 'bn' ? 'সিস্টেম অনলাইন' : systemLang === 'ar' ? 'النظام متصل' : 'System Online'}
+                </div>
               </div>
             </div>
           )}
@@ -4823,7 +4956,7 @@ export default function App() {
               className="w-full flex-1 flex flex-col animate-fadeIn"
             >
               {activeTab === 'shops' && isMasterAdmin && (
-                <NetworkConsole />
+                <ShopManagement shops={shops} />
               )}
             {activeTab === 'jarvis' && (
               <JarvisAI 
@@ -4835,7 +4968,7 @@ export default function App() {
                   sales: sales,
                   customers: customers,
                   categories: categories,
-                  settings: shopSettings,
+                  settings: dynamicSettings,
                   merchants: shops
                 }}
                 actions={{
@@ -4855,18 +4988,18 @@ export default function App() {
                     });
                   },
                   sendReminder: (c: any) => {
-                    handleSendWhatsAppReminder(c, shopSettings.systemLanguage as any || 'bn');
+                    handleSendWhatsAppReminder(c, dynamicSettings.systemLanguage as any || 'bn');
                   },
                   printLatestInvoice: () => {
                     if (sales.length > 0) {
-                      printInvoice(sales[0], shopSettings);
+                      printInvoice(sales[0], dynamicSettings);
                     } else {
                       setNotification({ message: 'No invoice found to print', type: 'error' });
                     }
                   },
                   sendLatestInvoiceWhatsApp: () => {
                     if (sales.length > 0) {
-                      sendWhatsAppInvoice(sales[0], shopSettings, shopSettings.systemLanguage as any);
+                      sendWhatsAppInvoice(sales[0], dynamicSettings, dynamicSettings.systemLanguage as any);
                     } else {
                       setNotification({ message: 'No invoice found', type: 'error' });
                     }
@@ -4954,11 +5087,11 @@ export default function App() {
 
                       let finalSale: Sale;
                       if (!isOnline) {
-                        const customId = generateInvoiceId();
+                        const customId = generateInvoiceId('');
                         finalSale = { ...finalSaleData, id: customId } as Sale;
                         await addToSyncQueue('sale', { saleData: finalSaleData, customId, cart: itemsToSell });
                       } else {
-                        const customId = generateInvoiceId();
+                        const customId = generateInvoiceId('');
                         await setDoc(doc(db, 'sales', customId), finalSaleData);
                         finalSale = { ...finalSaleData, id: customId } as Sale;
                         
@@ -4980,11 +5113,11 @@ export default function App() {
                       }
                       
                       if (saleData.printInvoice) {
-                        printInvoice(finalSale, shopSettings);
+                        printInvoice(finalSale, dynamicSettings);
                       }
                       
                       if (saleData.sendWhatsApp && isOnline) {
-                        await sendWhatsAppInvoice(finalSale, shopSettings, currentLang as any);
+                        await sendWhatsAppInvoice(finalSale, dynamicSettings, currentLang as any);
                       }
 
                       return { success: true, total: finalTotal, paid: paidAmount, due: dueAmount };
@@ -4997,12 +5130,12 @@ export default function App() {
             )}
             {activeTab === 'dashboard' && (
               <Dashboard 
-                products={branchFilteredProducts} 
-                sales={branchFilteredSales} 
-                customers={branchFilteredCustomers} 
-                expenses={branchFilteredExpenses}
-                dailyClosings={branchFilteredDailyClosings}
-                settings={shopSettings}
+                products={products} 
+                sales={sales} 
+                customers={customers} 
+                expenses={expenses}
+                dailyClosings={dailyClosings}
+                settings={dynamicSettings}
                 onDelete={handleDeleteDailyClosing}
                 onViewProductHistory={(p) => {
                   setSelectedProductForHistory(p);
@@ -5018,8 +5151,8 @@ export default function App() {
             )}
             {activeTab === 'pos' && (
               <POS 
-                sales={branchFilteredSales}
-                products={branchFilteredProducts} 
+                sales={sales}
+                products={products} 
                 cart={cart} 
                 addToCart={addToCart} 
                 removeFromCart={removeFromCart} 
@@ -5035,7 +5168,7 @@ export default function App() {
                 taxAmount={taxAmount}
                 cartTotal={cartTotal}
                 finalTotal={finalTotal}
-                customers={branchFilteredCustomers}
+                customers={customers}
                 checkoutData={checkoutData}
                 setCheckoutData={setCheckoutData}
                 editingSale={editingSale}
@@ -5046,7 +5179,7 @@ export default function App() {
                   setTaxRate(0);
                   setCheckoutData({ customerId: '', paidAmount: 0, paymentMethod: 'cash' });
                 }}
-                settings={shopSettings}
+                settings={dynamicSettings}
                 setNotification={setNotification}
                 user={user}
                 isOnline={isOnline}
@@ -5062,16 +5195,16 @@ export default function App() {
             )}
             {activeTab === 'inventory' && (
               <Inventory 
-                products={branchFilteredProducts} 
+                products={products} 
                 categories={categories} 
                 stockRecords={stockRecords}
-                sales={branchFilteredSales}
+                sales={sales}
                 onViewHistory={(p) => {
                   setSelectedProductForHistory(p);
                 }}
                 setNotification={setNotification}
                 isOnline={isOnline}
-                settings={shopSettings}
+                settings={dynamicSettings}
                 isSaving={isSavingProduct}
                 setIsSaving={setIsSavingProduct}
                 user={user}
@@ -5087,20 +5220,20 @@ export default function App() {
             )}
             {activeTab === 'sales' && (
               <SalesHistory 
-                sales={branchFilteredSales} 
+                sales={sales} 
                 onEdit={handleEditSale}
                 onDelete={handleDeleteSale}
-                settings={shopSettings}
+                settings={dynamicSettings}
                 isOnline={isOnline}
-                customers={branchFilteredCustomers}
+                customers={customers}
               />
             )}
             {activeTab === 'customers' && (
               <Customers 
-                customers={branchFilteredCustomers} 
-                sales={branchFilteredSales} 
+                customers={customers} 
+                sales={sales} 
                 setNotification={setNotification}
-                shopSettings={shopSettings}
+                shopSettings={dynamicSettings}
                 user={user}
                 onDownloadCSV={handleDownloadCustomersCSV}
                 customerLogs={customerLogs}
@@ -5110,68 +5243,67 @@ export default function App() {
                 syncQueue={syncQueue}
               />
             )}
-            {activeTab === 'employees' && (
-              <EmployeeManagement 
-                employees={branchFilteredEmployees} 
-                onAdd={handleAddEmployee} 
-                onUpdate={handleUpdateEmployee} 
-                onDelete={handleDeleteEmployee} 
+            {activeTab === 'customer_orders' && (
+              <SellerOrdersView 
+                orders={customerOrders} 
+                lang={dynamicSettings.systemLanguage || 'bn'} 
+                onLoadToPOS={handleLoadOrderToPOS} 
               />
             )}
             {activeTab === 'daily_closing' && (
               <DailyClosingView 
-                sales={branchFilteredSales} 
-                expenses={branchFilteredExpenses} 
-                dailyClosings={branchFilteredDailyClosings}
+                sales={sales} 
+                expenses={expenses} 
+                dailyClosings={dailyClosings}
                 duePayments={duePayments}
-                settings={shopSettings}
+                settings={dynamicSettings}
                 user={user}
                 onDelete={handleDeleteDailyClosing}
                 setNotification={setNotification}
               />
             )}
             {activeTab === 'barcode' && (
-              <BarcodePage products={branchFilteredProducts} settings={shopSettings} />
+              <BarcodePage products={products} settings={dynamicSettings} />
             )}
             {activeTab === 'note' && (
               <NoteView 
-                notes={branchFilteredNotes} 
+                notes={notes} 
                 onAdd={handleAddNote} 
                 onUpdate={handleUpdateNote} 
                 onDelete={handleDeleteNote}
-                settings={shopSettings}
+                settings={dynamicSettings}
               />
             )}
             {activeTab === 'warranty' && (
               <WarrantyPage 
-                products={branchFilteredProducts} 
-                settings={shopSettings} 
+                products={products} 
+                settings={dynamicSettings} 
               />
             )}
             {activeTab === 'loan_management' && (
               <LoanManagement 
-                products={branchFilteredProducts}
-                customers={branchFilteredCustomers}
-                settings={shopSettings}
+                products={products}
+                customers={customers}
+                settings={dynamicSettings}
               />
             )}
             {activeTab === 'payment_method' && <PaymentMethodView />}
             {activeTab === 'courier' && <CourierView />}
             {activeTab === 'supplier' && (
               <SupplierPage 
-                products={branchFilteredProducts}
-                settings={shopSettings}
+                products={products}
+                settings={dynamicSettings}
               />
             )}
             {activeTab === 'activation_code' && <ActivationCodePage />}
             {activeTab === 'accounting' && (
               <Accounting 
-                sales={branchFilteredSales} 
-                products={branchFilteredProducts} 
-                expenses={branchFilteredExpenses} 
-                investments={branchFilteredInvestments} 
-                staffSalaries={branchFilteredStaffSalaries}
-                customers={branchFilteredCustomers}
+                sales={sales} 
+                products={products} 
+                expenses={expenses} 
+                investments={investments} 
+                staffSalaries={staffSalaries}
+                customers={customers}
                 onAddExpense={handleAddExpense}
                 onAddInvestment={handleAddInvestment}
                 onAddSalary={handleAddStaffSalary}
@@ -5182,9 +5314,7 @@ export default function App() {
               />
             )}
 
-            {activeTab === 'shops' && isMasterAdmin && (
-              <ShopManagement shops={shops} />
-            )}
+
             {activeTab === 'settings' && (
               <SettingsPanel 
                 settings={shopSettings} 
@@ -5193,20 +5323,22 @@ export default function App() {
                 onAddUser={handleAddUser}
                 onDeleteUser={handleDeleteUser}
                 isSaving={isSavingSettings}
-                products={branchFilteredProducts}
-                sales={branchFilteredSales}
-                customers={branchFilteredCustomers}
-                expenses={branchFilteredExpenses}
+                products={products}
+                sales={sales}
+                customers={customers}
+                expenses={expenses}
                 deferredPrompt={deferredPrompt}
                 onInstallPWA={handleInstallPWA}
+                isMasterAdmin={isMasterAdmin}
+                currentUserEmail={user?.email || ''}
               />
             )}
-            {/* {activeTab === 'recycle_bin' && (
+            {activeTab === 'recycle_bin' && (
               <RecycleBin 
                 items={recycleBin} 
                 onRestore={handleRestoreRecycleItem} 
               />
-            )} */}
+            )}
             </motion.div>
           </AnimatePresence>
         </main>
@@ -5351,7 +5483,7 @@ export default function App() {
               <div className="grid grid-cols-1 gap-3">
                 <button 
                   onClick={() => {
-                    printInvoice(lastCompletedSale, shopSettings);
+                    printInvoice(lastCompletedSale, dynamicSettings);
                     setShowReceiptModal(false);
                   }}
                   className="w-full py-3 bg-indigo-600 text-white rounded-xl font-bold hover:bg-indigo-700 transition-all flex items-center justify-center gap-2"
@@ -5362,7 +5494,7 @@ export default function App() {
                 {lastCompletedSale.customerPhone && (
                   <button 
                     onClick={() => {
-                      sendWhatsAppInvoice(lastCompletedSale, shopSettings, shopSettings.systemLanguage === 'bn' ? 'bn' : (shopSettings.systemLanguage === 'ar' ? 'ar' : 'en'));
+                      sendWhatsAppInvoice(lastCompletedSale, dynamicSettings, dynamicSettings.systemLanguage === 'bn' ? 'bn' : (dynamicSettings.systemLanguage === 'ar' ? 'ar' : 'en'));
                       setShowReceiptModal(false);
                     }}
                     className="w-full py-3 bg-emerald-600 text-white rounded-xl font-bold hover:bg-emerald-700 transition-all flex items-center justify-center gap-2"
@@ -5385,11 +5517,12 @@ export default function App() {
           notes={notes} 
           onAdd={handleAddNote} 
           onDelete={handleDeleteNote}
-          settings={shopSettings}
+          settings={dynamicSettings}
           isRtl={isRtl}
           isSidebarOpen={isSidebarOpen}
+          isDesktop={isDesktop}
         />
-        <Calculator settings={shopSettings} isRtl={isRtl} isSidebarOpen={isSidebarOpen} />
+        <Calculator settings={dynamicSettings} isRtl={isRtl} isSidebarOpen={isSidebarOpen} isDesktop={isDesktop} />
         
         <NotificationToast notification={notification} onClose={() => setNotification(null)} />
         {selectedProductForHistory && (
@@ -5478,32 +5611,44 @@ function NotificationToast({ notification, onClose }: {
 }
 
 
+function PerformanceChart({ chartData, viewMetric, primaryColor }: { chartData: any[], viewMetric: 'revenue' | 'profit', primaryColor: string }) {
+  // Stabilize chart color
+  const barFill = primaryColor === 'blue-600' ? '#2563eb' : (primaryColor === 'emerald-600' ? '#10b981' : '#2563eb');
+  
+  return (
+    <div className="w-full h-[350px]">
+      <ResponsiveContainer width="100%" height="100%" minWidth={1} minHeight={1}>
+        <BarChart data={chartData}>
+          <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+          <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{fill: '#94a3b8', fontSize: 11}} />
+          <YAxis axisLine={false} tickLine={false} tick={{fill: '#94a3b8', fontSize: 11}} />
+          <Tooltip 
+            cursor={{fill: '#f8fafc'}}
+            contentStyle={{borderRadius: '16px', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)'}}
+          />
+          <Bar 
+            dataKey={viewMetric === 'revenue' ? 'sales' : 'profit'} 
+            radius={[8, 8, 0, 0]} 
+            fill={barFill}
+            animationDuration={1500}
+          />
+        </BarChart>
+      </ResponsiveContainer>
+    </div>
+  );
+}
+
 function Dashboard({ products, sales, customers, expenses, dailyClosings, settings, onDelete, onViewProductHistory, isOnline, user, expiringProducts = [], period, setPeriod, viewMetric, setViewMetric }: { products: Product[], sales: Sale[], customers: Customer[], expenses: Expense[], dailyClosings: DailyClosing[], settings: ShopSettings, onDelete: (closing: DailyClosing) => void, onViewProductHistory: (p: Product) => void, isOnline: boolean, user: any, expiringProducts?: Product[], period: 'day' | 'week' | 'month' | 'year', setPeriod: (p: 'day' | 'week' | 'month' | 'year') => void, viewMetric: 'revenue' | 'profit', setViewMetric: (v: 'revenue' | 'profit') => void }) {
   console.log("Dashboard rendering", { period, viewMetric });
   const systemLang = settings.systemLanguage || 'bn';
   const st = (key: keyof typeof SYSTEM_TRANSLATIONS['en']) => (SYSTEM_TRANSLATIONS[systemLang] as any)[key] || (SYSTEM_TRANSLATIONS['en'] as any)[key];
-  
-  const [chartDimensions, setChartDimensions] = useState({ width: 0, height: 350 });
-  const [isMounted, setIsMounted] = useState(false);
-  const chartContainerRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    setIsMounted(true);
-    if (!chartContainerRef.current) return;
-    const resizeObserver = new ResizeObserver((entries) => {
-      if (!entries || entries.length === 0) return;
-      const { width, height } = entries[0].contentRect;
-      setChartDimensions({
-        width: width || 0,
-        height: height || 350
-      });
-    });
-    resizeObserver.observe(chartContainerRef.current);
-    return () => resizeObserver.disconnect();
-  }, []);
 
   const theme = { gradient: 'from-blue-600 to-indigo-600', bg: 'bg-blue-100', primary: 'blue-600', shadow: 'shadow-blue-500/20' };
-  const fC = (num: number) => num.toLocaleString('en-US', { style: 'currency', currency: 'USD' });
+  const fC = (num: number) => {
+    const symbol = settings.currencySymbol || 'TK';
+    const lang = settings.systemLanguage || 'bn';
+    return formatCurrency(num, symbol, lang);
+  };
   const safeDate = (date: any) => new Date(date);
 
   const now = useMemo(() => new Date(), [period]);
@@ -5565,20 +5710,12 @@ function Dashboard({ products, sales, customers, expenses, dailyClosings, settin
               {/* ... buttons ... */}
             </div>
           </div>
-          <div ref={chartContainerRef} className="h-[350px] w-full min-h-[350px] min-w-full">
-            {isMounted && chartDimensions.width > 0 && (
-              <BarChart width={chartDimensions.width} height={chartDimensions.height} data={chartData}>
-                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
-                <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{fill: '#94a3b8', fontSize: 12}} />
-                <YAxis axisLine={false} tickLine={false} tick={{fill: '#94a3b8', fontSize: 12}} />
-                
-                <Bar 
-                  dataKey={viewMetric === 'revenue' ? 'sales' : 'profit'} 
-                  radius={[10, 10, 0, 0]} 
-                  className={`fill-${theme.primary}`}
-                />
-              </BarChart>
-            )}
+          <div className="h-[350px] w-full min-h-[300px] min-w-0 overflow-hidden">
+            <PerformanceChart 
+              chartData={chartData} 
+              viewMetric={viewMetric} 
+              primaryColor={theme.primary} 
+            />
           </div>
         </div>
         {/* ... remaining code ... */}
@@ -5798,7 +5935,7 @@ function ProductHistory({ product, sales, stockRecords, onClose, onDeleteStockRe
   );
 }
 
-function Calculator({ settings, isRtl, isSidebarOpen }: { settings: ShopSettings, isRtl: boolean, isSidebarOpen: boolean }) {
+function Calculator({ settings, isRtl, isSidebarOpen, isDesktop }: { settings: ShopSettings, isRtl: boolean, isSidebarOpen: boolean, isDesktop?: boolean }) {
   const [display, setDisplay] = useState('0');
   const [isOpen, setIsOpen] = useState(false);
   const [lastEquation, setLastEquation] = useState<string | null>(null);
@@ -6071,7 +6208,7 @@ function Calculator({ settings, isRtl, isSidebarOpen }: { settings: ShopSettings
       {/* Floating Trigger Button with high z-id */}
       <button 
         onClick={() => setIsOpen(!isOpen)}
-        className={`fixed bottom-24 ${isRtl ? (isSidebarOpen && window.innerWidth >= 1024 ? 'right-[312px]' : 'right-8') : (isSidebarOpen && window.innerWidth >= 1024 ? 'left-[312px]' : 'left-8')} w-16 h-16 bg-gradient-to-br from-indigo-600 via-indigo-700 to-purple-800 text-white rounded-2xl shadow-[0_8px_30px_rgb(79,70,229,0.3)] flex items-center justify-center hover:scale-110 active:scale-95 transition-all duration-300 z-[100] group shadow-indigo-200/50`}
+        className={`fixed bottom-24 ${isRtl ? (isDesktop ? 'right-[312px]' : 'right-8') : (isDesktop ? 'left-[312px]' : 'left-8')} w-16 h-16 bg-gradient-to-br from-indigo-600 via-indigo-700 to-purple-800 text-white rounded-2xl shadow-[0_8px_30px_rgb(79,70,229,0.3)] flex items-center justify-center hover:scale-110 active:scale-95 transition-all duration-300 z-[100] group shadow-indigo-200/50`}
         title={settings.systemLanguage === 'bn' ? 'ক্যালকুলেটর' : 'Calculator'}
         id="calc-open-trigger"
       >
@@ -6327,13 +6464,14 @@ function Calculator({ settings, isRtl, isSidebarOpen }: { settings: ShopSettings
   );
 }
 
-function NoteGlobal({ notes, onAdd, onDelete, settings, isRtl, isSidebarOpen }: { 
+function NoteGlobal({ notes, onAdd, onDelete, settings, isRtl, isSidebarOpen, isDesktop }: { 
   notes: Note[], 
   onAdd: (text: string, color: string, extra?: { priority?: string, dueDate?: string }) => void,
   onDelete: (id: string) => void,
   settings: ShopSettings,
   isRtl: boolean,
-  isSidebarOpen: boolean
+  isSidebarOpen: boolean,
+  isDesktop?: boolean
 }) {
   const [isOpen, setIsOpen] = useState(false);
   const [newNote, setNewNote] = useState('');
@@ -6357,7 +6495,7 @@ function NoteGlobal({ notes, onAdd, onDelete, settings, isRtl, isSidebarOpen }: 
         whileHover={{ scale: 1.1 }}
         whileTap={{ scale: 0.9 }}
         onClick={() => setIsOpen(!isOpen)}
-        className={`fixed bottom-44 ${isRtl ? (isSidebarOpen && window.innerWidth >= 1024 ? 'right-[312px]' : 'right-8') : (isSidebarOpen && window.innerWidth >= 1024 ? 'left-[312px]' : 'left-8')} w-14 h-14 bg-emerald-600 text-white rounded-full shadow-2xl flex items-center justify-center transition-all duration-500 z-50 overflow-hidden`}
+        className={`fixed bottom-44 ${isRtl ? (isDesktop ? 'right-[312px]' : 'right-8') : (isDesktop ? 'left-[312px]' : 'left-8')} w-14 h-14 bg-emerald-600 text-white rounded-full shadow-2xl flex items-center justify-center transition-all duration-500 z-50 overflow-hidden`}
         title="Quick Notes"
       >
         <StickyNote className="w-6 h-6" />
@@ -6374,7 +6512,7 @@ function NoteGlobal({ notes, onAdd, onDelete, settings, isRtl, isSidebarOpen }: 
             initial={{ opacity: 0, y: 20, scale: 0.9, x: isRtl ? 20 : -20 }}
             animate={{ opacity: 1, y: 0, scale: 1, x: 0 }}
             exit={{ opacity: 0, y: 20, scale: 0.9, x: isRtl ? 20 : -20 }}
-            className={`fixed bottom-60 ${isRtl ? (isSidebarOpen && window.innerWidth >= 1024 ? 'right-[312px]' : 'right-8') : (isSidebarOpen && window.innerWidth >= 1024 ? 'left-[312px]' : 'left-8')} w-80 sm:w-96 bg-white rounded-3xl shadow-2xl border border-gray-100 flex flex-col z-50 overflow-hidden max-h-[500px] transition-all duration-500`}
+            className={`fixed bottom-60 ${isRtl ? (isDesktop ? 'right-[312px]' : 'right-8') : (isDesktop ? 'left-[312px]' : 'left-8')} w-80 sm:w-96 bg-white rounded-3xl shadow-2xl border border-gray-100 flex flex-col z-50 overflow-hidden max-h-[500px] transition-all duration-500`}
           >
             <div className="p-4 bg-emerald-600 text-white flex justify-between items-center">
               <div className="flex items-center gap-2">
@@ -6542,9 +6680,9 @@ function EmployeeManagement({ employees, onAdd, onUpdate, onDelete }: { employee
   const [searchTerm, setSearchTerm] = useState('');
 
   const filteredEmployees = employees.filter(e => 
-    e.name?.toLowerCase().includes(searchTerm.toLowerCase()) || 
-    e.designation?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    e.phone?.includes(searchTerm)
+    (e?.name || '').toLowerCase().includes(searchTerm.toLowerCase()) || 
+    (e?.designation || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
+    (e?.phone || '').includes(searchTerm)
   );
 
   const stats = {
@@ -6759,149 +6897,14 @@ function EmployeeManagement({ employees, onAdd, onUpdate, onDelete }: { employee
                   </AnimatePresence>
                 </tbody>
               </table>
-              {filteredEmployees.length === 0 && (
-                <div className="p-24 text-center flex flex-col items-center">
-                  <div className="w-20 h-20 bg-gray-50 rounded-3xl flex items-center justify-center mb-6">
-                    <Users className="w-8 h-8 text-gray-200" />
-                  </div>
-                  <h4 className="text-xl font-black text-gray-900 uppercase">Sector Vacant</h4>
-                  <p className="text-gray-400 text-xs font-bold mt-2 uppercase tracking-widest leading-loose">No active staff nodes matching these credentials.</p>
-                </div>
-              )}
-            </div>
-          </motion.div>
-        </div>
-
-        <div className="space-y-8">
-          <motion.div 
-            variants={{
-              hidden: { opacity: 0, x: 20 },
-              visible: { opacity: 1, x: 0 }
-            }}
-            className="bg-white p-8 rounded-[3rem] shadow-xl border border-gray-100 flex flex-col items-center text-center group relative overflow-hidden h-full"
-          >
-            <div className="absolute top-0 left-0 w-full h-1.5 bg-gradient-to-r from-blue-600 to-indigo-600"></div>
-            <div className="w-24 h-24 bg-blue-50 text-blue-600 rounded-[2.5rem] flex items-center justify-center mb-8 shadow-inner group-hover:scale-110 transition-transform duration-700">
-               <Activity className="w-12 h-12" />
-            </div>
-            <h3 className="text-2xl font-black text-gray-900 uppercase tracking-tight">Organization Pulse</h3>
-            <p className="text-gray-400 text-[10px] font-black uppercase tracking-[0.2em] mt-3 px-2 leading-relaxed">Real-time engagement and payroll efficiency analysis.</p>
-            
-            <div className="w-full h-px bg-gray-50 my-10 relative">
-               <div className="absolute left-1/2 -translate-x-1/2 -translate-y-1/2 bg-white px-3 text-[8px] font-black text-gray-300 uppercase tracking-[0.3em]">Telemetry</div>
-            </div>
-            
-            <div className="w-full space-y-5">
-              <div className="flex items-center justify-between p-5 bg-gray-50 rounded-3xl border border-gray-100 group/item hover:bg-white transition-all shadow-sm">
-                <div className="text-left">
-                  <p className="text-[10px] font-black text-gray-400 uppercase tracking-tighter mb-1">Human Assets</p>
-                  <p className="text-xl font-black text-gray-900 font-mono tracking-tighter">{stats.total} Nodes</p>
-                </div>
-                <div className="w-12 h-12 bg-blue-50 text-blue-500 rounded-2xl flex items-center justify-center shadow-sm">
-                  <User className="w-6 h-6" />
-                </div>
-              </div>
-              
-              <div className="flex items-center justify-between p-5 bg-gray-50 rounded-3xl border border-gray-100 group/item hover:bg-white transition-all shadow-sm">
-                <div className="text-left">
-                  <p className="text-[10px] font-black text-gray-400 uppercase tracking-tighter mb-1">Engaged Status</p>
-                  <p className="text-xl font-black text-emerald-600 font-mono tracking-tighter">{stats.active} Live</p>
-                </div>
-                <div className="w-12 h-12 bg-emerald-50 text-emerald-500 rounded-2xl flex items-center justify-center shadow-sm">
-                   <Target className="w-6 h-6" />
-                </div>
-              </div>
-
-              <motion.div 
-                 whileHover={{ scale: 1.02 }}
-                 className="bg-gradient-to-br from-blue-900 to-indigo-950 p-8 rounded-[2.5rem] shadow-2xl relative overflow-hidden mt-6 text-left"
-              >
-                 <div className="absolute top-0 right-0 w-32 h-32 bg-white/5 rounded-full blur-[60px]"></div>
-                 <h4 className="text-[10px] font-black text-white/50 uppercase tracking-[0.3em] mb-4">Total Payroll</h4>
-                 <p className="text-3xl font-black text-white font-mono tracking-tighter mb-4 leading-none">{fC(stats.payroll)}</p>
-                 <p className="text-[10px] font-bold text-white/70 leading-relaxed uppercase tracking-widest">Calculated monthly logistics and compensation burden.</p>
-                 <div className="mt-8 pt-6 border-t border-white/10 flex items-center justify-between">
-                    <div className="flex flex-col">
-                       <span className="text-[9px] font-black text-white/40 uppercase tracking-widest">Efficiency</span>
-                       <span className="text-sm font-black text-emerald-400 font-mono">94.1%</span>
-                    </div>
-                    <div className="w-10 h-10 bg-white/10 rounded-xl flex items-center justify-center">
-                       <ShieldCheck className="w-5 h-5 text-white/60" />
-                    </div>
-                 </div>
-              </motion.div>
             </div>
           </motion.div>
         </div>
       </div>
-
-      <AnimatePresence>
-        {isModalOpen && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
-            <motion.div 
-              initial={{ opacity: 0, scale: 0.95 }}
-              animate={{ opacity: 1, scale: 1 }}
-              exit={{ opacity: 0, scale: 0.95 }}
-              className="bg-white w-full max-w-2xl rounded-3xl shadow-2xl overflow-hidden"
-            >
-              <div className="p-6 border-b border-gray-100 flex items-center justify-between bg-gray-50/50">
-                <h3 className="text-xl font-bold text-gray-900">{editingEmployee ? 'Edit Employee' : 'Add New Employee'}</h3>
-                <button onClick={() => setIsModalOpen(false)} className="p-2 hover:bg-gray-200 rounded-full transition-colors">
-                  <X className="w-5 h-5" />
-                </button>
-              </div>
-              <form onSubmit={handleSubmit} className="p-6 space-y-6">
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                  <div>
-                    <label className="block text-sm font-bold text-gray-700 mb-2">Full Name *</label>
-                    <input name="name" defaultValue={editingEmployee?.name || ''} required className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-indigo-500 outline-none" />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-bold text-gray-700 mb-2">Designation *</label>
-                    <input name="designation" defaultValue={editingEmployee?.designation || ''} required className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-indigo-500 outline-none" />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-bold text-gray-700 mb-2">Phone Number *</label>
-                    <input name="phone" defaultValue={editingEmployee?.phone || ''} required className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-indigo-500 outline-none" />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-bold text-gray-700 mb-2">Email Address</label>
-                    <input name="email" type="email" defaultValue={editingEmployee?.email || ''} className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-indigo-500 outline-none" />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-bold text-gray-700 mb-2">Monthly Salary *</label>
-                    <input name="salary" type="number" defaultValue={editingEmployee?.salary || 0} required className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-indigo-500 outline-none" />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-bold text-gray-700 mb-2">Joining Date</label>
-                    <input name="joiningDate" type="date" defaultValue={editingEmployee?.joiningDate || ''} className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-indigo-500 outline-none" />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-bold text-gray-700 mb-2">Work Schedule</label>
-                    <input name="schedule" defaultValue={editingEmployee?.schedule || ''} placeholder="e.g. 9 AM - 6 PM" className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-indigo-500 outline-none" />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-bold text-gray-700 mb-2">Status</label>
-                    <select name="status" defaultValue={editingEmployee?.status || 'active'} className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-indigo-500 outline-none">
-                      <option value="active">Active</option>
-                      <option value="inactive">Inactive</option>
-                    </select>
-                  </div>
-                </div>
-                <div className="flex justify-end gap-4 pt-4">
-                  <button type="button" onClick={() => setIsModalOpen(false)} className="px-6 py-3 text-gray-600 font-semibold hover:bg-gray-100 rounded-xl transition-colors">Cancel</button>
-                  <button type="submit" className="px-8 py-3 bg-indigo-600 text-white font-bold rounded-xl hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-100">
-                    {editingEmployee ? 'Update Employee' : 'Save Employee'}
-                  </button>
-                </div>
-              </form>
-            </motion.div>
-          </div>
-        )}
-      </AnimatePresence>
     </motion.div>
   );
 }
+
 
 function NoteView({ notes, onAdd, onDelete, onUpdate, settings }: { 
   notes: Note[], 
@@ -10335,7 +10338,7 @@ Return the result as JSON with a "category" field containing exactly one string 
     try {
       const productToDelete = products.find(p => p.id === id);
       if (productToDelete) {
-        await moveToRecycleBin('product', id, productToDelete);
+        await moveToRecycleBin('product', id, productToDelete, productToDelete.shopId || user?.shopId);
       }
       await deleteDoc(doc(db, 'products', id));
       setNotification({ message: "Product moved to Recycle Bin", type: 'success' });
@@ -13360,7 +13363,7 @@ function Customers({
                                       </td>
                                       <td 
                                         className={`px-6 py-4 text-xs font-black cursor-pointer uppercase tracking-tight group-hover:text-purple-600 ${sale.isDeleted ? 'text-gray-300 line-through' : 'text-gray-900'}`}
-                                        onClick={() => printInvoice(sale, shopSettings)}
+                                        onClick={() => printInvoice(sale, dynamicSettings)}
                                       >
                                         Inv#{sale.id}
                                       </td>

@@ -19,7 +19,7 @@
                 return originalFetch;
               },
               set: function(v) {
-                console.warn('Attempted to overwrite window.fetch, ignoring.');
+                // Silently ignore attempts to overwrite fetch to avoid console noise
               }
             });
           }
@@ -32,7 +32,6 @@
         if (event.message && event.message.includes('Cannot set property fetch')) {
           event.preventDefault();
           event.stopImmediatePropagation();
-          console.warn('Caught and blocked fetch overwrite error');
         }
       });
     </script>

@@ -216,6 +216,43 @@
         "timestamp": { "type": "string", "format": "date-time" }
       },
       "required": ["text", "color", "timestamp"]
+    },
+    "Branch": {
+      "title": "Branch",
+      "description": "A shop branch location",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "code": { "type": "string" },
+        "address": { "type": "string" },
+        "phone": { "type": "string" },
+        "email": { "type": "string" },
+        "managerId": { "type": "string" },
+        "openingDate": { "type": "string" },
+        "status": { "type": "string", "enum": ["active", "inactive"] },
+        "inventoryStatus": { "type": "string", "enum": ["synced", "independent"] },
+        "dailyCloseStatus": { "type": "string", "enum": ["enabled", "disabled"] },
+        "logoUrl": { "type": "string" },
+        "shopId": { "type": "string" },
+        "settings": {
+          "type": "object",
+          "properties": {
+            "timing": { "type": "string" },
+            "department": { "type": "string" },
+            "currency": { "type": "string" },
+            "taxSettings": { "type": "string" },
+            "invoicePrefix": { "type": "string" },
+            "receiptWidth": { "type": "string", "enum": ["58mm", "80mm"] },
+            "receiptFooter": { "type": "string" },
+            "printLanguage": { "type": "string", "enum": ["en", "bn", "ar"] },
+            "systemLanguage": { "type": "string", "enum": ["en", "bn", "ar"] },
+            "whatsappSender": { "type": "string" },
+            "autoSendWhatsApp": { "type": "boolean" }
+          }
+        }
+      },
+      "required": ["name", "code", "address", "phone", "managerId", "openingDate", "shopId"]
     }
   },
   "firestore": {
@@ -274,6 +311,10 @@
     "/notes/{noteId}": {
       "schema": "Note",
       "description": "Collection of user notes"
+    },
+    "/branches/{branchId}": {
+      "schema": "Branch",
+      "description": "Collection of shop branch locations"
     }
   }
 }
