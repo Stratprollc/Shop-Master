@@ -60,7 +60,7 @@ export function CategoryManagement({
       <div className="bg-white p-8 rounded-3xl shadow-xl border border-gray-100">
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {categories.map((cat) => (
-            <div key={cat.id} className="flex items-center justify-between p-4 bg-gray-50 rounded-2xl border border-gray-100 hover:shadow-sm transition-all shadow-sm">
+            <div key={cat.id} className="group flex items-center justify-between p-4 bg-gray-50 rounded-2xl border border-gray-100 hover:shadow-sm transition-all shadow-sm">
               {isEditing === cat.id ? (
                   <div className="flex items-center gap-2 w-full">
                     <input value={editValue} onChange={(e) => setEditValue(e.target.value)} className="w-full p-2 rounded-lg border text-sm"/>

@@ -253,9 +253,32 @@
         }
       },
       "required": ["name", "code", "address", "phone", "managerId", "openingDate", "shopId"]
+    },
+    "WarrantyRecord": {
+      "title": "WarrantyRecord",
+      "description": "A record of a sold serialized warranty product",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "shopId": { "type": "string" },
+        "productId": { "type": "string" },
+        "productName": { "type": "string" },
+        "customerName": { "type": "string" },
+        "customerPhone": { "type": "string" },
+        "serialNumber": { "type": "string" },
+        "warrantyPeriod": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "expiryDate": { "type": "string", "format": "date-time" },
+        "soldPrice": { "type": "number" }
+      },
+      "required": ["shopId", "productId", "serialNumber", "warrantyPeriod", "createdAt"]
     }
   },
   "firestore": {
+    "/warranty_records/{recordId}": {
+      "schema": "WarrantyRecord",
+      "description": "Collection of sold serialized warranty records"
+    },
     "/products/{productId}": {
       "schema": "Product",
       "description": "Collection of products"

@@ -10,7 +10,7 @@ async function startServer() {
   app.use(express.json());
 
   // API Routes
-  app.post('/api/gemini/generate', async (req, res) => {
+  const handleGeminiGenerate: express.RequestHandler = async (req, res) => {
     try {
       const { prompt, systemInstruction, tools, config, contents } = req.body;
       const apiKey = process.env.GEMINI_API_KEY;
@@ -46,14 +46,10 @@ async function startServer() {
       console.error('Gemini API Error:', error);
       res.status(500).json({ error: error.message || 'Internal Server Error' });
     }
-  });
+  };
 
-  // Keep old endpoint for compatibility if needed, or redirect it
-  app.post('/api/gemini/voice-parse', async (req, res) => {
-    // Redirect to the new generic one
-    req.url = '/api/gemini/generate';
-    app._router.handle(req, res, () => {});
-  });
+  app.post('/api/gemini/generate', handleGeminiGenerate);
+  app.post('/api/gemini/voice-parse', handleGeminiGenerate);
 
   const isProd = process.env.NODE_ENV === 'production';
 

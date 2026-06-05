@@ -57,7 +57,7 @@ service cloud.firestore {
         resource != null && 
         resource.data.shopId != null && 
         isOwnerOrStaff(resource.data.shopId) && 
-        collection in ['recycleBin', 'categories', 'products', 'daily_closings', 'sales', 'expenses', 'investments', 'staff_salaries', 'stockRecords', 'branches', 'employees', 'notes', 'customer_logs', 'due_payments', 'customer_orders']
+        collection in ['recycleBin', 'categories', 'products', 'daily_closings', 'sales', 'expenses', 'investments', 'staff_salaries', 'stockRecords', 'branches', 'employees', 'notes', 'customer_logs', 'due_payments', 'customer_orders', 'warranty_records']
       );
     }
 

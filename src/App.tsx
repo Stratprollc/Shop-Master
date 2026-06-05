@@ -3440,6 +3440,7 @@ export default function App() {
   const [customerLogs, setCustomerLogs] = useState<CustomerLog[]>([]);
   const [duePayments, setDuePayments] = useState<DuePayment[]>([]);
   const [notes, setNotes] = useState<Note[]>([]);
+  const [warrantyRecords, setWarrantyRecords] = useState<any[]>([]);
   const [expiringProducts, setExpiringProducts] = useState<Product[]>([]);
   
   // Check for expiring products
@@ -3838,6 +3839,10 @@ export default function App() {
       setCustomerOrders(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
     }, (err) => console.error("Customer orders sync error", err));
 
+    const unsubWarrantyRecords = onSnapshot(query(collection(db, 'warranty_records'), where('shopId', '==', currentShopId)), (snapshot) => {
+      setWarrantyRecords(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+    }, (err) => console.error("Warranty records sync error", err));
+
     return () => {
       unsubSettings();
       unsubUsers();
@@ -3856,6 +3861,7 @@ export default function App() {
       unsubDuePayments();
       unsubNotes();
       unsubCustomerOrders();
+      unsubWarrantyRecords();
     };
   }, [user, isMasterAdmin, isOnboarded]);
 
@@ -5584,6 +5590,9 @@ export default function App() {
               <WarrantyPage 
                 products={products} 
                 settings={dynamicSettings} 
+                warrantyRecords={warrantyRecords}
+                user={user}
+                setNotification={setNotification}
               />
             )}
             {activeTab === 'loan_management' && (
@@ -9281,142 +9290,742 @@ function ActivationCodePage() {
     </motion.div>
   );
 }
-function WarrantyPage({ products, settings }: { products: Product[], settings: ShopSettings }) {
+function WarrantyPage({ products, settings, warrantyRecords = [], user, setNotification }: { 
+  products: Product[], 
+  settings: ShopSettings, 
+  warrantyRecords: any[], 
+  user: any, 
+  setNotification: any 
+}) {
   const [searchTerm, setSearchTerm] = useState('');
+  const [warrantyTab, setWarrantyTab] = useState<'products' | 'registry'>('products');
   const theme = PAGE_THEMES.warranty;
+  const isBn = settings?.systemLanguage === 'bn';
 
+  // State for Sales Modal
+  const [sellingProduct, setSellingProduct] = useState<Product | null>(null);
+  const [customerName, setCustomerName] = useState('');
+  const [customerPhone, setCustomerPhone] = useState('');
+  const [sellQty, setSellQty] = useState(1);
+  const [warrantyPeriod, setWarrantyPeriod] = useState('1 Year');
+  const [isSelling, setIsSelling] = useState(false);
+
+  // State for Certificate Modal
+  const [viewingRecord, setViewingRecord] = useState<any | null>(null);
+
+  // Filter products that have hasWarranty enabled or a warranty string
   const warrantyProducts = useMemo(() => {
-    const base = products.filter(p => !!p.warranty);
-    if (base.length === 0 && products.length > 0) {
-      return products.slice(0, 5).map((p, idx) => ({
-        ...p,
-        warranty: idx % 2 === 0 ? '1 Year Replacement' : '6 Months Service'
-      }));
-    }
-    return base;
+    return products.filter(p => p.hasWarranty === true || (p.warranty && String(p.warranty).toLowerCase() !== 'false'));
   }, [products]);
 
-  const filtered = warrantyProducts.filter(p => 
-    p.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    (p.barcode && p.barcode.includes(searchTerm))
-  );
+  // Filter available products based on search
+  const filteredProducts = useMemo(() => {
+    return warrantyProducts.filter(p => 
+      p.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      (p.barcode && p.barcode.includes(searchTerm))
+    );
+  }, [warrantyProducts, searchTerm]);
+
+  // Specific shop records
+  const shopRecords = useMemo(() => {
+    return warrantyRecords.filter(r => r.shopId === (user?.shopId || ''));
+  }, [warrantyRecords, user]);
+
+  // Filter sold warranties registry
+  const filteredRegistry = useMemo(() => {
+    return shopRecords.filter(r => 
+      r.productName?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      r.serialNumber?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      r.customerName?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      r.customerPhone?.includes(searchTerm)
+    ).sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+  }, [shopRecords, searchTerm]);
+
+  // Stats Counters
+  const totalProtectedConfigured = warrantyProducts.length;
+  const totalWarrantySold = shopRecords.length;
+  const activeWarranties = useMemo(() => {
+    const now = new Date();
+    return shopRecords.filter(r => new Date(r.expiryDate) > now).length;
+  }, [shopRecords]);
+  const expiredWarranties = totalWarrantySold - activeWarranties;
+
+  // Execute purchase
+  const handleConfirmSale = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!user || !sellingProduct) return;
+    if (isSelling) return;
+    setIsSelling(true);
+
+    if (sellQty < 1) {
+      setNotification({ message: isBn ? "পরিমাণ কমপক্ষে ১ হতে হবে" : "Quantity must be at least 1.", type: 'error' });
+      setIsSelling(false);
+      return;
+    }
+
+    if (sellingProduct.stock < sellQty) {
+      setNotification({ 
+        message: isBn 
+          ? `অপর্যাপ্ত স্টক! মাত্র ${sellingProduct.stock} পিস উপলব্ধ আছে।` 
+          : `Insufficient stock! Only ${sellingProduct.stock} left.`, 
+        type: 'error' 
+      });
+      setIsSelling(false);
+      return;
+    }
+
+    try {
+      const serialNumbers: string[] = [];
+      const now = new Date();
+
+      // Expiry Period Calculations
+      const expiryDate = new Date();
+      if (warrantyPeriod === '3 Months') expiryDate.setMonth(now.getMonth() + 3);
+      else if (warrantyPeriod === '6 Months') expiryDate.setMonth(now.getMonth() + 6);
+      else if (warrantyPeriod === '1 Year') expiryDate.setFullYear(now.getFullYear() + 1);
+      else if (warrantyPeriod === '2 Years') expiryDate.setFullYear(now.getFullYear() + 2);
+      else if (warrantyPeriod === '3 Years') expiryDate.setFullYear(now.getFullYear() + 3);
+      else if (warrantyPeriod === '5 Years') expiryDate.setFullYear(now.getFullYear() + 5);
+      else if (warrantyPeriod === 'Lifetime') expiryDate.setFullYear(now.getFullYear() + 100);
+
+      const baseSeq = shopRecords.length + 1;
+
+      // Create N separate items for the quantity specified
+      for (let i = 0; i < sellQty; i++) {
+        const seqIndex = baseSeq + i;
+        const serialNumber = `WR-${String(seqIndex).padStart(6, '0')}`;
+        serialNumbers.push(serialNumber);
+
+        const recordData = {
+          shopId: user.shopId,
+          productId: sellingProduct.id,
+          productName: sellingProduct.name,
+          customerName: customerName.trim() || (isBn ? 'খুচরা কাস্টমার' : 'Walk-in Customer'),
+          customerPhone: customerPhone.trim() || '',
+          serialNumber: serialNumber,
+          warrantyPeriod: warrantyPeriod,
+          createdAt: now.toISOString(),
+          expiryDate: expiryDate.toISOString(),
+          soldPrice: sellingProduct.price
+        };
+
+        await addDoc(collection(db, 'warranty_records'), recordData);
+      }
+
+      // Deduct Stock
+      const productRef = doc(db, 'products', sellingProduct.id);
+      await updateDoc(productRef, {
+        stock: increment(-sellQty)
+      });
+
+      // Write Stock record log
+      await addDoc(collection(db, 'stockRecords'), {
+        shopId: user.shopId,
+        productId: sellingProduct.id,
+        quantity: -sellQty,
+        type: 'sale',
+        timestamp: now,
+        note: `Warranty sale generated serials: ${serialNumbers.join(', ')}`
+      });
+
+      // Write general pos sale record so accounting matches
+      const customId = `SL-WR-${Date.now()}`;
+      const saleData = {
+        shopId: user.shopId,
+        customerName: customerName.trim() || (isBn ? 'খুচরা কাস্টমার' : 'Walk-in Customer'),
+        customerPhone: customerPhone.trim() || '',
+        items: [{
+          productId: sellingProduct.id,
+          productName: `${sellingProduct.name} [Serial: ${serialNumbers.join(', ')}]`,
+          quantity: sellQty,
+          unit: sellingProduct.unit || 'unit',
+          price: sellingProduct.price,
+          originalPrice: sellingProduct.price,
+          cost: sellingProduct.cost || 0
+        }],
+        totalAmount: sellingProduct.price * sellQty,
+        discount: 0,
+        taxRate: 0,
+        taxAmount: 0,
+        finalAmount: sellingProduct.price * sellQty,
+        paidAmount: sellingProduct.price * sellQty,
+        dueAmount: 0,
+        paymentMethod: 'cash',
+        timestamp: now,
+        sellerId: auth.currentUser?.uid || 'unknown'
+      };
+      await setDoc(doc(db, 'sales', customId), saleData);
+
+      setNotification({
+        message: isBn 
+          ? `সফলভাবে বিক্রি করা হয়েছে! সিরিয়াল কোডসমূহ: ${serialNumbers.join(', ')}` 
+          : `Sold successfully! Generated Serial Number(s): ${serialNumbers.join(', ')}`,
+        type: 'success'
+      });
+
+      // Close modal
+      setSellingProduct(null);
+      setCustomerName('');
+      setCustomerPhone('');
+      setSellQty(1);
+      setWarrantyPeriod('1 Year');
+    } catch (err) {
+      console.error("General err processing warranty sale", err);
+      setNotification({ message: "Database write error. Try again.", type: 'error' });
+    } finally {
+      setIsSelling(false);
+    }
+  };
+
+  // Helper to determine status countdown/format
+  const getWarrantyStatus = (expiryDateStr: string) => {
+    const now = new Date();
+    const expiry = new Date(expiryDateStr);
+    const diff = expiry.getTime() - now.getTime();
+
+    if (diff <= 0) {
+      return { expired: true, text: isBn ? "মেয়াদোত্তীর্ণ" : "Expired" };
+    }
+
+    const daysLeft = Math.ceil(diff / (1000 * 60 * 60 * 24));
+    if (daysLeft > 365) {
+      const years = (daysLeft / 365).toFixed(1);
+      return { expired: false, text: isBn ? `${years} বছর বাকি` : `${years} Yrs Left` };
+    }
+    if (daysLeft > 30) {
+      const mos = (daysLeft / 30).toFixed(1);
+      return { expired: false, text: isBn ? `${mos} মাস বাকি` : `${mos} Mos Left` };
+    }
+    return { expired: false, text: isBn ? `${daysLeft} দিন বাকি` : `${daysLeft} Days Left` };
+  };
 
   return (
     <motion.div 
       initial={{ opacity: 0 }} 
       animate={{ opacity: 1 }} 
-      className="space-y-8 pb-20"
+      className="space-y-8 pb-20 font-sans"
     >
+      {/* Header design */}
       <motion.header 
         initial={{ opacity: 0, y: -20 }}
         animate={{ opacity: 1, y: 0 }}
         className="flex flex-col md:flex-row md:items-center md:justify-between gap-6"
       >
         <div className="flex items-center gap-6">
-          <div className={`w-16 h-16 bg-white rounded-[2rem] shadow-sm border border-${theme.primary.split('-')[0]}-100 flex items-center justify-center ring-1 ring-${theme.primary.split('-')[0]}-500/5 transition-transform hover:rotate-6`}>
-            <ShieldCheck className={`w-8 h-8 text-${theme.primary}`} />
+          <div className="w-16 h-16 bg-gradient-to-tr from-cyan-600 to-sky-400 rounded-[2rem] shadow-lg shadow-cyan-100 flex items-center justify-center transition-transform hover:rotate-6">
+            <ShieldCheck className="w-8 h-8 text-white" />
           </div>
           <div>
-            <h2 className="text-3xl font-black text-gray-900 uppercase tracking-tight">Warranty Ledger</h2>
-            <div className="flex items-center gap-2 mt-2">
-              <div className={`w-2 h-2 bg-${theme.primary.split('-')[0]}-500 rounded-full animate-pulse`}></div>
-              <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Active Protection & Service Monitoring</p>
+            <h2 className="text-3xl font-black text-gray-900 tracking-tight">
+              {isBn ? "ওয়ারেন্টি ম্যানেজার" : "Warranty Manager"}
+            </h2>
+            <div className="flex items-center gap-2 mt-1.5">
+              <div className="w-2.5 h-2.5 bg-cyan-500 rounded-full animate-ping"></div>
+              <p className="text-xs font-semibold text-gray-500">
+                {isBn ? "সক্রিয় সিরিয়াল লক ও কাস্টমার ট্র্যাকিং" : "Active Serial Protection & Customers Monitoring"}
+              </p>
             </div>
           </div>
         </div>
+
+        {/* Sub-tabs toggling selector */}
+        <div className="flex bg-gray-100 p-1.5 rounded-2xl border border-gray-200">
+          <button 
+            onClick={() => { setWarrantyTab('products'); setSearchTerm(''); }}
+            className={`px-5 py-3 rounded-xl text-xs font-bold transition-all ${warrantyTab === 'products' ? 'bg-white text-cyan-700 shadow-md' : 'text-gray-500 hover:text-gray-800'}`}
+          >
+            {isBn ? "ওয়ারেন্টি প্রোডাক্টস" : "Warranty Products"}
+          </button>
+          <button 
+            onClick={() => { setWarrantyTab('registry'); setSearchTerm(''); }}
+            className={`px-5 py-3 rounded-xl text-xs font-bold transition-all ${warrantyTab === 'registry' ? 'bg-white text-cyan-700 shadow-md' : 'text-gray-500 hover:text-gray-800'}`}
+          >
+            {isBn ? "বিক্রিত ওয়ারেন্টি তালিকা" : "Sold Warranties Registry"}
+          </button>
+        </div>
       </motion.header>
 
+      {/* Main interface split layouts */}
       <div className="grid grid-cols-1 lg:grid-cols-4 gap-8 items-start">
-        <div className="lg:col-span-3 space-y-8">
-          <div className="bg-white p-4 rounded-[2rem] shadow-sm border border-gray-100 flex flex-col sm:flex-row items-center gap-4 ring-1 ring-black/[0.02]">
+        <div className="lg:col-span-3 space-y-6">
+          
+          {/* Lookup Input */}
+          <div className="bg-white p-4 rounded-3xl shadow-sm border border-gray-100 flex flex-col sm:flex-row items-center gap-4">
             <div className="relative flex-1 group w-full">
               <Search className="absolute left-6 top-1/2 -translate-y-1/2 text-gray-400 w-5 h-5 transition-colors group-focus-within:text-cyan-600" />
               <input 
                 type="text" 
-                placeholder="Secure lookup via product hash or identifier..."
-                className="w-full pl-16 pr-8 py-5 bg-gray-50/50 border-2 border-transparent rounded-3xl text-sm font-black focus:bg-white focus:border-cyan-500 transition-all outline-none"
+                placeholder={
+                  warrantyTab === 'products'
+                    ? (isBn ? "প্রোডাক্ট এবং বারকোড দিয়ে খুঁজুন..." : "Filter products in warranty inventory by name/barcode...")
+                    : (isBn ? "সিরিয়াল কোড, প্রোডাক্ট, নাম অথবা মোবাইল নম্বর দিয়ে খুঁজুন..." : "Search registry via serial #, customer name, mobile...")
+                }
+                className="w-full pl-16 pr-8 py-4 bg-gray-50/50 border border-transparent rounded-[1.25rem] text-sm font-semibold focus:bg-white focus:border-cyan-500 transition-all outline-none"
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
               />
             </div>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <AnimatePresence>
-              {filtered.map((item, idx) => (
-                <motion.div
-                  key={item.id}
-                  initial={{ opacity: 0, scale: 0.9 }}
-                  animate={{ opacity: 1, scale: 1 }}
-                  exit={{ opacity: 0, scale: 0.9 }}
-                  transition={{ delay: idx * 0.05 }}
-                  className="bg-white p-6 rounded-[2.5rem] shadow-sm border border-gray-100 relative overflow-hidden group hover:shadow-xl hover:shadow-cyan-500/5 transition-all"
-                >
-                   <div className="absolute top-0 right-0 w-32 h-32 bg-cyan-50 rounded-full -mr-16 -mt-16 group-hover:scale-150 transition-transform duration-700 blur-2xl opacity-10"></div>
-                   <div className="absolute bottom-0 left-0 w-24 h-24 bg-cyan-100 rounded-full -ml-12 -mb-12 group-hover:scale-150 transition-transform duration-700 blur-2xl opacity-10"></div>
-                   
-                   <div className="flex items-center gap-4 mb-6 relative">
-                     <div className={`w-14 h-14 rounded-2xl bg-cyan-50 flex items-center justify-center group-hover:scale-110 transition-transform`}>
-                       <ShieldCheck className="w-7 h-7 text-cyan-600" />
-                     </div>
-                     <div>
-                       <h3 className="font-black text-gray-900 text-lg leading-tight truncate max-w-[200px]">{item.name}</h3>
-                       <p className="text-[10px] font-black text-cyan-600 uppercase tracking-widest mt-1">Protected Asset</p>
-                     </div>
-                   </div>
-
-                   <div className="space-y-4 relative">
-                     <div className="p-4 bg-gray-50 rounded-[1.5rem] border border-gray-100 group-hover:bg-white transition-colors">
-                       <div className="flex justify-between items-center mb-3">
-                         <span className="text-[9px] font-black text-gray-400 uppercase tracking-wider">Warranty Status</span>
-                         <span className="px-3 py-1 bg-cyan-50 text-cyan-700 rounded-full text-[8px] font-black uppercase ring-1 ring-cyan-100">Active</span>
-                       </div>
-                       
-                       <div className="grid grid-cols-2 gap-4">
+          {/* Tab 1: Available Products Listing */}
+          {warrantyTab === 'products' && (
+            <>
+              {filteredProducts.length === 0 ? (
+                <div className="bg-white rounded-3xl p-12 text-center border-2 border-dashed border-gray-200">
+                  <div className="w-16 h-16 bg-gray-50 rounded-full flex items-center justify-center mx-auto mb-4">
+                    <ShieldCheck className="w-8 h-8 text-gray-400" />
+                  </div>
+                  <h3 className="text-lg font-bold text-gray-800 mb-2">
+                    {isBn ? "কোনো ওয়ারেন্টি প্রোডাক্ট পাওয়া যায়নি" : "No warranty products in ledger"}
+                  </h3>
+                  <p className="text-sm text-gray-500 max-w-sm mx-auto mb-6">
+                    {isBn 
+                      ? "ইনভেন্টরিতে কোনো ওয়ারেন্টি প্রোডাক্ট পাওয়া যায়নি। কোনো প্রোডাক্টে ওয়ারেন্টি সুবিধা সক্রিয় করতে ইনভেন্টরি পেজে প্রোডাক্ট যোগ/এডিট করার সময় 'Product Warranty' অপশনটি চালু করুন।" 
+                      : "We couldn't find any items flagged with hasWarranty. Go to the Inventory tab and edit/create a product with the warranty toggled enabled."}
+                  </p>
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  <AnimatePresence>
+                    {filteredProducts.map((item, idx) => (
+                      <motion.div
+                        key={item.id}
+                        initial={{ opacity: 0, scale: 0.95 }}
+                        animate={{ opacity: 1, scale: 1 }}
+                        exit={{ opacity: 0, scale: 0.95 }}
+                        transition={{ delay: idx * 0.02 }}
+                        className="bg-white p-6 rounded-[2rem] shadow-sm border border-gray-100 flex flex-col justify-between hover:shadow-lg hover:shadow-cyan-500/5 transition-all group"
+                      >
                          <div>
-                            <p className="text-[8px] font-bold text-gray-400 uppercase tracking-tighter mb-1">Duration</p>
-                            <p className="text-xs font-black text-gray-900">{item.warranty || '0'} Days</p>
-                         </div>
-                         <div>
-                            <p className="text-[8px] font-bold text-gray-400 uppercase tracking-tighter mb-1">Coverage</p>
-                            <p className="text-xs font-black text-gray-900">Full Service</p>
-                         </div>
-                       </div>
-                     </div>
+                           <div className="flex items-center justify-between gap-4 mb-4">
+                             <div className="flex items-center gap-3">
+                               <div className="w-11 h-11 rounded-xl bg-cyan-50 flex items-center justify-center text-cyan-600">
+                                 <ShieldCheck className="w-6 h-6" />
+                               </div>
+                               <div>
+                                 <h3 className="font-extrabold text-gray-950 text-md leading-snug group-hover:text-cyan-700 transition-colors">{item.name}</h3>
+                                 <p className="text-xs text-gray-400">{item.category}</p>
+                               </div>
+                             </div>
+                             <span className="px-3 py-1 bg-emerald-50 text-emerald-700 text-[10px] font-black rounded-lg uppercase border border-emerald-100">
+                               {isBn ? "ওয়ারেন্টি সমর্থিত" : "Warranty Active"}
+                             </span>
+                           </div>
 
-                     <div className="flex items-center justify-between pt-2">
-                       <div className="flex flex-col">
-                         <span className="text-[8px] font-black text-gray-400 uppercase tracking-widest">Identifier</span>
-                         <span className="text-[10px] font-mono font-bold text-gray-900">#{item.id?.slice(-8) || item.barcode}</span>
-                       </div>
-                       <button className="p-3 bg-gray-900 text-white rounded-2xl hover:bg-cyan-600 transition-all shadow-lg active:scale-95 group-hover:rotate-6">
-                         <ArrowRight className="w-4 h-4" />
-                       </button>
-                     </div>
-                   </div>
-                </motion.div>
-              ))}
-            </AnimatePresence>
+                           <div className="grid grid-cols-2 gap-4 bg-gray-50 p-4 rounded-2xl border border-gray-100 mb-6">
+                             <div>
+                               <p className="text-[10px] font-bold text-gray-400 uppercase">{isBn ? "মূল্য (Price)" : "Price"}</p>
+                               <p className="text-sm font-black text-gray-800">৳ {item.price.toLocaleString()}</p>
+                             </div>
+                             <div>
+                               <p className="text-[10px] font-bold text-gray-400 uppercase">{isBn ? "স্টক (Available)" : "Available Stock"}</p>
+                               <p className={`text-sm font-black ${item.stock === 0 ? 'text-rose-600' : 'text-gray-800'}`}>
+                                 {item.stock} {item.unit}
+                               </p>
+                             </div>
+                           </div>
+                         </div>
+
+                         <div className="flex items-center justify-between pt-2 border-t border-gray-100">
+                           <div className="flex flex-col">
+                             <span className="text-[10px] font-semibold text-gray-400">Barcode / Hash</span>
+                             <span className="text-xs font-semibold text-gray-700 font-mono">#{item.barcode || item.id?.slice(-8)}</span>
+                           </div>
+                           <button 
+                             disabled={item.stock <= 0}
+                             onClick={() => {
+                               setSellingProduct(item);
+                               setSellQty(1);
+                             }}
+                             className={`px-5 py-3 rounded-xl text-xs font-bold flex items-center gap-2 shadow-sm transition-all focus:ring-2 focus:ring-cyan-300 ${item.stock <= 0 ? 'bg-gray-100 text-gray-400 cursor-not-allowed' : 'bg-cyan-600 text-white hover:bg-cyan-700 hover:shadow-cyan-100 active:scale-95'}`}
+                           >
+                              <ShoppingCart className="w-4 h-4" />
+                              {item.stock <= 0 ? (isBn ? "স্টকআউট" : "Out of Stock") : (isBn ? "সেল ও সিরিয়াল করুন" : "Sell & Serial")}
+                           </button>
+                         </div>
+                      </motion.div>
+                    ))}
+                  </AnimatePresence>
+                </div>
+              )}
+            </>
+          )}
+
+          {/* Tab 2: Sold Warranties Registry Table */}
+          {warrantyTab === 'registry' && (
+            <div className="bg-white rounded-3xl shadow-sm border border-gray-100 overflow-hidden">
+              <div className="overflow-x-auto">
+                <table className="w-full text-left border-collapse">
+                  <thead>
+                    <tr className="bg-gray-50 border-b border-gray-100">
+                      <th className="p-5 text-xs font-black text-gray-400 uppercase tracking-wider">{isBn ? "সিরিয়াল নাম্বার" : "Serial Details"}</th>
+                      <th className="p-5 text-xs font-black text-gray-400 uppercase tracking-wider">{isBn ? "প্রোডাক্ট" : "Product"}</th>
+                      <th className="p-5 text-xs font-black text-gray-400 uppercase tracking-wider">{isBn ? "কাস্টমার" : "Customer Details"}</th>
+                      <th className="p-5 text-xs font-black text-gray-400 uppercase tracking-wider">{isBn ? "কভারেজ মেয়াদ" : "Term & Expiry"}</th>
+                      <th className="p-5 text-xs font-black text-gray-400 uppercase tracking-wider">{isBn ? "স্ট্যাটাস" : "Status"}</th>
+                      <th className="p-5 text-xs font-black text-gray-400 uppercase tracking-wider text-center">{isBn ? "অ্যাকশন" : "Action"}</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-100">
+                    {filteredRegistry.length === 0 ? (
+                      <tr>
+                        <td colSpan={6} className="p-10 text-center text-gray-500 font-semibold">
+                          {isBn ? "কোনো বিক্রিত ওয়ারেন্টি রেকর্ড পাওয়া যায়নি।" : "No sold warranty records matched search query."}
+                        </td>
+                      </tr>
+                    ) : (
+                      filteredRegistry.map((item) => {
+                        const statusObj = getWarrantyStatus(item.expiryDate);
+                        return (
+                          <tr key={item.id} className="hover:bg-slate-50/50 transition-colors">
+                            <td className="p-5">
+                              <div className="flex items-center gap-2">
+                                <span className="w-2.5 h-2.5 rounded-full bg-cyan-500"></span>
+                                <span className="font-mono text-sm font-black text-cyan-800 bg-cyan-50/70 border border-cyan-100 px-2.5 py-1 rounded-lg">
+                                  {item.serialNumber}
+                                </span>
+                              </div>
+                            </td>
+                            <td className="p-5">
+                              <p className="font-bold text-gray-900 text-sm leading-snug">{item.productName}</p>
+                              <p className="text-[10px] text-gray-400">Sold at ৳{item.soldPrice?.toLocaleString()}</p>
+                            </td>
+                            <td className="p-5">
+                              <p className="font-semibold text-gray-800 text-sm">{item.customerName}</p>
+                              {item.customerPhone && (
+                                <p className="text-[11px] text-gray-500 flex items-center gap-1 mt-0.5 font-mono">
+                                  <Smartphone className="w-3 h-3 text-cyan-600" /> {item.customerPhone}
+                                </p>
+                              )}
+                            </td>
+                            <td className="p-5">
+                              <p className="font-bold text-gray-800 text-xs">
+                                {item.warrantyPeriod === '3 Months' && (isBn ? '৩ মাস' : '3 Months')}
+                                {item.warrantyPeriod === '6 Months' && (isBn ? '৬ মাস' : '6 Months')}
+                                {item.warrantyPeriod === '1 Year' && (isBn ? '১ বছর' : '1 Year')}
+                                {item.warrantyPeriod === '2 Years' && (isBn ? '২ বছর' : '2 Years')}
+                                {item.warrantyPeriod === '3 Years' && (isBn ? '৩ বছর' : '3 Years')}
+                                {item.warrantyPeriod === '5 Years' && (isBn ? '৫ বছর' : '5 Years')}
+                                {item.warrantyPeriod === 'Lifetime' && (isBn ? 'আজীবন' : 'Lifetime')}
+                              </p>
+                              <p className="text-[10px] text-gray-400 mt-1 font-mono">
+                                Exp: {new Date(item.expiryDate).toLocaleDateString()}
+                              </p>
+                            </td>
+                            <td className="p-5">
+                              <span className={`inline-flex px-3 py-1 rounded-full text-[10px] font-black uppercase ${statusObj.expired ? 'bg-rose-50 text-rose-700 border border-rose-100' : 'bg-emerald-50 text-emerald-700 border border-emerald-100'}`}>
+                                {statusObj.text}
+                              </span>
+                            </td>
+                            <td className="p-5 text-center">
+                              <button 
+                                onClick={() => setViewingRecord(item)}
+                                className="px-3.5 py-1.5 border border-cyan-200 text-cyan-700 bg-cyan-50 hover:bg-cyan-100 rounded-xl text-xs font-bold transition-all"
+                              >
+                                {isBn ? "সার্টিফিকেট দেখুন" : "View Certificate"}
+                              </button>
+                            </td>
+                          </tr>
+                        );
+                      })
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Right Stats Column Layout */}
+        <div className="space-y-6">
+          <div className="bg-slate-900 text-white rounded-[2rem] p-7 shadow-xl relative overflow-hidden">
+            <div className="absolute top-0 right-0 w-36 h-36 bg-cyan-500 rounded-full -mr-16 -mt-16 blur-2xl opacity-25"></div>
+            <div className="relative space-y-6">
+              <h3 className="font-black text-lg tracking-tight border-b border-white/10 pb-3">
+                {isBn ? "ওয়ারেন্টি পরিসংখ্যান" : "Warranty Real-time Stats"}
+              </h3>
+
+              <div className="grid grid-cols-1 gap-5">
+                <div className="flex items-center gap-4 bg-white/5 p-4 rounded-2xl border border-white/5">
+                  <div className="w-10 h-10 bg-cyan-500/20 text-cyan-400 rounded-xl flex items-center justify-center font-mono font-black text-md">
+                    {totalProtectedConfigured}
+                  </div>
+                  <div>
+                    <h4 className="text-[11px] font-bold text-gray-400 uppercase">{isBn ? "মেনুভুক্ত ওয়ারেন্টি সামগ্রী" : "Warrantied Products In Inventory"}</h4>
+                    <p className="text-sm font-semibold">{isBn ? "ইনভেন্টরিতে ডিক্লেয়ারড" : "Configured Items"}</p>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-4 bg-white/5 p-4 rounded-2xl border border-white/5">
+                  <div className="w-10 h-10 bg-emerald-500/20 text-emerald-400 rounded-xl flex items-center justify-center font-mono font-black text-md">
+                    {totalWarrantySold}
+                  </div>
+                  <div>
+                    <h4 className="text-[11px] font-bold text-gray-400 uppercase">{isBn ? "মোট ইস্যুকৃত সিরিয়াল" : "Total Issued Serials"}</h4>
+                    <p className="text-sm font-semibold">{isBn ? "সফল বিক্রয়সমূহ" : "Warranty Sales Issued"}</p>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-4 bg-white/5 p-4 rounded-2xl border border-white/5">
+                  <div className="w-10 h-10 bg-sky-500/20 text-sky-400 rounded-xl flex items-center justify-center font-mono font-black text-md">
+                    {activeWarranties}
+                  </div>
+                  <div>
+                    <h4 className="text-[11px] font-bold text-gray-400 uppercase">{isBn ? "বর্তমানে সক্রিয় কভারেজ" : "Active Warranty Claims"}</h4>
+                    <p className="text-sm font-semibold">{isBn ? "মেয়াদ আছে" : "Active & Claims Eligible"}</p>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-4 bg-white/5 p-4 rounded-2xl border border-white/5">
+                  <div className="w-10 h-10 bg-rose-500/20 text-rose-400 rounded-xl flex items-center justify-center font-mono font-black text-md">
+                    {expiredWarranties}
+                  </div>
+                  <div>
+                    <h4 className="text-[11px] font-bold text-gray-400 uppercase">{isBn ? "মেয়াদ উত্তীর্ণ কভারেজ" : "Expired Coverages"}</h4>
+                    <p className="text-sm font-semibold">{isBn ? "মেয়াদ শেষ" : "Expired & Completed"}</p>
+                  </div>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
-
-        <div className="space-y-6">
-           <div className="bg-gray-900 rounded-[2.5rem] p-8 text-white relative overflow-hidden group shadow-2xl">
-             <div className="absolute top-0 right-0 w-48 h-48 bg-cyan-500 rounded-full -mr-24 -mt-24 blur-3xl opacity-20 group-hover:opacity-40 transition-opacity"></div>
-             <div className="relative">
-               <h3 className="text-xl font-black mb-4">Warranty Statistics</h3>
-               <div className="space-y-6">
-                 <div className="flex items-center gap-4">
-                   <div className="w-12 h-12 bg-white/10 rounded-2xl flex items-center justify-center font-black text-cyan-400">
-                     {products.filter(p => (Number(p.warranty) || 0) > 0).length}
-                   </div>
-                   <p className="text-sm font-bold text-gray-400">Total Items Protected</p>
-                 </div>
-               </div>
-             </div>
-           </div>
-        </div>
       </div>
+
+      {/* MODAL 1: SELL WARRANTY PRODUCT FORM */}
+      <AnimatePresence>
+        {sellingProduct && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.95, y: 15 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 15 }}
+              className="bg-white w-full max-w-lg rounded-[2.5rem] shadow-2xl overflow-hidden relative"
+            >
+              <div className="bg-gradient-to-tr from-cyan-600 to-cyan-500 p-6 flex justify-between items-center text-white">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 bg-white/20 rounded-xl flex items-center justify-center">
+                    <ShoppingCart className="w-5 h-5 text-white" />
+                  </div>
+                  <div>
+                    <h3 className="font-extrabold text-lg leading-tight">{isBn ? "ওয়ারেন্টি সহ বিক্রয়" : "Warranty Sale Checkout"}</h3>
+                    <p className="text-xs text-cyan-100">{sellingProduct.name}</p>
+                  </div>
+                </div>
+                <button 
+                  onClick={() => setSellingProduct(null)} 
+                  className="p-2 hover:bg-white/20 rounded-full transition-colors text-white"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              <form onSubmit={handleConfirmSale} className="p-6 space-y-5">
+                
+                {/* Info row */}
+                <div className="p-4 bg-slate-50 border border-slate-100 rounded-2xl grid grid-cols-2 gap-4">
+                  <div>
+                    <p className="text-[10px] font-black text-slate-400 uppercase">{isBn ? "প্রস্তুতকারক ব্র্যান্ড" : "Brand / Company"}</p>
+                    <p className="text-xs font-extrabold text-slate-800">{sellingProduct.company || (isBn ? "নেই" : "N/A")}</p>
+                  </div>
+                  <div>
+                    <p className="text-[10px] font-black text-slate-400 uppercase">{isBn ? "ইউনিট মূল্য" : "Price Per Unit"}</p>
+                    <p className="text-xs font-extrabold text-slate-800">৳ {sellingProduct.price.toLocaleString()}</p>
+                  </div>
+                </div>
+
+                {/* Patient / Customer Details */}
+                <div className="space-y-4">
+                  <div>
+                    <label className="block text-xs font-bold text-gray-700 mb-1.5">
+                      {isBn ? "কাস্টমারের নাম (ঐচ্ছিক)" : "Customer Name (Optional)"}
+                    </label>
+                    <input 
+                      type="text" 
+                      className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-2xl text-sm focus:bg-white focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500 outline-none transition-all"
+                      placeholder={isBn ? "উদা: জনাব আমিনুল ইসলাম" : "e.g. Aminul Islam"}
+                      value={customerName}
+                      onChange={(e) => setCustomerName(e.target.value)}
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold text-gray-700 mb-1.5">
+                      {isBn ? "কাস্টমারের মোবাইল নম্বর (ঐচ্ছিক)" : "Customer Mobile (Optional)"}
+                    </label>
+                    <input 
+                      type="tel" 
+                      className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-2xl text-sm focus:bg-white focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500 outline-none transition-all font-mono"
+                      placeholder={isBn ? "উদা: ০১৭xxxxxxxx" : "e.g. 017xxxxxxxx"}
+                      value={customerPhone}
+                      onChange={(e) => setCustomerPhone(e.target.value)}
+                    />
+                  </div>
+
+                  {/* Quantity and Term selector */}
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-xs font-bold text-gray-700 mb-1.5">
+                        {isBn ? "বিক্রয় পরিমাণ (Qty) *" : "Sale Quantity *"}
+                      </label>
+                      <input 
+                        type="number" 
+                        required
+                        min={1}
+                        max={sellingProduct.stock}
+                        className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-2xl text-sm focus:bg-white focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500 outline-none transition-all"
+                        value={sellQty}
+                        onChange={(e) => setSellQty(Math.max(1, Number(e.target.value)))}
+                      />
+                      <p className="text-[10px] text-gray-400 mt-1">
+                        {isBn ? `মজুদ অছে: ${sellingProduct.stock} পিস` : `Available: ${sellingProduct.stock} pieces`}
+                      </p>
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-bold text-gray-700 mb-1.5">
+                        {isBn ? "ওয়ারেন্টির মেয়াদ (Duration) *" : "Warranty Period *"}
+                      </label>
+                      <select 
+                        className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-2xl text-sm focus:bg-white focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500 outline-none transition-all"
+                        value={warrantyPeriod}
+                        onChange={(e) => setWarrantyPeriod(e.target.value)}
+                      >
+                        <option value="3 Months">{isBn ? "৩ মাস (3 Months)" : "3 Months"}</option>
+                        <option value="6 Months">{isBn ? "৬ মাস (6 Months)" : "6 Months"}</option>
+                        <option value="1 Year">{isBn ? "১ বছর (1 Year)" : "1 Year"}</option>
+                        <option value="2 Years">{isBn ? "২ বছর (2 Years)" : "2 Years"}</option>
+                        <option value="3 Years">{isBn ? "৩ বছর (3 Years)" : "3 Years"}</option>
+                        <option value="5 Years">{isBn ? "৫ বছর (5 Years)" : "5 Years"}</option>
+                        <option value="Lifetime">{isBn ? "আজীবন (Lifetime)" : "Lifetime"}</option>
+                      </select>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="pt-4 border-t border-gray-100 flex gap-3 justify-end bg-gray-50/50 -mx-6 -mb-6 p-6">
+                  <button 
+                    type="button" 
+                    onClick={() => setSellingProduct(null)}
+                    className="px-5 py-3 rounded-xl border border-gray-200 hover:bg-gray-100 text-gray-600 font-bold text-xs"
+                  >
+                    {isBn ? "বাতিল" : "Cancel"}
+                  </button>
+                  <button 
+                    type="submit" 
+                    disabled={isSelling}
+                    className="px-6 py-3 rounded-xl bg-cyan-600 hover:bg-cyan-700 text-white font-bold text-xs shadow-md shadow-cyan-100 flex items-center gap-2"
+                  >
+                    {isSelling ? (isBn ? "লকিং প্রক্রিয়া..." : "Issuing Serials...") : (isBn ? "বিক্রি ও সিরিয়াল ইস্যু" : "Authorize Sale & Serial")}
+                  </button>
+                </div>
+              </form>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* MODAL 2: BEAUTIFUL VIEW CERTIFICATE DETAILS FOR PRINT */}
+      <AnimatePresence>
+        {viewingRecord && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="bg-white w-full max-w-xl rounded-3xl shadow-2xl overflow-hidden"
+              id="printable-warranty-cert"
+            >
+              {/* Cover layout */}
+              <div className="bg-slate-900 p-8 text-white text-center relative overflow-hidden border-b-4 border-cyan-500">
+                <div className="absolute inset-0 bg-radial-gradient opacity-10"></div>
+                <div className="w-16 h-16 bg-cyan-500/20 text-cyan-400 rounded-full flex items-center justify-center mx-auto mb-4 border border-cyan-500/30">
+                  <ShieldCheck className="w-9 h-9" />
+                </div>
+                <h3 className="text-xl font-black tracking-widest uppercase">{isBn ? "অফিসিয়াল ওয়ারেন্টি সার্টিফিকেট" : "Official Warranty Certificate"}</h3>
+                <p className="text-[11px] text-gray-400 uppercase tracking-[0.2em] mt-1">{settings?.name || "Premium Store Service"}</p>
+              </div>
+
+              {/* Certificate content rows */}
+              <div className="p-8 space-y-6 bg-slate-50">
+                <div className="text-center">
+                  <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">{isBn ? "সিরিয়াল লক নম্বর" : "Authorized System Serial Number"}</span>
+                  <p className="font-mono text-2xl font-black text-cyan-800 tracking-wider mt-1">{viewingRecord.serialNumber}</p>
+                </div>
+
+                <div className="grid grid-cols-2 gap-6 p-6 bg-white border border-slate-100 rounded-2xl shadow-sm">
+                  <div className="col-span-2 border-b border-slate-50 pb-3">
+                    <span className="text-[10px] font-bold text-slate-400 uppercase">{isBn ? "পণ্য সামগ্রী (Merchandise)" : "Product Details"}</span>
+                    <p className="font-extrabold text-slate-800 text-base mt-0.5">{viewingRecord.productName}</p>
+                  </div>
+
+                  <div>
+                    <span className="text-[10px] font-bold text-slate-400 uppercase">{isBn ? "ক্রেতার নাম" : "Customer / Client"}</span>
+                    <p className="font-bold text-slate-800 text-sm mt-0.5">{viewingRecord.customerName}</p>
+                  </div>
+
+                  <div>
+                    <span className="text-[10px] font-bold text-slate-400 uppercase">{isBn ? "মোদ নম্বর" : "Registered Contact"}</span>
+                    <p className="font-mono text-slate-700 text-sm mt-0.5">{viewingRecord.customerPhone || (isBn? "সংগৃহীত করা হয়নি": "Not Registered")}</p>
+                  </div>
+
+                  <div>
+                    <span className="text-[10px] font-bold text-slate-400 uppercase">{isBn ? "বিক্রয়ের তারিখ" : "Inception Date"}</span>
+                    <p className="font-medium text-slate-700 text-xs mt-0.5">{new Date(viewingRecord.createdAt).toLocaleString()}</p>
+                  </div>
+
+                  <div>
+                    <span className="text-[10px] font-bold text-slate-400 uppercase">{isBn ? "ওয়ারেন্টি মেয়াদ" : "Coverage Period"}</span>
+                    <p className="font-extrabold text-cyan-700 text-xs mt-0.5">
+                      {viewingRecord.warrantyPeriod === '3 Months' && (isBn ? '৩ মাস' : '3 Months')}
+                      {viewingRecord.warrantyPeriod === '6 Months' && (isBn ? '৬ মাস' : '6 Months')}
+                      {viewingRecord.warrantyPeriod === '1 Year' && (isBn ? '১ বছর' : '1 Year')}
+                      {viewingRecord.warrantyPeriod === '2 Years' && (isBn ? '২ বছর' : '2 Years')}
+                      {viewingRecord.warrantyPeriod === '3 Years' && (isBn ? '৩ বছর' : '3 Years')}
+                      {viewingRecord.warrantyPeriod === '5 Years' && (isBn ? '৫ বছর' : '5 Years')}
+                      {viewingRecord.warrantyPeriod === 'Lifetime' && (isBn ? 'আজীবন' : 'Lifetime')}
+                    </p>
+                  </div>
+
+                  <div className="col-span-2 border-t border-slate-100 pt-4 text-center">
+                    <span className="text-[10px] font-bold text-slate-400 uppercase">{isBn ? "ওয়ারেন্টির মেয়াদ শেষ" : "Expiry Deadline"}</span>
+                    <p className="font-mono text-rose-600 font-extrabold text-sm mt-0.5">
+                      {new Date(viewingRecord.expiryDate).toLocaleDateString()}
+                    </p>
+                  </div>
+                </div>
+
+                {/* Footnote */}
+                <p className="text-[9px] text-center text-slate-400 uppercase tracking-tight leading-normal">
+                  {isBn 
+                    ? "* এই সার্টিফিকেট বা সিরিয়াল নম্বরটি কোনো যন্ত্রাংশের উৎপাদনগত ত্রুটির ক্ষেত্রে কভারেজ নিশ্চিত করে। ক্ষতিগ্রস্থ যন্ত্রাংশ পরিবর্তনের ক্ষেত্রে কোনো প্রকার ঘষা-মাজা বা পরিবর্তনযোগ্য কোড অচল বলে গণ্য হবে।" 
+                    : "* Present this dynamic certificate signature or sequential serial number to qualify for manufacturer service coverage. Standard terms & physical damage restrictions apply."}
+                </p>
+
+                <div className="flex gap-4 justify-end mt-4">
+                  <button 
+                    onClick={() => setViewingRecord(null)}
+                    className="px-5 py-2.5 bg-gray-200 hover:bg-gray-300 rounded-xl text-gray-700 font-bold text-xs"
+                  >
+                    {isBn ? "বন্ধ করুন" : "Close"}
+                  </button>
+                  <button 
+                    onClick={() => {
+                      const printContent = document.getElementById("printable-warranty-cert")?.innerHTML;
+                      const originalContent = document.body.innerHTML;
+                      
+                      // Simple inline printing trigger
+                      window.print();
+                    }}
+                    className="px-5 py-2.5 bg-slate-900 hover:bg-slate-800 text-white rounded-xl font-bold text-xs"
+                  >
+                    {isBn ? "প্রিন্ট করুন" : "Print Copy"}
+                  </button>
+                </div>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
     </motion.div>
   );
 }
@@ -10811,7 +11420,8 @@ Return the result as JSON with a "category" field containing exactly one string 
       expiryDate: formatToBnDate(formData.get('expiryDate') as string || ''),
       location: formData.get('location') as string || '',
       company: formData.get('company') as string || '',
-      imageUrl: finalImageUrl
+      imageUrl: finalImageUrl,
+      hasWarranty: formData.get('warranty') === 'on'
     };
 
     if (!productData.name || isNaN(productData.price) || productData.price < 0) {
