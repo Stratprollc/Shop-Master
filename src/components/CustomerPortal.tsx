@@ -416,10 +416,12 @@ export function CustomerPortal({ onBack, lang }: CustomerPortalProps) {
     <div className="min-h-screen bg-gray-50 flex flex-col font-sans">
       
       {/* Header bar */}
-      <header className="sticky top-0 z-40 bg-white border-b border-gray-100 px-4 py-4 md:px-8 flex items-center justify-between shadow-sm">
+      <header className="sticky top-0 z-40 bg-white/85 backdrop-blur-md border-b border-gray-100 px-4 py-3.5 md:px-8 flex items-center justify-between shadow-xs transition-all duration-300">
         <div className="flex items-center gap-3">
-          <button 
+          <motion.button 
             type="button"
+            whileHover={{ scale: 1.05 }}
+            whileTap={{ scale: 0.95 }}
             onClick={() => {
               if (stage === 'dashboard') {
                 setStage('customer_login');
@@ -429,18 +431,19 @@ export function CustomerPortal({ onBack, lang }: CustomerPortalProps) {
                 onBack();
               }
             }}
-            className="p-2.5 rounded-xl text-gray-400 hover:text-indigo-600 hover:bg-indigo-50 transition-all border border-transparent hover:border-indigo-100"
+            className="p-2.5 rounded-xl text-gray-500 hover:text-indigo-600 hover:bg-indigo-50/80 active:bg-indigo-150 transition-all border border-transparent hover:border-indigo-100/50 flex items-center justify-center cursor-pointer"
           >
             <ArrowLeft className="w-5 h-5" />
-          </button>
+          </motion.button>
           
           <div>
             <div className="flex items-center gap-2">
-              <span className="text-[10px] font-black text-indigo-600 uppercase tracking-widest bg-indigo-50 px-2 py-0.5 rounded-md">
-                {isBn ? "গ্রাহক সেবা পোর্টাল" : "Customer Portal"}
+              <span className="text-[10px] font-black text-indigo-600 uppercase tracking-widest bg-indigo-50 px-2 py-0.5 rounded-md flex items-center gap-1">
+                <span className="w-1 h-1 bg-indigo-500 rounded-full animate-ping" />
+                <span>{isBn ? "গ্রাহক সেবা পোর্টাল" : "Customer Portal"}</span>
               </span>
             </div>
-            <h1 className="text-xl font-bold text-gray-900 mt-0.5">
+            <h1 className="text-lg md:text-xl font-bold text-gray-900 mt-0.5 tracking-tight leading-none">
               {stage === 'dashboard' && selectedShop ? selectedShop.name : (isBn ? "আমাদের সেবা সমূহ" : "Access Corporate Service")}
             </h1>
           </div>
@@ -448,29 +451,21 @@ export function CustomerPortal({ onBack, lang }: CustomerPortalProps) {
 
         {/* Selected store badge */}
         {selectedShop && stage !== 'shop_selection' && (
-          <div className="flex items-center gap-2 px-3 py-1.5 bg-gray-100 rounded-xl text-xs font-bold text-gray-600">
-            <Building2 className="w-3.5 h-3.5 text-indigo-500" />
-            <span>{selectedShop.name}</span>
-          </div>
-        )}
-
-        {/* Merchant Login CTA on shop selection */}
-        {stage === 'shop_selection' && (
-          <button
-            type="button"
-            onClick={onBack}
-            className="flex items-center gap-1.5 px-3.5 py-2 bg-indigo-50 hover:bg-indigo-100 text-indigo-600 rounded-xl text-xs font-black transition-all border border-indigo-100/50"
+          <motion.div 
+            initial={{ opacity: 0, scale: 0.9 }}
+            animate={{ opacity: 1, scale: 1 }}
+            className="flex items-center gap-2 px-3 py-1.5 bg-indigo-50/70 rounded-xl text-xs font-bold text-indigo-600 border border-indigo-100/40"
           >
-            <User className="w-3.5 h-3.5" />
-            <span>{isBn ? "মার্চেন্ট লগইন" : "Merchant Login"}</span>
-          </button>
+            <Building2 className="w-3.5 h-3.5 text-indigo-500" />
+            <span className="max-w-[100px] md:max-w-none truncate">{selectedShop.name}</span>
+          </motion.div>
         )}
       </header>
 
       {/* Marquee Notice Banner */}
-      <div id="notice-marquee-banner" className="bg-amber-50 border-b border-amber-100 text-amber-800 text-xs font-bold py-2.5 px-4 shadow-inner overflow-hidden select-none">
+      <div id="notice-marquee-banner" className="bg-gradient-to-r from-amber-500/10 via-amber-400/5 to-amber-500/10 border-b border-amber-200/50 text-amber-900 text-xs font-bold py-2 px-4 shadow-inner overflow-hidden select-none transition-all duration-300">
         <div className="max-w-7xl mx-auto flex items-center gap-3">
-          <span className="bg-amber-600 text-white text-[10px] uppercase font-black px-2 py-0.5 rounded shrink-0 animate-pulse">
+          <span className="bg-amber-600 text-white text-[9px] uppercase font-black px-2 py-0.5 rounded-sm shrink-0 animate-pulse tracking-wider">
             {isBn ? "সতর্কবার্তা" : "Warning Notice"}
           </span>
           <marquee className="flex-1 font-bold text-xs" scrollamount="4" behavior="scroll" direction="left">
@@ -482,11 +477,18 @@ export function CustomerPortal({ onBack, lang }: CustomerPortalProps) {
       </div>
 
       {/* Main Container */}
-      <main className="flex-1 w-full max-w-7xl mx-auto p-4 md:p-6 lg:p-8 flex flex-col">
-        
-        {/* STAGE 1: SHOP SELECTION */}
-        {stage === 'shop_selection' && (
-          <div className="max-w-xl mx-auto w-full py-12 flex flex-col">
+      <main className="flex-1 w-full max-w-7xl mx-auto p-4 md:p-6 lg:p-8 flex flex-col overflow-hidden">
+        <AnimatePresence mode="wait">
+          {/* STAGE 1: SHOP SELECTION */}
+          {stage === 'shop_selection' && (
+            <motion.div
+              key="shop_select"
+              initial={{ opacity: 0, y: 15 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -15 }}
+              transition={{ type: 'spring', stiffness: 380, damping: 30 }}
+              className="max-w-xl mx-auto w-full py-8 md:py-12 flex flex-col"
+            >
             <div className="text-center mb-10">
               <div className="w-16 h-16 bg-indigo-500 rounded-3xl flex items-center justify-center mx-auto shadow-lg shadow-indigo-100 mb-6">
                 <Globe className="w-8 h-8 text-white" />
@@ -502,17 +504,20 @@ export function CustomerPortal({ onBack, lang }: CustomerPortalProps) {
             </div>
 
             {/* Search Input */}
-            <div className="relative mb-6">
-              <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400 w-5 h-5" />
+            <motion.div 
+              whileHover={{ scale: 1.01 }}
+              className="relative mb-6"
+            >
+              <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-indigo-500/80 w-5 h-5 animate-pulse" />
               <input 
                 type="text"
                 maxLength={6}
                 placeholder={isBn ? "৬ ডিজিটের শপ কোড লিখুন (যেমন: ১২৩৪৫৬)..." : "Enter 6-digit shop code (e.g. 123456)..."}
-                className="w-full pl-12 pr-4 py-4 rounded-2xl bg-white border border-gray-200 outline-none text-gray-900 shadow-sm focus:border-indigo-500 transition-colors font-medium text-sm tracking-widest text-center"
+                className="w-full pl-12 pr-4 py-4 rounded-2xl bg-white border border-gray-200 focus:border-indigo-500 focus:ring-4 focus:ring-indigo-100 outline-none text-gray-950 font-black text-sm tracking-widest text-center shadow-xs transition-all duration-300"
                 value={searchShopQuery}
                 onChange={(e) => setSearchShopQuery(e.target.value)}
               />
-            </div>
+            </motion.div>
 
             {/* Shop List */}
             <div className="space-y-4">
@@ -545,10 +550,10 @@ export function CustomerPortal({ onBack, lang }: CustomerPortalProps) {
                 filteredShops.map((shop) => (
                   <motion.button
                     key={shop.id}
-                    whileHover={{ scale: 1.01, y: -2 }}
-                    whileTap={{ scale: 0.99 }}
+                    whileHover={{ scale: 1.02, y: -2 }}
+                    whileTap={{ scale: 0.98 }}
                     onClick={() => handleSelectShop(shop)}
-                    className="w-full p-5 bg-white border border-gray-100 hover:border-indigo-200 rounded-2xl text-left flex items-center justify-between shadow-sm hover:shadow-md transition-all group"
+                    className="w-full p-5 bg-white border border-gray-100/80 hover:border-indigo-500 rounded-2xl text-left flex items-center justify-between shadow-xs hover:shadow-md transition-all duration-300 group cursor-pointer active:bg-indigo-50/10"
                   >
                     <div className="flex items-center gap-4">
                       <div className="w-12 h-12 bg-indigo-50 text-indigo-600 rounded-xl flex items-center justify-center font-black text-lg border border-indigo-100 group-hover:bg-indigo-600 group-hover:text-white transition-colors">
@@ -574,12 +579,19 @@ export function CustomerPortal({ onBack, lang }: CustomerPortalProps) {
                 ))
               )}
             </div>
-          </div>
+          </motion.div>
         )}
 
         {/* STAGE 2: CUSTOMER LOGIN & REGISTER */}
         {stage === 'customer_login' && (
-          <div className="max-w-md mx-auto w-full py-12">
+          <motion.div
+            key="cust_login"
+            initial={{ opacity: 0, y: 15 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -15 }}
+            transition={{ type: 'spring', stiffness: 380, damping: 30 }}
+            className="max-w-md mx-auto w-full py-8 md:py-12"
+          >
             <div className="bg-white rounded-3xl border border-gray-100 shadow-xl p-8 relative overflow-hidden">
               <div className="absolute top-0 right-0 w-32 h-32 bg-indigo-50 rounded-full blur-2xl -mr-10 -mt-10" />
               
@@ -683,12 +695,19 @@ export function CustomerPortal({ onBack, lang }: CustomerPortalProps) {
                 )}
               </div>
             </div>
-          </div>
+          </motion.div>
         )}
 
         {/* STAGE 3: BRAND CUSTOMER DASHBOARD */}
         {stage === 'dashboard' && currentCustomer && (
-          <div className="flex flex-col gap-6">
+          <motion.div
+            key="cust_dashboard"
+            initial={{ opacity: 0, y: 15 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -15 }}
+            transition={{ type: 'spring', stiffness: 380, damping: 30 }}
+            className="flex flex-col gap-6"
+          >
             
             {/* Customer Header Block / Summary Card */}
             <div className="p-6 md:p-8 bg-gradient-to-br from-indigo-600 to-indigo-800 text-white rounded-3xl shadow-xl flex flex-col md:flex-row md:items-center md:justify-between gap-6 relative overflow-hidden">
@@ -1258,8 +1277,9 @@ export function CustomerPortal({ onBack, lang }: CustomerPortalProps) {
               </div>
             )}
 
-          </div>
-        )}
+            </motion.div>
+          )}
+        </AnimatePresence>
 
       </main>
     </div>
