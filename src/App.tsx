@@ -3469,6 +3469,8 @@ export default function App() {
   const [password, setPassword] = useState('');
   const [loginShopCode, setLoginShopCode] = useState('');
   const [authError, setAuthError] = useState<string | null>(null);
+  const [blockedShopInfo, setBlockedShopInfo] = useState<{ name?: string, shopCode?: string } | null>(null);
+  const [copiedBlockedInfo, setCopiedBlockedInfo] = useState(false);
   const [loginMode, setLoginMode] = useState<'merchant' | 'staff'>('merchant');
   
   const isLoginPath = () => {
@@ -3537,7 +3539,8 @@ export default function App() {
                 setUser(null);
                 setIsOnboarded(null);
                 localStorage.removeItem('shopmaster_user');
-                setAuthError("This shop is blocked or disabled by Admin. Please contact your manager.");
+                setBlockedShopInfo({ name: shopDoc.data().name, shopCode: shopDoc.data().shopCode });
+                setAuthError("ja tomaq k block kora hoya ca, please contact +8801604877281");
                 setNotification({ message: "Shop Blocked! Please contact support.", type: 'error' });
                 setAuthChecked(true);
                 setLoading(false);
@@ -3556,10 +3559,11 @@ export default function App() {
               setIsOnboarded(true);
               localStorage.setItem('shopmaster_user', JSON.stringify(userData));
             } else {
-              // Might be a Merchant (logged in via Google or first time)
+               // Might be a Merchant (logged in via Google or first time)
               let finalShopId = firebaseUser.uid;
               let onboardStatus = false;
               let isBlocked = false;
+              let blockedShopDetails: any = null;
 
               try {
                 // 1. Direct match: doc ID is firebaseUser.uid
@@ -3569,6 +3573,7 @@ export default function App() {
                   onboardStatus = true;
                   if (shopDoc.data().status === 'blocked') {
                     isBlocked = true;
+                    blockedShopDetails = { name: shopDoc.data().name, shopCode: shopDoc.data().shopCode };
                   }
                 } else {
                   // 2. Try searching by ownerUid
@@ -3580,6 +3585,7 @@ export default function App() {
                     onboardStatus = true;
                     if (foundShop.data().status === 'blocked') {
                       isBlocked = true;
+                      blockedShopDetails = { name: foundShop.data().name, shopCode: foundShop.data().shopCode };
                     }
                   } else if (firebaseUser.email) {
                     // 3. Try searching by ownerEmail
@@ -3591,6 +3597,7 @@ export default function App() {
                       onboardStatus = true;
                       if (foundShop.data().status === 'blocked') {
                         isBlocked = true;
+                        blockedShopDetails = { name: foundShop.data().name, shopCode: foundShop.data().shopCode };
                       }
                     }
                   }
@@ -3604,7 +3611,8 @@ export default function App() {
                 setUser(null);
                 setIsOnboarded(null);
                 localStorage.removeItem('shopmaster_user');
-                setAuthError("Your merchant account has been blocked or disabled by Admin. Please contact stratproamz@gmail.com for assistance.");
+                setBlockedShopInfo(blockedShopDetails);
+                setAuthError("ja tomaq k block kora hoya ca, please contact +8801604877281");
                 setNotification({ message: "Account Blocked! Please contact support.", type: 'error' });
                 setAuthChecked(true);
                 setLoading(false);
@@ -4242,7 +4250,8 @@ export default function App() {
       const foundShopId = foundShop.id;
 
       if (foundShop.data().status === 'blocked') {
-        setAuthError(st('loginTitle') === 'Business Management Suite' ? "This shop is blocked or disabled. Please contact your manager." : "এই দোকানটি ব্লক বা নিষ্ক্রিয় করা হয়েছে। অনুগ্রহ করে ম্যানেজারের সাথে যোগাযোগ করুন।");
+        setBlockedShopInfo({ name: foundShop.data().name, shopCode: foundShop.data().shopCode });
+        setAuthError("ja tomaq k block kora hoya ca, please contact +8801604877281");
         setLoading(false);
         return;
       }
@@ -4300,6 +4309,7 @@ export default function App() {
       let finalShopId = googleUser.uid;
       let onboardStatus = false;
       let isBlocked = false;
+      let blockedShopDetails: any = null;
 
       if (isMasterAdmin) {
         finalShopId = 'master';
@@ -4313,6 +4323,7 @@ export default function App() {
             onboardStatus = true;
             if (shopDoc.data().status === 'blocked') {
               isBlocked = true;
+              blockedShopDetails = { name: shopDoc.data().name, shopCode: shopDoc.data().shopCode };
             }
           } else {
             // 2. Try searching by ownerUid
@@ -4324,6 +4335,7 @@ export default function App() {
               onboardStatus = true;
               if (foundShop.data().status === 'blocked') {
                 isBlocked = true;
+                blockedShopDetails = { name: foundShop.data().name, shopCode: foundShop.data().shopCode };
               }
             } else if (googleUser.email) {
               // 3. Try searching by ownerEmail
@@ -4335,6 +4347,7 @@ export default function App() {
                 onboardStatus = true;
                 if (foundShop.data().status === 'blocked') {
                   isBlocked = true;
+                  blockedShopDetails = { name: foundShop.data().name, shopCode: foundShop.data().shopCode };
                 }
               }
             }
@@ -4349,7 +4362,8 @@ export default function App() {
         setUser(null);
         setIsOnboarded(null);
         localStorage.removeItem('shopmaster_user');
-        setAuthError("Your merchant account has been blocked or disabled by Admin. Please contact stratproamz@gmail.com for assistance.");
+        setBlockedShopInfo(blockedShopDetails);
+        setAuthError("ja tomaq k block kora hoya ca, please contact +8801604877281");
         setNotification({ message: "Account Blocked! Please contact support.", type: 'error' });
         return;
       }
@@ -5271,145 +5285,287 @@ export default function App() {
             <div className="mb-10">
               {/* Hidden system status banner */}
 
-              <div className="flex p-1.5 bg-gray-100 rounded-2xl mb-8 font-semibold text-sm">
-                <button 
-                  onClick={() => {
-                    setLoginMode('merchant');
-                    setAuthError(null);
-                    setUsername('');
-                    setPassword('');
-                    setLoginShopCode('');
-                  }}
-                  className={`flex-1 py-3 rounded-xl transition-all duration-300 ${loginMode === 'merchant' ? 'bg-white text-indigo-600 shadow-md' : 'text-gray-500 hover:text-gray-700'}`}
+              {authError && (authError.includes('block') || blockedShopInfo) ? (
+                <motion.div
+                  initial={{ opacity: 0, scale: 0.95 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  className="p-6 bg-rose-50/45 backdrop-blur-md border border-rose-100 rounded-3xl shadow-xl relative overflow-hidden"
                 >
-                  {st('merchantLogin')}
-                </button>
-                <button 
-                  onClick={() => {
-                    setLoginMode('staff');
-                    setAuthError(null);
-                    setUsername('');
-                    setPassword('');
-                    setLoginShopCode('');
-                  }}
-                  className={`flex-1 py-3 rounded-xl transition-all duration-300 ${loginMode === 'staff' ? 'bg-white text-indigo-600 shadow-md' : 'text-gray-500 hover:text-gray-700'}`}
-                >
-                  {st('staffLogin')}
-                </button>
-              </div>
-
-              <AnimatePresence mode="wait">
-                {loginMode === 'merchant' ? (
-                  <motion.div
-                    key="merchant"
-                    initial={{ opacity: 0, x: 20 }}
-                    animate={{ opacity: 1, x: 0 }}
-                    exit={{ opacity: 0, x: -20 }}
-                    className="space-y-6"
-                  >
-                    <div className="text-center md:text-left mb-8">
-                      <h2 className="text-2xl font-bold text-gray-900 mb-2">{st('merchantLogin')}</h2>
-                      <p className="text-gray-500 text-sm">{st('loginSubtitleMerchant')}</p>
-                    </div>
-
-                    <button 
-                      onClick={handleGoogleLogin}
-                      className="w-full h-14 bg-white border-2 border-gray-100 text-gray-700 rounded-2xl font-bold hover:bg-gray-50 transition-all flex items-center justify-center gap-4 group hover:border-indigo-100 hover:shadow-lg hover:shadow-indigo-50"
-                    >
-                      <div className="w-8 h-8 bg-white shadow-sm rounded-full flex items-center justify-center border border-gray-100">
-                        <svg className="w-5 h-5" viewBox="0 0 24 24">
-                          <path fill="#ea4335" d="M12.48 10.92v3.28h7.84c-.24 1.84-2.21 5.38-7.84 5.38-4.81 0-8.73-3.92-8.73-8.73s3.92-8.73 8.73-8.73c2.72 0 4.53 1.16 5.57 2.16l2.58-2.58C18.91 1.76 15.91 1 12.48 1 6.26 1 1.24 6.02 1.24 12.24s5.02 11.24 11.24 11.24c6.53 0 10.86-4.57 10.86-11.02 0-.74-.08-1.3-.18-1.86h-9.44z"/>
-                        </svg>
+                  <div className="absolute top-0 right-0 w-32 h-32 bg-rose-100/30 rounded-full blur-2xl -mr-10 -mt-10" />
+                  
+                  <div className="flex flex-col items-center text-center space-y-4">
+                    {/* Security Badge */}
+                    <div className="relative">
+                      <div className="absolute inset-0 bg-rose-200/50 rounded-full blur-lg animate-pulse" />
+                      <div className="relative h-14 w-14 bg-rose-600 rounded-full flex items-center justify-center border-4 border-white shadow-md">
+                        <ShieldAlert className="h-7 w-7 text-white" />
                       </div>
-                      {st('googleSignIn')}
-                    </button>
+                    </div>
                     
-                    <div className="pt-6 border-t border-gray-100 text-center">
-                      <p className="text-gray-400 text-xs leading-relaxed uppercase tracking-widest font-bold">
-                        Secure Access Provided by Firebase
+                    {/* Header */}
+                    <div className="space-y-1 z-10">
+                      <span className="inline-block px-3 py-1 bg-rose-100 text-rose-700 text-[10px] font-black uppercase tracking-widest rounded-full">
+                        Access Restricted
+                      </span>
+                      <h3 className="text-xl font-black text-slate-900 font-sans tracking-tight">
+                        আপনাকে সিস্টেম থেকে ব্লক করা হয়েছে 
+                      </h3>
+                      <p className="text-[10px] text-rose-600 font-black uppercase tracking-widest">
+                        Security Notice • Administration
                       </p>
                     </div>
-                  </motion.div>
-                ) : (
-                  <motion.div
-                    key="staff"
-                    initial={{ opacity: 0, x: 20 }}
-                    animate={{ opacity: 1, x: 0 }}
-                    exit={{ opacity: 0, x: -20 }}
-                  >
-                    <div className="text-center md:text-left mb-8">
-                      <h2 className="text-2xl font-bold text-gray-900 mb-2">{st('staffLogin')}</h2>
-                      <p className="text-gray-500 text-sm">{st('loginSubtitleStaff')}</p>
+
+                    <div className="w-full h-px bg-rose-100/60 my-1" />
+
+                    {/* Detailed Instructions */}
+                    <div className="space-y-3.5 text-left w-full text-slate-700 text-sm leading-relaxed z-10">
+                      <p className="font-semibold text-center text-slate-800 text-xs px-2">
+                        আপনার অ্যাকাউন্টটি সাময়িকভাবে লক অথবা নিষ্ক্রিয় করা হয়েছে। পুনরায় সক্রিয় করার জন্য দয়া করে নিম্নোক্ত তথ্যের সাথে যোগাযোগ করুন।
+                      </p>
+                      
+                      {/* WhatsApp Support Box */}
+                      <div className="p-4 bg-emerald-50 rounded-2xl border border-emerald-100/75 flex flex-col space-y-2 shadow-sm">
+                        <div className="flex items-center gap-3 text-emerald-800 font-bold">
+                          <div className="h-8 w-8 rounded-lg bg-emerald-600 flex items-center justify-center text-white shrink-0 shadow">
+                            <span className="text-xs font-black">WA</span>
+                          </div>
+                          <div>
+                            <span className="block text-[9px] uppercase font-bold leading-none text-emerald-600 mb-0.5">WhatsApp Only Support</span>
+                            <span className="text-base font-sans font-black tracking-wide text-emerald-950">+8801604877281</span>
+                          </div>
+                        </div>
+                        <p className="text-[11px] text-emerald-700 font-medium pl-2.5 border-l-2 border-emerald-300">
+                          দয়া করে এই নাম্বারে <strong>শুধুমাত্র হোয়াটসঅ্যাপে</strong> মেসেজ করবেন।
+                        </p>
+                      </div>
+
+                      {/* Unique Code Section */}
+                      <div className="p-4 bg-slate-900 rounded-2xl text-slate-100 space-y-3.5 shadow-inner relative overflow-hidden">
+                        <div className="absolute top-0 right-0 opacity-[0.03] font-mono text-[90px] font-black pointer-events-none select-none translate-x-1/4 translate-y-1/4">
+                          SECURE
+                        </div>
+                        <div className="flex items-center justify-between border-b border-white/10 pb-2">
+                          <span className="text-[9px] font-black text-rose-400 uppercase tracking-widest pl-1">
+                            আপনার ইউনিক কোড (Shop Credentials)
+                          </span>
+                          <span className="px-2 py-0.5 bg-rose-500/20 text-rose-300 text-[9px] font-bold rounded-md">
+                            প্রয়োজনীয় তথ্য
+                          </span>
+                        </div>
+                        
+                        <div className="grid grid-cols-2 gap-3.5">
+                          <div className="space-y-1">
+                            <span className="block text-[9px] text-slate-400 font-bold uppercase tracking-wider pl-1">দোকানের ইউনিক নাম্বার</span>
+                            <span className="font-mono text-sm font-black text-white hover:text-rose-400 transition-colors uppercase tracking-widest bg-white/5 px-2 py-2 rounded-xl border border-white/10 block text-center shadow-sm select-all">
+                              {blockedShopInfo?.shopCode || loginShopCode || 'PENDING'}
+                            </span>
+                          </div>
+                          
+                          <div className="space-y-1">
+                            <span className="block text-[9px] text-slate-400 font-bold uppercase tracking-wider pl-1">দোকানের নাম</span>
+                            <span className="font-sans text-xs font-bold text-slate-200 truncate bg-white/5 px-2 py-2 rounded-xl border border-white/10 block text-center shadow-sm select-all">
+                              {blockedShopInfo?.name || 'Store / Merchant'}
+                            </span>
+                          </div>
+                        </div>
+
+                        <p className="text-[11px] text-rose-200 font-medium text-center bg-rose-950/40 p-2 rounded-xl border border-rose-900/30">
+                          "যোগাযোগ করার সময় অবশ্যই আপনার এই ইউনিক কোডটি মেসেজে উল্লেখ করবেন।"
+                        </p>
+
+                        {/* Copy Button */}
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const code = blockedShopInfo?.shopCode || loginShopCode || 'PENDING';
+                            const name = blockedShopInfo?.name || 'Store / Merchant';
+                            const textToCopy = `দোকানের নাম: ${name}\nইউনিক কোড: ${code}\nদয়া করে আমার অ্যাকাউন্টটি চেক করে দিন।`;
+                            navigator.clipboard.writeText(textToCopy);
+                            setCopiedBlockedInfo(true);
+                            setTimeout(() => setCopiedBlockedInfo(false), 2000);
+                          }}
+                          className={`w-full py-2.5 rounded-xl font-bold text-xs transition-all flex items-center justify-center gap-2 cursor-pointer ${
+                            copiedBlockedInfo 
+                              ? 'bg-emerald-600 text-white shadow-lg shadow-emerald-950/20' 
+                              : 'bg-white text-slate-900 hover:bg-slate-100 shadow'
+                          }`}
+                        >
+                          {copiedBlockedInfo ? (
+                            <>
+                              <ShieldCheck className="h-4 w-4 text-white" />
+                              কোড এবং তথ্য কপি হয়েছে!
+                            </>
+                          ) : (
+                            <>
+                              <Copy className="h-3.5 w-3.5" />
+                              সহজ যোগাযোগে তথ্য কপি করুন
+                            </>
+                          )}
+                        </button>
+                      </div>
                     </div>
 
-                    <form onSubmit={handleAuth} className="space-y-5">
-                      <div className="space-y-2">
-                        <label className="text-sm font-bold text-gray-700 ml-1 uppercase tracking-tight">{st('shopCode')}</label>
-                        <div className="relative group">
-                          <Building2 className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400 group-focus-within:text-indigo-600 transition-colors" />
-                          <input 
-                            type="text" 
-                            required 
-                            className="w-full pl-12 pr-4 py-4 rounded-2xl bg-gray-50 border-2 border-transparent focus:border-indigo-600 focus:bg-white transition-all outline-none text-gray-900 font-medium"
-                            placeholder={st('shopCodePlaceholder')}
-                            value={loginShopCode}
-                            onChange={(e) => setLoginShopCode(e.target.value)}
-                          />
-                        </div>
-                      </div>
-
-                      <div className="space-y-2">
-                        <label className="text-sm font-bold text-gray-700 ml-1 uppercase tracking-tight">{st('username')}</label>
-                        <div className="relative group">
-                          <UserIcon className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400 group-focus-within:text-indigo-600 transition-colors" />
-                          <input 
-                            type="text" 
-                            required 
-                            className="w-full pl-12 pr-4 py-4 rounded-2xl bg-gray-50 border-2 border-transparent focus:border-indigo-600 focus:bg-white transition-all outline-none text-gray-900 font-medium"
-                            placeholder="username"
-                            value={username}
-                            onChange={(e) => setUsername(e.target.value)}
-                          />
-                        </div>
-                      </div>
-
-                      <div className="space-y-2">
-                        <label className="text-sm font-bold text-gray-700 ml-1 uppercase tracking-tight">{st('password')}</label>
-                        <div className="relative group">
-                          <Lock className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400 group-focus-within:text-indigo-600 transition-colors" />
-                          <input 
-                            type="password" 
-                            required 
-                            className="w-full pl-12 pr-4 py-4 rounded-2xl bg-gray-50 border-2 border-transparent focus:border-indigo-600 focus:bg-white transition-all outline-none text-gray-900 font-medium"
-                            placeholder="password"
-                            value={password}
-                            onChange={(e) => setPassword(e.target.value)}
-                          />
-                        </div>
-                      </div>
-
-                      {authError && (
-                        <motion.div 
-                          initial={{ opacity: 0, height: 0 }}
-                          animate={{ opacity: 1, height: 'auto' }}
-                          className="p-4 bg-red-50 text-red-600 text-sm rounded-2xl flex items-center gap-3 font-medium border border-red-100"
-                        >
-                          <AlertCircle className="w-5 h-5 shrink-0" />
-                          {authError}
-                        </motion.div>
-                      )}
-
-                      <button 
-                        type="submit"
-                        className="w-full h-14 bg-indigo-600 text-white rounded-2xl font-bold hover:bg-indigo-700 transition-all shadow-xl shadow-indigo-100 flex items-center justify-center gap-2 group"
+                    <div className="w-full text-center pt-2">
+                      <p className="text-xs text-rose-600 font-bold">
+                        আপনাকে ধন্যবাদ 
+                      </p>
+                      
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setAuthError(null);
+                          setBlockedShopInfo(null);
+                        }}
+                        className="mt-4 text-[10px] font-black uppercase tracking-widest text-slate-400 hover:text-indigo-600 transition-colors pointer-events-auto cursor-pointer"
                       >
-                        {st('signIn')}
-                        <ArrowRight className="w-5 h-5 group-hover:translate-x-1 transition-transform" />
+                        ← লগইন স্ক্রিনে ফিরে যান
                       </button>
-                    </form>
-                  </motion.div>
-                )}
-              </AnimatePresence>
+                    </div>
+                  </div>
+                </motion.div>
+              ) : (
+                <>
+                  <div className="flex p-1.5 bg-gray-100 rounded-2xl mb-8 font-semibold text-sm">
+                    <button 
+                      onClick={() => {
+                        setLoginMode('merchant');
+                        setAuthError(null);
+                        setUsername('');
+                        setPassword('');
+                        setLoginShopCode('');
+                      }}
+                      className={`flex-1 py-3 rounded-xl transition-all duration-300 ${loginMode === 'merchant' ? 'bg-white text-indigo-600 shadow-md' : 'text-gray-500 hover:text-gray-700'}`}
+                    >
+                      {st('merchantLogin')}
+                    </button>
+                    <button 
+                      onClick={() => {
+                        setLoginMode('staff');
+                        setAuthError(null);
+                        setUsername('');
+                        setPassword('');
+                        setLoginShopCode('');
+                      }}
+                      className={`flex-1 py-3 rounded-xl transition-all duration-300 ${loginMode === 'staff' ? 'bg-white text-indigo-600 shadow-md' : 'text-gray-500 hover:text-gray-700'}`}
+                    >
+                      {st('staffLogin')}
+                    </button>
+                  </div>
+
+                  <AnimatePresence mode="wait">
+                    {loginMode === 'merchant' ? (
+                      <motion.div
+                        key="merchant"
+                        initial={{ opacity: 0, x: 20 }}
+                        animate={{ opacity: 1, x: 0 }}
+                        exit={{ opacity: 0, x: -20 }}
+                        className="space-y-6"
+                      >
+                        <div className="text-center md:text-left mb-8">
+                          <h2 className="text-2xl font-bold text-gray-900 mb-2">{st('merchantLogin')}</h2>
+                          <p className="text-gray-500 text-sm">{st('loginSubtitleMerchant')}</p>
+                        </div>
+
+                        <button 
+                          onClick={handleGoogleLogin}
+                          className="w-full h-14 bg-white border-2 border-gray-100 text-gray-700 rounded-2xl font-bold hover:bg-gray-50 transition-all flex items-center justify-center gap-4 group hover:border-indigo-100 hover:shadow-lg hover:shadow-indigo-50"
+                        >
+                          <div className="w-8 h-8 bg-white shadow-sm rounded-full flex items-center justify-center border border-gray-100">
+                            <svg className="w-5 h-5" viewBox="0 0 24 24">
+                              <path fill="#ea4335" d="M12.48 10.92v3.28h7.84c-.24 1.84-2.21 5.38-7.84 5.38-4.81 0-8.73-3.92-8.73-8.73s3.92-8.73 8.73-8.73c2.72 0 4.53 1.16 5.57 2.16l2.58-2.58C18.91 1.76 15.91 1 12.48 1 6.26 1 1.24 6.02 1.24 12.24s5.02 11.24 11.24 11.24c6.53 0 10.86-4.57 10.86-11.02 0-.74-.08-1.3-.18-1.86h-9.44z"/>
+                            </svg>
+                          </div>
+                          {st('googleSignIn')}
+                        </button>
+                        
+                        <div className="pt-6 border-t border-gray-100 text-center">
+                          <p className="text-gray-400 text-xs leading-relaxed uppercase tracking-widest font-bold">
+                            Secure Access Provided by Firebase
+                          </p>
+                        </div>
+                      </motion.div>
+                    ) : (
+                      <motion.div
+                        key="staff"
+                        initial={{ opacity: 0, x: 20 }}
+                        animate={{ opacity: 1, x: 0 }}
+                        exit={{ opacity: 0, x: -20 }}
+                      >
+                        <div className="text-center md:text-left mb-8">
+                          <h2 className="text-2xl font-bold text-gray-900 mb-2">{st('staffLogin')}</h2>
+                          <p className="text-gray-500 text-sm">{st('loginSubtitleStaff')}</p>
+                        </div>
+
+                        <form onSubmit={handleAuth} className="space-y-5">
+                          <div className="space-y-2">
+                            <label className="text-sm font-bold text-gray-700 ml-1 uppercase tracking-tight">{st('shopCode')}</label>
+                            <div className="relative group">
+                              <Building2 className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400 group-focus-within:text-indigo-600 transition-colors" />
+                              <input 
+                                type="text" 
+                                required 
+                                className="w-full pl-12 pr-4 py-4 rounded-2xl bg-gray-50 border-2 border-transparent focus:border-indigo-600 focus:bg-white transition-all outline-none text-gray-900 font-medium"
+                                placeholder={st('shopCodePlaceholder')}
+                                value={loginShopCode}
+                                onChange={(e) => setLoginShopCode(e.target.value)}
+                              />
+                            </div>
+                          </div>
+
+                          <div className="space-y-2">
+                            <label className="text-sm font-bold text-gray-700 ml-1 uppercase tracking-tight">{st('username')}</label>
+                            <div className="relative group">
+                              <UserIcon className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400 group-focus-within:text-indigo-600 transition-colors" />
+                              <input 
+                                type="text" 
+                                required 
+                                className="w-full pl-12 pr-4 py-4 rounded-2xl bg-gray-50 border-2 border-transparent focus:border-indigo-600 focus:bg-white transition-all outline-none text-gray-900 font-medium"
+                                placeholder="username"
+                                value={username}
+                                onChange={(e) => setUsername(e.target.value)}
+                              />
+                            </div>
+                          </div>
+
+                          <div className="space-y-2">
+                            <label className="text-sm font-bold text-gray-700 ml-1 uppercase tracking-tight">{st('password')}</label>
+                            <div className="relative group">
+                              <Lock className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400 group-focus-within:text-indigo-600 transition-colors" />
+                              <input 
+                                type="password" 
+                                required 
+                                className="w-full pl-12 pr-4 py-4 rounded-2xl bg-gray-50 border-2 border-transparent focus:border-indigo-600 focus:bg-white transition-all outline-none text-gray-900 font-medium"
+                                placeholder="password"
+                                value={password}
+                                onChange={(e) => setPassword(e.target.value)}
+                              />
+                            </div>
+                          </div>
+
+                          {authError && (
+                            <motion.div 
+                              initial={{ opacity: 0, height: 0 }}
+                              animate={{ opacity: 1, height: 'auto' }}
+                              className="p-4 bg-red-50 text-red-600 text-sm rounded-2xl flex items-center gap-3 font-medium border border-red-100"
+                            >
+                              <AlertCircle className="w-5 h-5 shrink-0" />
+                              {authError}
+                            </motion.div>
+                          )}
+
+                          <button 
+                            type="submit"
+                            className="w-full h-14 bg-indigo-600 text-white rounded-2xl font-bold hover:bg-indigo-700 transition-all shadow-xl shadow-indigo-100 flex items-center justify-center gap-2 group"
+                          >
+                            {st('signIn')}
+                            <ArrowRight className="w-5 h-5 group-hover:translate-x-1 transition-transform" />
+                          </button>
+                        </form>
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
+                </>
+              )}
 
               {/* Customer Portal Entry link */}
               <div className="mt-8 border-t border-gray-100 pt-6">
