@@ -13,6 +13,10 @@ export function ShopOnboarding({ onComplete }: ShopOnboardingProps) {
     name: '',
     address: '',
     phone: '',
+    ownerName: '',
+    nidNumber: '',
+    tradeLicenseNumber: '',
+    tradeLicenseExpiry: '',
     logo: '',
     domain: '',
     setupDate: new Date().toISOString()
@@ -44,7 +48,10 @@ export function ShopOnboarding({ onComplete }: ShopOnboardingProps) {
 
   const isStepValid = () => {
     if (step === 1) return formData.type !== '';
-    if (step === 2) return formData.name.trim() !== '' && formData.phone.trim() !== '' && formData.address.trim() !== '';
+    if (step === 2) {
+      const isPhoneValid = /^01\d{9}$/.test(formData.phone.trim());
+      return formData.name.trim() !== '' && isPhoneValid && formData.address.trim() !== '' && formData.ownerName.trim() !== '' && formData.nidNumber.trim() !== '';
+    }
     return true;
   };
 
@@ -91,9 +98,29 @@ export function ShopOnboarding({ onComplete }: ShopOnboardingProps) {
                 <label className="text-xs font-black text-gray-400 uppercase tracking-widest block mb-2">Shop Address</label>
                 <input value={formData.address} onChange={(e) => updateFormData('address', e.target.value)} className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-indigo-500 outline-none" placeholder="e.g. 123 Street, Dhaka" />
               </div>
-              <div>
-                <label className="text-xs font-black text-gray-400 uppercase tracking-widest block mb-2">Contact Mobile</label>
-                <input value={formData.phone} onChange={(e) => updateFormData('phone', e.target.value)} className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-indigo-500 outline-none" placeholder="017xxxxxxxx" />
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label className="text-xs font-black text-gray-400 uppercase tracking-widest block mb-2">Contact Mobile (11 Digits)</label>
+                  <input value={formData.phone} pattern="^01\d{9}$" title="Bangladeshi number must be 11 digits starting with 01" onChange={(e) => updateFormData('phone', e.target.value)} className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-indigo-500 outline-none" placeholder="01XXXXXXXXX" />
+                </div>
+                <div>
+                  <label className="text-xs font-black text-gray-400 uppercase tracking-widest block mb-2">Owner Name (As per NID)</label>
+                  <input value={formData.ownerName} onChange={(e) => updateFormData('ownerName', e.target.value)} className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-indigo-500 outline-none" placeholder="Must match NID" />
+                </div>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-4">
+                <div className="col-span-1 sm:col-span-2">
+                  <label className="text-xs font-black text-gray-400 uppercase tracking-widest block mb-1">NID Number</label>
+                  <input value={formData.nidNumber} onChange={(e) => updateFormData('nidNumber', e.target.value)} className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-indigo-500 outline-none" placeholder="Owner's NID Number" />
+                </div>
+                <div>
+                  <label className="text-xs font-black text-gray-400 uppercase tracking-widest block mb-1">Trade License No.</label>
+                  <input value={formData.tradeLicenseNumber} onChange={(e) => updateFormData('tradeLicenseNumber', e.target.value)} className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-indigo-500 outline-none" placeholder="License No." />
+                </div>
+                <div>
+                  <label className="text-xs font-black text-gray-400 uppercase tracking-widest block mb-1">Expiry Date</label>
+                  <input type="date" value={formData.tradeLicenseExpiry} onChange={(e) => updateFormData('tradeLicenseExpiry', e.target.value)} className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-indigo-500 outline-none" />
+                </div>
               </div>
               <div>
                 <label className="text-xs font-black text-gray-400 uppercase tracking-widest block mb-1">Custom Domain (Optional)</label>

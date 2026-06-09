@@ -29,6 +29,8 @@ import {
   Trash2, 
   Edit, 
   Pencil,
+  Eye,
+  EyeOff,
   Save, 
   Send,
   X, 
@@ -116,7 +118,12 @@ import {
   ShieldAlert,
   ShieldCheck,
   Sun,
-  Moon
+  Moon,
+  Sliders,
+  Bell,
+  BellRing,
+  Tv,
+  Mail
 } from 'lucide-react';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
@@ -126,6 +133,8 @@ import { JarvisAI } from './components/JarvisAI';
 import { NetworkConsole } from './components/NetworkConsole';
 import { CustomerPortal } from './components/CustomerPortal';
 import { SellerOrdersView } from './components/SellerOrdersView';
+import { PageManagement } from './components/PageManagement';
+import { MessagingGateway } from './components/MessagingGateway';
 import Dashboard from './components/Dashboard';
 
 import { fuzzyMatchProduct } from './utils/productMatcher';
@@ -183,7 +192,7 @@ import ReactBarcode from 'react-barcode';
 import QRCode from 'react-qr-code';
 
 // --- Types ---
-type UserRole = 'admin' | 'manager' | 'assistant_manager' | 'sales_manager' | 'sales_team';
+type UserRole = 'admin' | 'manager' | 'assistant_manager' | 'sales_manager' | 'sales_team' | 'warehouse';
 
 interface AppUser {
   id: string;
@@ -203,6 +212,10 @@ interface ShopSettings {
   faviconBase64?: string;
   platformTitle?: string;
   phone?: string;
+  ownerName?: string;
+  nidNumber?: string;
+  tradeLicenseNumber?: string;
+  tradeLicenseExpiry?: string;
   whatsappSender?: string;
   receiptWidth?: '58mm' | '80mm';
   waGatewayType: 'manual' | 'metacloud' | 'generic';
@@ -1613,10 +1626,40 @@ const printPaymentReceipt = (payment: DuePayment, customerName: string, settings
 
 const callWhatsAppApi = async (phone: string, message: string, settings: ShopSettings) => {
   const method = settings.waGatewayType || 'manual';
-  const cleanPhone = phone.replace(/\D/g, '');
+  const defaultRoute = (settings as any).default_route || 'manual_redirect';
+  const cleanPhone = (phone || '').replace(/\D/g, '');
   const formattedPhone = cleanPhone.startsWith('880') ? cleanPhone : `880${cleanPhone.startsWith('0') ? cleanPhone.slice(1) : cleanPhone}`;
 
-  if (method !== 'manual' && settings.waToken) {
+  if (method === 'zender' || defaultRoute === 'whatsapp' || defaultRoute === 'sms') {
+    try {
+      const response = await fetch('/api/gateways/dispatch', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          shopId: settings.id || 'pos-merchant-master',
+          sale: {
+            id: 'pos-' + Math.floor(Math.random() * 100000),
+            customerPhone: formattedPhone,
+            message: message
+          },
+          gatewayConfig: {
+            default_route: defaultRoute,
+            zender_whatsapp_device_id: (settings as any).zender_whatsapp_device_id || '',
+            zender_sms_device_id: (settings as any).zender_sms_device_id || ''
+          }
+        })
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        return { success: true, result: data };
+      }
+    } catch (dispatchErr) {
+      console.error('[Dispatch controller failure, falling back to manual redirect]', dispatchErr);
+    }
+  }
+
+  if (method !== 'manual' && method !== 'zender' && settings.waToken) {
     try {
       let finalResponse;
       if (method === 'metacloud' && settings.waPhoneNumberId) {
@@ -2051,6 +2094,7 @@ function SettingsPanel({
   users, 
   onAddUser, 
   onDeleteUser, 
+  onUpdateUser,
   isSaving,
   products = [],
   sales = [],
@@ -2059,13 +2103,15 @@ function SettingsPanel({
   deferredPrompt,
   onInstallPWA,
   isMasterAdmin = false,
-  currentUserEmail = ''
+  currentUserEmail = '',
+  userRole = 'manager'
 }: { 
   settings: ShopSettings, 
   onSaveSettings: (s: ShopSettings) => void, 
   users: AppUser[], 
   onAddUser: (u: Omit<AppUser, 'id'>) => void, 
   onDeleteUser: (id: string) => void, 
+  onUpdateUser?: (userId: string, updatedFields: Partial<AppUser>) => Promise<void>,
   isSaving: boolean,
   products?: Product[],
   sales?: Sale[],
@@ -2074,8 +2120,21 @@ function SettingsPanel({
   deferredPrompt: any,
   onInstallPWA: () => void,
   isMasterAdmin?: boolean,
-  currentUserEmail?: string
+  currentUserEmail?: string,
+  userRole?: string
 }) {
+  if (userRole !== 'admin') {
+    return (
+      <div className="p-12 text-center max-w-lg mx-auto bg-slate-50 dark:bg-slate-900 rounded-3xl border border-gray-100 dark:border-slate-800 shadow-xl overflow-hidden mt-12 animate-fadeIn">
+        <div className="w-16 h-16 bg-red-100 dark:bg-red-950/30 rounded-2xl flex items-center justify-center mx-auto mb-6 text-red-600 dark:text-red-400">
+          <ShieldAlert className="w-8 h-8" />
+        </div>
+        <h3 className="text-xl font-black text-gray-900 dark:text-gray-100 tracking-tight select-none">Access Restricted</h3>
+        <p className="text-sm text-gray-400 dark:text-gray-500 mt-2 select-none">Only the primary Merchant has access to system settings. Staff accounts are restricted from viewing or modifying these settings.</p>
+      </div>
+    );
+  }
+
   const systemLang = settings.systemLanguage || 'bn';
   const st = (key: keyof typeof SYSTEM_TRANSLATIONS['en']) => (SYSTEM_TRANSLATIONS[systemLang] as any)[key] || (SYSTEM_TRANSLATIONS['en'] as any)[key];
   const [activeSubTab, setActiveSubTab] = useState<'shop' | 'users' | 'download' | 'network'>('shop');
@@ -2083,7 +2142,42 @@ function SettingsPanel({
   const [logoPreview, setLogoPreview] = useState<string | null>(settings.logoBase64 || null);
   const [faviconPreview, setFaviconPreview] = useState<string | null>(settings.faviconBase64 || null);
 
-  const isAuthorized = currentUserEmail === 'stratproamz@gmail.com';
+  const [newDisplayName, setNewDisplayName] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [newRole, setNewRole] = useState<UserRole>('manager');
+  const [showPasswords, setShowPasswords] = useState<Record<string, boolean>>({});
+  const [editingUserId, setEditingUserId] = useState<string | null>(null);
+  const [editingPassword, setEditingPassword] = useState('');
+  const [generatedUsername, setGeneratedUsername] = useState('');
+
+  const isAuthorized = true;
+  const isBrandingAuthorized = currentUserEmail?.toLowerCase().trim() === 'stratproamz@gmail.com';
+
+  useEffect(() => {
+    if (!newDisplayName.trim()) {
+      setGeneratedUsername('');
+      return;
+    }
+    const cleanName = newDisplayName.trim().replace(/[^a-zA-Z]/g, '');
+    const firstLetter = cleanName ? cleanName.charAt(0).toUpperCase() : 'U';
+
+    // If we already have a generated username starting with this letter and has exactly 6 chars, keep it stable
+    if (generatedUsername && generatedUsername.startsWith(firstLetter) && generatedUsername.length === 6) {
+      return;
+    }
+
+    // Generate unique 5 digits (total length = 6 characters with first letter)
+    let digits = '';
+    let exists = true;
+    let attempts = 0;
+    while (exists && attempts < 100) {
+      digits = Math.floor(10000 + Math.random() * 90000).toString();
+      const candidate = `${firstLetter}${digits}`;
+      exists = users.some(u => u.username.toUpperCase() === candidate.toUpperCase());
+      attempts++;
+    }
+    setGeneratedUsername(`${firstLetter}${digits}`);
+  }, [newDisplayName, users, generatedUsername]);
 
   useEffect(() => {
     const handleClick = () => setConfirmDeleteId(null);
@@ -2093,10 +2187,6 @@ function SettingsPanel({
 
   const handleShopSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!isAuthorized) {
-      alert("Only Master Admin is authorized to change or update settings.");
-      return;
-    }
     const form = e.target as HTMLFormElement;
     const formData = new FormData(form);
     const logoFile = (form.querySelector('input[type="file"]') as HTMLInputElement)?.files?.[0];
@@ -2119,6 +2209,10 @@ function SettingsPanel({
       platformTitle: formData.get('platformTitle') as string,
       address: formData.get('address') as string,
       phone: formData.get('phone') as string,
+      ownerName: formData.get('ownerName') as string,
+      nidNumber: formData.get('nidNumber') as string,
+      tradeLicenseNumber: formData.get('tradeLicenseNumber') as string,
+      tradeLicenseExpiry: formData.get('tradeLicenseExpiry') as string,
       logoUrl: formData.get('logoUrl') as string,
       logoBase64: logoBase64,
       faviconBase64: faviconBase64,
@@ -2131,7 +2225,7 @@ function SettingsPanel({
       autoSendWhatsApp: formData.get('autoSendWhatsApp') === 'on',
       aiWhatsAppEnabled: formData.get('aiWhatsAppEnabled') === 'on',
       receiptWidth: formData.get('receiptWidth') as '58mm' | '80mm',
-      receiptFooter: formData.get('receiptFooter') as string,
+      receiptFooter: isBrandingAuthorized ? (formData.get('receiptFooter') as string) : (settings.receiptFooter || "Thank you for shopping with us!\nPowered by ShopMaster"),
       waTemplateEnglish: formData.get('waTemplateEnglish') as string,
       waTemplateBengali: formData.get('waTemplateBengali') as string,
       printLanguage: formData.get('printLanguage') as 'en' | 'bn' | 'ar',
@@ -2144,19 +2238,27 @@ function SettingsPanel({
 
   const handleUserSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!isAuthorized) {
-      alert("Only Master Admin is authorized to add users.");
+
+    if (!generatedUsername) {
+      alert("Please enter a valid display name to auto-generate a username.");
       return;
     }
-    const form = e.target as HTMLFormElement;
-    const formData = new FormData(form);
+    if (newPassword.length !== 6 || !/^\d+$/.test(newPassword)) {
+      alert("Password must be exactly a 6-digit number.");
+      return;
+    }
+
     onAddUser({
-      username: formData.get('username') as string,
-      password: formData.get('password') as string,
-      displayName: formData.get('displayName') as string,
-      role: formData.get('role') as UserRole,
+      username: generatedUsername,
+      password: newPassword,
+      displayName: newDisplayName,
+      role: newRole,
     });
-    form.reset();
+
+    setNewDisplayName('');
+    setNewPassword('');
+    setNewRole('manager');
+    setGeneratedUsername('');
   };
 
   return (
@@ -2211,88 +2313,145 @@ function SettingsPanel({
       </div>
 
       {activeSubTab === 'shop' && (
-        <div className="bg-white p-8 rounded-3xl shadow-sm border border-gray-100">
-          <h3 className="text-xl font-bold mb-6 flex items-center gap-2">
-            <Building2 className="w-6 h-6 text-indigo-600" />
-            Shop Information
-          </h3>
-          <form onSubmit={handleShopSubmit} className="space-y-6">
-            <fieldset disabled={!isAuthorized} className="space-y-6 w-full">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              <div className="md:col-span-2 flex items-center gap-6 p-6 bg-gray-50 rounded-2xl border border-dashed border-gray-200">
-                <div className="w-24 h-24 bg-white rounded-2xl border border-gray-100 flex items-center justify-center overflow-hidden shadow-sm">
-                  {logoPreview ? (
-                    <img src={logoPreview} alt="Shop Logo" className="w-full h-full object-contain" />
-                  ) : (
-                    <ImageIcon className="w-8 h-8 text-gray-300" />
-                  )}
+        <div className="bg-white p-8 rounded-[2rem] shadow-sm border border-gray-100 w-full max-w-5xl mx-auto">
+          <div className="mb-10 text-center flex flex-col sm:flex-row items-center justify-between gap-4">
+            <div className="text-left">
+              <h3 className="text-2xl font-black text-gray-900 flex items-center gap-3">
+                <div className="p-2 bg-indigo-50 rounded-xl">
+                  <Building2 className="w-7 h-7 text-indigo-600" />
                 </div>
-                <div className="flex-1">
-                  <label className="block text-sm font-bold text-gray-900 mb-1">Shop Logo</label>
-                  <p className="text-xs text-gray-500 mb-3">Upload your shop logo (PNG/JPG)</p>
-                  <input 
-                    type="file" 
-                    accept="image/*" 
-                    onChange={async (e) => {
-                      const file = e.target.files?.[0];
-                      if (file) {
-                        const base64 = await fileToBase64(file);
-                        setLogoPreview(base64);
-                      }
-                    }}
-                    className="text-xs text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-xs file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100 cursor-pointer"
-                  />
+                Business Profile Settings
+              </h3>
+              <p className="text-gray-500 text-sm mt-1 sm:ml-12">Configure your shop identity, legal details, and core preferences.</p>
+            </div>
+            {isAuthorized && (
+              <button disabled={isSaving} className="px-8 py-3 bg-indigo-600 text-white font-bold rounded-xl shadow-lg shadow-indigo-600/20 hover:bg-indigo-700 hover:-translate-y-0.5 transition-all outline-none disabled:opacity-50">
+                {isSaving ? 'Saving...' : 'Save All Settings'}
+              </button>
+            )}
+          </div>
+          
+          <form id="shopProfileForm" onSubmit={handleShopSubmit} className="space-y-12">
+            <fieldset disabled={!isAuthorized} className="space-y-12 w-full">
+              
+              {/* SECTION: BASIC INFO */}
+              <div className="space-y-6">
+                <div className="border-b border-gray-100 pb-4">
+                  <h4 className="text-lg font-black text-gray-900">Basic Information</h4>
                 </div>
-              </div>
-              <div className="md:col-span-2 grid grid-cols-1 md:grid-cols-2 gap-6">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Unique Shop Code <span className="text-xs text-gray-400 font-normal ml-2">(Share with customers to find your shop)</span></label>
-                  <div className="flex items-center gap-2">
-                    <input value={settings.shopCode || 'Not Generated Yet'} readOnly className="w-full px-4 py-3 rounded-xl border border-gray-200 bg-gray-50 font-mono font-black text-indigo-700 tracking-widest text-center cursor-default outline-none" />
-                    <button type="button" onClick={() => {
-                      if (settings.shopCode) {
-                        navigator.clipboard.writeText(settings.shopCode);
-                      }
-                    }} className="p-3 bg-indigo-50 text-indigo-600 rounded-xl hover:bg-indigo-100 transition-colors" title="Copy Code">
-                      <Copy className="w-5 h-5" />
-                    </button>
+                
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6 bg-gray-50/50 p-6 rounded-3xl border border-gray-100">
+                  <div>
+                    <label className="block text-xs font-black text-gray-500 uppercase tracking-wider mb-2">Shop Name <span className="text-red-500">*</span></label>
+                    <input name="name" defaultValue={settings.name || ''} required className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-indigo-500 outline-none bg-white font-bold" />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-black text-gray-500 uppercase tracking-wider mb-2">Phone Number</label>
+                    <input name="phone" defaultValue={settings.phone || ''} pattern="^01\d{9}$" title="Bangladeshi number must be 11 digits starting with 01" className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-indigo-500 outline-none bg-white font-mono placeholder-gray-300" placeholder="01XXXXXXXXX" />
+                  </div>
+                  <div className="md:col-span-2">
+                    <label className="block text-xs font-black text-gray-500 uppercase tracking-wider mb-2">Shop Address</label>
+                    <textarea name="address" defaultValue={settings.address || ''} required className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-indigo-500 outline-none bg-white h-24 resize-none leading-relaxed" />
                   </div>
                 </div>
 
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Shop Account Email / Gmail</label>
-                  <div className="flex items-center gap-2">
-                    <input value={currentUserEmail} readOnly className="w-full px-4 py-3 rounded-xl border border-gray-200 bg-gray-50 text-gray-600 font-medium cursor-default outline-none" />
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6 p-6 bg-indigo-50/30 rounded-3xl border border-indigo-100/50">
+                  <div>
+                    <label className="block text-xs font-black text-gray-500 uppercase tracking-wider mb-2">Shop Account Email</label>
+                    <input value={currentUserEmail} readOnly className="w-full px-4 py-3 rounded-xl border border-indigo-100 bg-white text-gray-600 font-medium cursor-default outline-none shadow-sm" />
+                    <p className="text-[10px] text-gray-400 mt-1 pl-1">Primary identifier for this system.</p>
                   </div>
-                  <p className="text-[10px] text-gray-400 mt-1">This email address is your main Shop ID and credential.</p>
+                  <div>
+                    <label className="block text-xs font-black text-gray-500 uppercase tracking-wider mb-2 flex justify-between items-center">
+                      <span>Unique Shop Code</span>
+                      <button type="button" onClick={() => { if (settings.shopCode) navigator.clipboard.writeText(settings.shopCode); }} className="text-indigo-600 hover:text-indigo-700 flex items-center gap-1 bg-white px-2 py-0.5 rounded shadow-sm border border-indigo-100">
+                        <Copy className="w-3 h-3" /> <span className="text-[10px]">Copy</span>
+                      </button>
+                    </label>
+                    <input value={settings.shopCode || 'Not Generated'} readOnly className="w-full px-4 py-3 rounded-xl border border-indigo-100 bg-white font-mono font-black text-indigo-700 tracking-[0.2em] text-center cursor-default outline-none shadow-sm" />
+                  </div>
                 </div>
               </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">Shop Name</label>
-                <input name="name" defaultValue={settings.name || ''} required className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-indigo-500 outline-none" />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">Platform Title (Tabs Title)</label>
-                <input name="platformTitle" defaultValue={settings.platformTitle || ''} className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-indigo-500 outline-none" placeholder="ShopMaster - My Shop" />
+
+              {/* SECTION: LEGAL INFO */}
+              <div className="space-y-6">
+                <div className="border-b border-gray-100 pb-4">
+                  <h4 className="text-lg font-black text-gray-900">Legal & Licensing Information</h4>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6 bg-gray-50/50 p-6 rounded-3xl border border-gray-100">
+                  <div>
+                    <label className="block text-xs font-black text-gray-500 uppercase tracking-wider mb-2">Owner Name (As per NID)</label>
+                    <input name="ownerName" defaultValue={settings.ownerName || ''} className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-indigo-500 outline-none bg-white font-bold" />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-black text-gray-500 uppercase tracking-wider mb-2">National ID (NID) Number</label>
+                    <input name="nidNumber" defaultValue={settings.nidNumber || ''} className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-indigo-500 outline-none bg-white font-mono" placeholder="XXXXXXXXXX" />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-black text-gray-500 uppercase tracking-wider mb-2">Trade License Number</label>
+                    <input name="tradeLicenseNumber" defaultValue={settings.tradeLicenseNumber || ''} className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-indigo-500 outline-none bg-white font-mono" />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-black text-gray-500 uppercase tracking-wider mb-2">License Expiry Date</label>
+                    <input name="tradeLicenseExpiry" type="date" defaultValue={settings.tradeLicenseExpiry || ''} className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-indigo-500 outline-none bg-white font-mono text-sm" />
+                  </div>
+                </div>
               </div>
 
-              <div className="md:col-span-2 grid grid-cols-1 md:grid-cols-2 gap-6 pt-4 border-t border-gray-100">
-                <div className="space-y-4">
-                  <h4 className="font-bold text-gray-900 flex items-center gap-2">
-                    <Globe className="w-5 h-5 text-indigo-600" />
-                    Favicon Settings
-                  </h4>
-                  <div className="flex items-center gap-6 p-6 bg-gray-50 rounded-2xl border border-dashed border-gray-200">
-                    <div className="w-16 h-16 bg-white rounded-xl border border-gray-100 flex items-center justify-center overflow-hidden shadow-sm">
-                      {faviconPreview ? (
-                        <img src={faviconPreview} alt="Favicon" className="w-full h-full object-contain" />
-                      ) : (
-                        <Globe className="w-6 h-6 text-gray-300" />
-                      )}
+              {/* SECTION: BRANDING */}
+              <div className="space-y-6">
+                <div className="border-b border-gray-100 pb-4">
+                  <h4 className="text-lg font-black text-gray-900">Branding & Visuals</h4>
+                </div>
+                
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                  {/* Logo Upload */}
+                  <div className="bg-gray-50/50 p-6 rounded-3xl border border-gray-100 flex flex-col gap-4">
+                    <div>
+                      <label className="block text-xs font-black text-gray-500 uppercase tracking-wider mb-1">Primary Logo</label>
+                      <p className="text-[10px] text-gray-400">Used on receipts and POS interface.</p>
                     </div>
-                    <div className="flex-1">
-                      <label className="block text-sm font-bold text-gray-900 mb-1">Upload Favicon</label>
-                      <p className="text-[10px] text-gray-500 mb-3">Square icon recommended (32x32px)</p>
+                    <div className="flex items-center gap-4">
+                      <div className="w-20 h-20 bg-white rounded-2xl border border-gray-200 flex items-center justify-center overflow-hidden shadow-sm shrink-0 p-2">
+                        {logoPreview ? (
+                          <img src={logoPreview} alt="Logo" className="w-full h-full object-contain" />
+                        ) : (
+                          <ImageIcon className="w-8 h-8 text-gray-300" />
+                        )}
+                      </div>
+                      <input 
+                        type="file" 
+                        accept="image/*" 
+                        onChange={async (e) => {
+                          const file = e.target.files?.[0];
+                          if (file) {
+                            const base64 = await fileToBase64(file);
+                            setLogoPreview(base64);
+                          }
+                        }}
+                        className="text-xs text-gray-500 w-full file:mr-4 file:py-2 file:px-4 file:rounded-xl file:border border-indigo-100 file:text-xs file:font-bold file:bg-white file:text-indigo-600 hover:file:bg-indigo-50 cursor-pointer transition-colors"
+                      />
+                    </div>
+                    <div>
+                        <label className="block text-xs font-bold text-gray-400 mb-2">Or Provide an Image URL:</label>
+                        <input name="logoUrl" defaultValue={settings.logoUrl || ''} className="w-full px-4 py-2 rounded-xl border border-gray-200 text-sm focus:ring-1 focus:ring-indigo-500 outline-none bg-white" placeholder="https://" />
+                    </div>
+                  </div>
+
+                  {/* Favicon Upload */}
+                  <div className="bg-gray-50/50 p-6 rounded-3xl border border-gray-100 flex flex-col gap-4">
+                    <div>
+                      <label className="block text-xs font-black text-gray-500 uppercase tracking-wider mb-1">Web Favicon</label>
+                      <p className="text-[10px] text-gray-400">Icon shown in browser tabs (32x32px recommended).</p>
+                    </div>
+                    <div className="flex items-center gap-4">
+                      <div className="w-20 h-20 bg-white rounded-2xl border border-gray-200 flex items-center justify-center overflow-hidden shadow-sm shrink-0 p-4">
+                        {faviconPreview ? (
+                          <img src={faviconPreview} alt="Favicon" className="w-full h-full object-contain" />
+                        ) : (
+                          <Globe className="w-8 h-8 text-gray-300" />
+                        )}
+                      </div>
                       <input 
                         type="file" 
                         name="favicon"
@@ -2304,188 +2463,91 @@ function SettingsPanel({
                             setFaviconPreview(base64);
                           }
                         }}
-                        className="text-xs text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-xs file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100 cursor-pointer"
+                        className="text-xs text-gray-500 w-full file:mr-4 file:py-2 file:px-4 file:rounded-xl file:border border-indigo-100 file:text-xs file:font-bold file:bg-white file:text-indigo-600 hover:file:bg-indigo-50 cursor-pointer transition-colors"
                       />
+                    </div>
+                    <div>
+                        <label className="block text-xs font-bold text-gray-400 mb-2">Platform Browser Title:</label>
+                        <input name="platformTitle" defaultValue={settings.platformTitle || ''} className="w-full px-4 py-2 rounded-xl border border-gray-200 text-sm focus:ring-1 focus:ring-indigo-500 outline-none bg-white" placeholder="e.g. ShopMaster - Dashboard" />
                     </div>
                   </div>
                 </div>
+
+                {isBrandingAuthorized && (
+                  <div className="bg-gray-50/50 p-6 rounded-3xl border border-gray-100">
+                    <label className="block text-xs font-black text-gray-500 uppercase tracking-wider mb-2">Receipt Footer Text</label>
+                    <textarea 
+                      name="receiptFooter" 
+                      defaultValue={settings.receiptFooter || "Thank you for shopping with us!\nPowered by ShopMaster"} 
+                      className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-indigo-500 outline-none bg-white h-24"
+                    />
+                  </div>
+                )}
               </div>
 
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">Phone Number</label>
-                <input name="phone" defaultValue={settings.phone || ''} className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-indigo-500 outline-none" />
-              </div>
-              <div className="md:col-span-2">
-                <label className="block text-sm font-medium text-gray-700 mb-2">Address</label>
-                <textarea name="address" defaultValue={settings.address || ''} required className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-indigo-500 outline-none h-24" />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">Logo URL (Optional)</label>
-                <input name="logoUrl" defaultValue={settings.logoUrl || ''} className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-indigo-500 outline-none" placeholder="https://..." />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">WhatsApp Sender Number (Optional)</label>
-                <input name="whatsappSender" defaultValue={settings.whatsappSender || ''} className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-indigo-500 outline-none" placeholder="88017..." />
-              </div>
-              <div className="bg-indigo-50 p-6 rounded-2xl border border-indigo-100 space-y-4">
-                <h4 className="font-bold text-indigo-900 flex items-center gap-2">
-                  <Info className="w-5 h-5" />
-                  Free Automation Guide (বিনা খরচে অটোমেশন)
-                </h4>
-                <div className="space-y-4 text-sm text-indigo-800">
-                  <div className="bg-white/50 p-3 rounded-lg border border-indigo-100">
-                    <p className="font-bold mb-1">১. মেটা ক্লাউড এপিআই (Official Free):</p>
-                    <p className="text-xs">মেটার নিজস্ব সার্ভিস। মাসে ১,০০০ মেসেজ ফ্রি। সেটআপ করতে <a href="https://developers.facebook.com/" target="_blank" className="underline text-indigo-600 font-bold">Meta Developers</a> এ যান।</p>
+              {/* SECTION: LOCALIZATION */}
+              <div className="space-y-6">
+                <div className="border-b border-gray-100 pb-4">
+                  <h4 className="text-lg font-black text-gray-900">Localization & Preferences</h4>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+                  <div className="bg-gray-50/50 p-5 rounded-2xl border border-gray-100">
+                    <label className="block text-[11px] font-black text-gray-500 uppercase tracking-wider mb-2">System Language</label>
+                    <select name="systemLanguage" defaultValue={settings.systemLanguage || 'bn'} className="w-full px-4 py-3 rounded-xl border border-gray-200 font-bold focus:ring-2 focus:ring-indigo-500 outline-none bg-white appearance-none">
+                      <option value="bn">Bengali (বাংলা)</option>
+                      <option value="en">English (English)</option>
+                      <option value="ar">Arabic (العربية)</option>
+                    </select>
                   </div>
-                  <div className="bg-white/50 p-3 rounded-lg border border-indigo-100">
-                    <p className="font-bold mb-1">২. নিজের ফোন ব্যবহার (Self-Hosted):</p>
-                    <p className="text-xs">আপনার অ্যান্ড্রয়েড ফোনে "WhatsApp Gateway" অ্যাপ ব্যবহার করে আপনার নাম্বার থেকেই অটোমেটিক মেসেজ পাঠাতে পারবেন।</p>
+                  <div className="bg-gray-50/50 p-5 rounded-2xl border border-gray-100">
+                    <label className="block text-[11px] font-black text-gray-500 uppercase tracking-wider mb-2">Print Language</label>
+                    <select name="printLanguage" defaultValue={settings.printLanguage || 'bn'} className="w-full px-4 py-3 rounded-xl border border-gray-200 font-bold focus:ring-2 focus:ring-indigo-500 outline-none bg-white appearance-none">
+                      <option value="bn">Bengali (বাংলা)</option>
+                      <option value="en">English (English)</option>
+                      <option value="ar">Arabic (العربية)</option>
+                    </select>
+                  </div>
+                  <div className="bg-gray-50/50 p-5 rounded-2xl border border-gray-100">
+                    <label className="block text-[11px] font-black text-gray-500 uppercase tracking-wider mb-2">Currency Symbol</label>
+                    <input name="currencySymbol" defaultValue={settings.currencySymbol || 'TK'} className="w-full px-4 py-3 rounded-xl border border-gray-200 font-black text-center focus:ring-2 focus:ring-indigo-500 outline-none bg-white" placeholder="TK, $, SAR" />
+                  </div>
+                  <div className="bg-gray-50/50 p-5 rounded-2xl border border-gray-100">
+                    <label className="block text-[11px] font-black text-gray-500 uppercase tracking-wider mb-2">AI Output Language</label>
+                    <select name="jarvisLanguage" defaultValue={settings.jarvisLanguage || 'bn'} className="w-full px-4 py-3 rounded-xl border border-gray-200 font-bold focus:ring-2 focus:ring-indigo-500 outline-none bg-white appearance-none">
+                      <option value="bn">Bengali</option>
+                      <option value="en">English</option>
+                    </select>
                   </div>
                 </div>
               </div>
 
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">Print Language (প্রিন্টিং ভাষা)</label>
-                <select name="printLanguage" defaultValue={settings.printLanguage || 'bn'} className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-indigo-500 outline-none">
-                  <option value="bn">Bengali (বাংলা)</option>
-                  <option value="en">English (English)</option>
-                  <option value="ar">Arabic (العربية)</option>
-                </select>
-              </div>
 
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">System Language (সিস্টেম ভাষা)</label>
-                <select name="systemLanguage" defaultValue={settings.systemLanguage || 'bn'} className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-indigo-500 outline-none">
-                  <option value="bn">Bengali (বাংলা)</option>
-                  <option value="en">English (English)</option>
-                  <option value="ar">Arabic (العربية)</option>
-                </select>
-              </div>
 
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">Currency Symbol (কারেন্সি সিম্বল)</label>
-                <input name="currencySymbol" defaultValue={settings.currencySymbol || 'TK'} className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-indigo-500 outline-none" placeholder="e.g. TK, $, SAR" />
-              </div>
 
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">AI Assistant Language</label>
-                <select name="jarvisLanguage" defaultValue={settings.jarvisLanguage || 'bn'} className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-indigo-500 outline-none">
-                  <option value="bn">Bengali (বাংলা)</option>
-                  <option value="en">English (English)</option>
-                </select>
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">AI Assistant Voice</label>
-                <select name="jarvisVoiceGender" defaultValue={settings.jarvisVoiceGender || 'male'} className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-indigo-500 outline-none">
-                  <option value="male">Male</option>
-                  <option value="female">Female</option>
-                </select>
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">WhatsApp Sending Method</label>
-                <select name="waGatewayType" defaultValue={settings.waGatewayType || 'manual'} className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-indigo-500 outline-none">
-                  <option value="manual">Manual (Free, requires 1-Click)</option>
-                  <option value="metacloud">Meta Cloud API (Official, 1000 Free/Month, Automatic)</option>
-                  <option value="generic">Third-Party Gateway (Paid, Automatic)</option>
-                </select>
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">WhatsApp API Token / Key</label>
-                <p className="text-[10px] text-gray-400 mb-2">Access Token for Meta or Token for Gateway</p>
-                <input name="waToken" defaultValue={settings.waToken} className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-indigo-500 outline-none" />
-              </div>
-              
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">WhatsApp Phone Number ID (Meta) / Instance ID (Generic)</label>
-                <input name="waPhoneNumberId" placeholder="Phone Number ID (Meta)" defaultValue={settings.waPhoneNumberId} className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-indigo-500 outline-none mb-2" />
-                <input name="waInstanceId" placeholder="Instance ID (Generic)" defaultValue={settings.waInstanceId} className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-indigo-500 outline-none" />
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">WhatsApp Template (English)</label>
-                <textarea 
-                  name="waTemplateEnglish" 
-                  defaultValue={settings.waTemplateEnglish || ""} 
-                  className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-indigo-500 outline-none h-24"
-                  placeholder="Use {{customerName}}, {{shopName}}, {{invoiceId}}, {{totalAmount}}, {{discount}}, {{paidAmount}}, {{dueAmount}}, {{items}}"
-                />
-                <p className="text-xs text-gray-400 mt-1">Available: {"{{customerName}}, {{shopName}}, {{invoiceId}}, {{totalAmount}}, {{discount}}, {{paidAmount}}, {{dueAmount}}, {{items}}"}</p>
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">WhatsApp Template (Bengali)</label>
-                <textarea 
-                  name="waTemplateBengali" 
-                  defaultValue={settings.waTemplateBengali || ""} 
-                  className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-indigo-500 outline-none h-24"
-                  placeholder="Use {{customerName}}, {{shopName}}, {{invoiceId}}, {{totalAmount}}, {{discount}}, {{paidAmount}}, {{dueAmount}}, {{items}}"
-                />
-                <p className="text-xs text-gray-400 mt-1">Available: {"{{customerName}}, {{shopName}}, {{invoiceId}}, {{totalAmount}}, {{discount}}, {{paidAmount}}, {{dueAmount}}, {{items}}"}</p>
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Receipt Footer Text</label>
-                <textarea 
-                  name="receiptFooter" 
-                  defaultValue={settings.receiptFooter || "Thank you for shopping with us!\nPowered by ShopMaster"} 
-                  className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-indigo-500 outline-none h-24"
-                  placeholder="Enter custom text for invoice bottom..."
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">API URL (Generic Only)</label>
-                <input name="waApiUrl" defaultValue={settings.waApiUrl || ''} className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-indigo-500 outline-none" placeholder="https://..." />
-              </div>
-              <div className="flex items-center gap-3">
-                <input 
-                  type="checkbox" 
-                  name="autoSendWhatsApp" 
-                  id="autoSendWhatsApp"
-                  defaultChecked={settings.autoSendWhatsApp} 
-                  className="w-5 h-5 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500" 
-                />
-                <label htmlFor="autoSendWhatsApp" className="text-sm font-bold text-gray-700">Enable Fully Automatic WhatsApp Invoicing</label>
-              </div>
-              <div className="flex items-center gap-3">
-                <input 
-                  type="checkbox" 
-                  name="aiWhatsAppEnabled" 
-                  id="aiWhatsAppEnabled"
-                  defaultChecked={settings.aiWhatsAppEnabled} 
-                  className="w-5 h-5 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500" 
-                />
-                <label htmlFor="aiWhatsAppEnabled" className="text-sm font-bold text-gray-700">Use Gemini API for Personalized Messages</label>
-              </div>
-              <div className="md:col-span-2 flex items-center justify-between bg-gray-50 p-6 rounded-2xl border border-gray-100">
-                <div>
-                  <h4 className="font-bold text-gray-900">Test Your Setup</h4>
-                  <p className="text-xs text-gray-500">Send a test message to verify your settings.</p>
+               {/* SECTION: HARDWARE */}
+              <div className="space-y-6">
+                <div className="border-b border-gray-100 pb-4">
+                  <h4 className="text-lg font-black text-gray-900">Hardware Compatibility</h4>
                 </div>
-                <button 
-                  type="button"
-                  onClick={() => testWhatsAppConnection(settings)}
-                  className="px-6 py-2 bg-white text-indigo-600 font-bold rounded-xl border border-indigo-100 hover:bg-indigo-50 transition-all shadow-sm flex items-center gap-2"
-                >
-                  <Send className="w-4 h-4" />
-                  Send Test Message
-                </button>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6 bg-gray-50/50 p-6 rounded-3xl border border-gray-100">
+                    <div>
+                      <label className="block text-xs font-black text-gray-500 uppercase tracking-wider mb-2">Receipt Printer Width</label>
+                      <select name="receiptWidth" defaultValue={settings.receiptWidth || '58mm'} className="w-full px-4 py-3 rounded-xl border border-gray-200 font-bold focus:ring-2 focus:ring-indigo-500 outline-none bg-white">
+                        <option value="58mm">58mm (Small Thermal)</option>
+                        <option value="80mm">80mm (Large Thermal)</option>
+                      </select>
+                    </div>
+                </div>
               </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">Receipt Width</label>
-                <select name="receiptWidth" defaultValue={settings.receiptWidth || '58mm'} className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-indigo-500 outline-none">
-                  <option value="58mm">58mm (Small Thermal)</option>
-                  <option value="80mm">80mm (Large Thermal)</option>
-                </select>
-              </div>
-            </div>
-            <button type="submit" disabled={isSaving} className="px-8 py-3 bg-indigo-600 text-white font-bold rounded-xl hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-100 flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed">
-              {isSaving ? <Loader2 className="w-5 h-5 animate-spin" /> : <Save className="w-5 h-5" />}
-              {isSaving ? 'Updating...' : 'Update Settings'}
-            </button>
             </fieldset>
+            
+            <div className="flex justify-end pt-8">
+                <button type="submit" disabled={isSaving || !isAuthorized} className="px-8 py-3 bg-indigo-600 text-white font-bold rounded-xl shadow-lg hover:bg-indigo-700 transition-all shadow-indigo-100 flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed">
+                  {isSaving ? <Loader2 className="w-5 h-5 animate-spin" /> : <Save className="w-5 h-5" />}
+                  {isSaving ? 'Updating Profile...' : 'Update Shop Profile'}
+                </button>
+            </div>
           </form>
         </div>
       )}
@@ -2497,32 +2559,64 @@ function SettingsPanel({
             <form onSubmit={handleUserSubmit} className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 items-end">
               <fieldset disabled={!isAuthorized} className="contents">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Full Name</label>
-                <input name="displayName" required className="w-full px-4 py-2 rounded-xl border border-gray-200 focus:ring-2 focus:ring-indigo-500 outline-none text-sm" />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">Username</label>
-                <input name="username" required className="w-full px-4 py-2 rounded-xl border border-gray-200 focus:ring-2 focus:ring-indigo-500 outline-none text-sm" />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">Password</label>
-                <input name="password" type="password" required className="w-full px-4 py-2 rounded-xl border border-gray-200 focus:ring-2 focus:ring-indigo-500 outline-none text-sm" />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">Role</label>
-                <select name="role" required className="w-full px-4 py-2 rounded-xl border border-gray-200 focus:ring-2 focus:ring-indigo-500 outline-none text-sm">
-                  <option value="manager">Manager</option>
-                  <option value="assistant_manager">Assistant Manager</option>
-                  <option value="sales_manager">Sales Manager</option>
-                  <option value="sales_team">Sales Team</option>
-                </select>
-              </div>
-              <div className="lg:col-span-4 flex justify-end">
-                <button type="submit" className="px-6 py-2 bg-indigo-600 text-white font-bold rounded-xl hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-100 flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed">
-                  <Plus className="w-4 h-4" />
-                  Add User
-                </button>
-              </div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Full/Staff Name</label>
+                  <input 
+                    name="displayName" 
+                    value={newDisplayName}
+                    onChange={(e) => setNewDisplayName(e.target.value)}
+                    placeholder="e.g. Karim Uddin"
+                    required 
+                    className="w-full px-4 py-2 rounded-xl border border-gray-200 focus:ring-2 focus:ring-indigo-500 outline-none text-sm" 
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Auto-Created Username</label>
+                  <input 
+                    name="username" 
+                    type="text"
+                    disabled
+                    placeholder="Will auto-generate..."
+                    value={generatedUsername}
+                    className="w-full px-4 py-2 rounded-xl border border-gray-200 bg-gray-50 text-indigo-700 font-black outline-none text-sm font-mono cursor-not-allowed" 
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">6-Digit Password</label>
+                  <input 
+                    name="password" 
+                    type="text"
+                    pattern="[0-9]{6}"
+                    maxLength={6}
+                    minLength={6}
+                    value={newPassword}
+                    onChange={(e) => setNewPassword(e.target.value.replace(/\D/g, ''))}
+                    placeholder="6 digits (e.g. 123456)"
+                    required 
+                    className="w-full px-4 py-2 rounded-xl border border-gray-200 focus:ring-2 focus:ring-indigo-500 outline-none text-sm font-mono" 
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Role</label>
+                  <select 
+                    name="role" 
+                    value={newRole}
+                    onChange={(e) => setNewRole(e.target.value as UserRole)}
+                    required 
+                    className="w-full px-4 py-2 rounded-xl border border-gray-200 focus:ring-2 focus:ring-indigo-500 outline-none text-sm"
+                  >
+                    <option value="manager">Manager</option>
+                    <option value="assistant_manager">Assistant Manager</option>
+                    <option value="sales_manager">Sales Manager</option>
+                    <option value="sales_team">Sales Team</option>
+                    <option value="warehouse">Warehouse</option>
+                  </select>
+                </div>
+                <div className="lg:col-span-4 flex justify-end">
+                  <button type="submit" className="px-6 py-2 bg-indigo-600 text-white font-bold rounded-xl hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-100 flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed">
+                    <Plus className="w-4 h-4" />
+                    Add User
+                  </button>
+                </div>
               </fieldset>
             </form>
           </div>
@@ -2531,8 +2625,10 @@ function SettingsPanel({
             <table className="w-full text-left">
               <thead className="bg-gray-50 border-b border-gray-100">
                 <tr>
-                  <th className="px-6 py-4 text-sm font-semibold text-gray-600">User</th>
-                  <th className="px-6 py-4 text-sm font-semibold text-gray-600">Username</th>
+                  <th className="px-6 py-4 text-sm font-semibold text-gray-600">User / Staff Name</th>
+                  <th className="px-6 py-4 text-sm font-semibold text-gray-600">Login Username</th>
+                  <th className="px-6 py-4 text-sm font-semibold text-gray-600">Shop Code</th>
+                  <th className="px-6 py-4 text-sm font-semibold text-gray-600">Password</th>
                   <th className="px-6 py-4 text-sm font-semibold text-gray-600">Role</th>
                   <th className="px-6 py-4 text-sm font-semibold text-gray-600 text-right">Actions</th>
                 </tr>
@@ -2541,7 +2637,69 @@ function SettingsPanel({
                 {users.map(u => (
                   <tr key={u.id}>
                     <td className="px-6 py-4 font-medium text-gray-900">{u.displayName}</td>
-                    <td className="px-6 py-4 text-gray-600">{u.username}</td>
+                    <td className="px-6 py-4 text-gray-600 font-mono text-sm">{u.username}</td>
+                    <td className="px-6 py-4 text-gray-600 font-mono text-sm">{settings.shopCode || "N/A"}</td>
+                    <td className="px-6 py-4">
+                      {editingUserId === u.id ? (
+                        <div className="flex items-center gap-2">
+                          <input 
+                            type="text" 
+                            pattern="[0-9]{6}"
+                            maxLength={6}
+                            minLength={6}
+                            value={editingPassword}
+                            onChange={(e) => setEditingPassword(e.target.value.replace(/\D/g, ''))}
+                            className="w-24 px-2 py-1 rounded border border-indigo-300 focus:ring-2 focus:ring-indigo-500 outline-none text-xs font-mono"
+                          />
+                          <button
+                            onClick={async () => {
+                              if (editingPassword.length !== 6 || !/^\d+$/.test(editingPassword)) {
+                                alert("Password must be exactly 6 digits.");
+                                return;
+                              }
+                              if (onUpdateUser) {
+                                await onUpdateUser(u.id, { password: editingPassword });
+                              }
+                              setEditingUserId(null);
+                            }}
+                            className="px-2 py-1 bg-green-600 text-white text-xs font-bold rounded hover:bg-green-700 transition-colors"
+                          >
+                            Save
+                          </button>
+                          <button
+                            onClick={() => setEditingUserId(null)}
+                            className="px-2 py-1 bg-gray-200 text-gray-700 text-xs font-bold rounded hover:bg-gray-300 transition-colors"
+                          >
+                            Cancel
+                          </button>
+                        </div>
+                      ) : (
+                        <div className="flex items-center gap-2">
+                          <span className="font-mono text-sm tracking-widest bg-gray-50 px-2 py-1 rounded border border-gray-100 min-w-[70px] inline-block text-center">
+                            {showPasswords[u.id] ? u.password : '••••••'}
+                          </span>
+                          <button 
+                            type="button"
+                            onClick={() => setShowPasswords(prev => ({ ...prev, [u.id]: !prev[u.id] }))}
+                            className="text-gray-400 hover:text-gray-600 p-1"
+                            title="Toggle Password Visibility"
+                          >
+                            {showPasswords[u.id] ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                          </button>
+                          <button 
+                            type="button"
+                            onClick={() => {
+                              setEditingUserId(u.id);
+                              setEditingPassword(u.password);
+                            }}
+                            className="text-gray-400 hover:text-indigo-600 p-1"
+                            title="Change Password"
+                          >
+                            <Pencil className="w-4 h-4" />
+                          </button>
+                        </div>
+                      )}
+                    </td>
                     <td className="px-6 py-4">
                       <span className="px-3 py-1 bg-indigo-50 text-indigo-600 rounded-full text-xs font-bold uppercase">
                         {u.role.replace('_', ' ')}
@@ -3177,7 +3335,142 @@ function ShopManagement({ shops }: { shops: any[] }) {
   );
 }
 
+const PlaceholderView = ({ title }: { title: string }) => (
+  <div className="flex flex-col items-center justify-center min-h-[500px] p-8 bg-white dark:bg-slate-900 rounded-3xl border border-gray-100 dark:border-slate-800 shadow-sm mt-4">
+    <div className="w-24 h-24 mb-6 relative">
+      <div className="absolute inset-0 bg-indigo-100 dark:bg-indigo-900/30 rounded-full animate-ping opacity-75"></div>
+      <div className="relative w-full h-full bg-gradient-to-tr from-indigo-500 to-purple-500 rounded-full flex items-center justify-center shadow-lg shadow-indigo-200 dark:shadow-none">
+        <LayoutDashboard className="w-10 h-10 text-white" />
+      </div>
+    </div>
+    <h2 className="text-3xl font-black text-gray-900 dark:text-gray-100 tracking-tight mb-3 text-center">{title}</h2>
+    <p className="text-gray-500 dark:text-gray-400 max-w-md text-center text-sm font-medium leading-relaxed">
+      This section is currently under development. Soon you'll have access to powerful new features and insights here.
+    </p>
+    <button onClick={() => window.dispatchEvent(new CustomEvent('navToDefault'))} className="mt-8 px-6 py-2.5 bg-indigo-50 dark:bg-slate-800 text-indigo-600 dark:text-indigo-400 font-bold text-sm rounded-xl hover:bg-indigo-100 dark:hover:bg-slate-700 transition-colors">
+      Go Back to POS
+    </button>
+  </div>
+);
+
+const SidebarNavItem = ({ item, idx, activeTab, setActiveTab, setIsSidebarOpen, isDesktop, user, isMasterAdmin }: any) => {
+  const visibleSubItems = item.subItems 
+    ? item.subItems.filter((subItem: any) => {
+        if (subItem.emailScope) return user?.email?.toLowerCase().trim() === subItem.emailScope.toLowerCase().trim();
+        return (user && user.role && subItem.roles && subItem.roles.includes(user.role)) || (subItem.id === 'shops' && isMasterAdmin);
+      })
+    : [];
+
+  const hasSubItems = visibleSubItems.length > 0;
+  const isChildActive = hasSubItems && visibleSubItems.some((s: any) => s.id === activeTab);
+  const isSelfActive = activeTab === item.id;
+  const isExpandedInitially = isSelfActive || isChildActive;
+  const [isExpanded, setIsExpanded] = useState(isExpandedInitially);
+
+  useEffect(() => {
+    if (isSelfActive || isChildActive) {
+      setIsExpanded(true);
+    }
+  }, [isSelfActive, isChildActive]);
+
+  const toggleExpand = (e: any) => {
+    e.stopPropagation();
+    setIsExpanded(!isExpanded);
+  };
+
+  const handleClick = () => {
+    if (hasSubItems && !isSelfActive) {
+        setIsExpanded(true);
+    } else if (hasSubItems && isSelfActive) {
+        setIsExpanded(!isExpanded);
+    }
+    setActiveTab(item.id);
+    if (!isDesktop && !hasSubItems) {
+      setIsSidebarOpen(false);
+    }
+  };
+
+  const bgClass = item.bg || 'bg-indigo-50';
+  const colorClass = item.color || 'text-indigo-600';
+  const borderClass = item.border || 'border-indigo-100';
+
+  return (
+    <div className="flex flex-col w-full relative">
+      <motion.button
+        initial={{ x: -20, opacity: 0 }}
+        animate={{ x: 0, opacity: 1 }}
+        transition={{ delay: idx * 0.02, ease: "easeOut" }}
+        whileHover={{ x: 6, scale: 1.01 }}
+        whileTap={{ scale: 0.98 }}
+        onClick={handleClick}
+        className={`w-full flex items-center justify-between group px-4 py-3 rounded-2xl transition-all duration-300 relative overflow-hidden ${
+          isSelfActive                
+            ? `${bgClass} dark:bg-indigo-950/40 dark:text-indigo-300 ${colorClass} shadow-sm ring-1 ${borderClass} dark:ring-indigo-900/40 dark:border-indigo-900/40` 
+            : 'text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-slate-800 hover:text-gray-900 dark:hover:text-gray-100 hover:shadow-md hover:-translate-y-0.5 border border-transparent hover:border-gray-100 dark:hover:border-slate-800'
+        }`}
+      >
+        <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/40 dark:via-white/5 to-transparent -translate-x-full group-hover:translate-x-full transition-transform duration-700 ease-in-out"></div>
+        <div className="flex items-center justify-between gap-3 relative z-10 w-full">
+          <div className="flex items-center gap-3">
+            <div className={`p-2 rounded-xl transition-all duration-300 shadow-sm ${
+              isSelfActive ? 'bg-white dark:bg-slate-800' : `bg-gray-50/50 dark:bg-slate-950/40 group-hover:bg-white dark:group-hover:bg-slate-800 group-hover:${bgClass}`
+            }`}>
+              <item.icon className={`w-4 h-4 transition-transform duration-300 group-hover:scale-110 ${isSelfActive ? `${colorClass} dark:text-indigo-400` : `text-gray-400 dark:text-gray-500 group-hover:${colorClass} dark:group-hover:text-gray-300`}`} />
+            </div>
+            <span className={`text-[13px] font-bold tracking-tight transition-colors duration-300 ${isSelfActive ? '' : `group-hover:${colorClass}`}`}>{item.label}</span>
+          </div>
+          {hasSubItems && (
+            <div onClick={toggleExpand} className="p-1.5 rounded-lg hover:bg-black/5 dark:hover:bg-white/10 transition-colors ml-2 z-20 flex items-center justify-center">
+               <ChevronRight className={`w-4 h-4 text-gray-400 transition-transform duration-300 ${isExpanded ? 'rotate-90' : ''}`} />
+            </div>
+          )}
+        </div>
+        {isSelfActive && (
+          <motion.div 
+            layoutId="active-indicator"
+            className={`absolute right-0 top-1/2 -translate-y-1/2 w-1.5 h-8 rounded-l-full ${bgClass.replace('bg-', 'bg-').replace('-50', '-500')} dark:bg-indigo-500`}
+          />
+        )}
+      </motion.button>
+      
+      {hasSubItems && (
+        <AnimatePresence>
+          {isExpanded && (
+            <motion.div
+              initial={{ height: 0, opacity: 0 }}
+              animate={{ height: 'auto', opacity: 1 }}
+              exit={{ height: 0, opacity: 0 }}
+              className="overflow-hidden space-y-1 mt-1 ml-[1.6rem] pl-4 border-l-2 border-slate-100 dark:border-slate-800"
+            >
+               {visibleSubItems.map((subItem: any, subIdx: number) => {
+                  const isSubActive = activeTab === subItem.id;
+                  return (
+                    <motion.button 
+                       key={subItem.id} 
+                       initial={{ opacity: 0, x: -10 }}
+                       animate={{ opacity: 1, x: 0 }}
+                       transition={{ delay: subIdx * 0.05 }}
+                       onClick={() => { 
+                         setActiveTab(subItem.id); 
+                         if(!isDesktop) setIsSidebarOpen(false); 
+                       }} 
+                       className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all duration-200 text-[12.5px] font-semibold tracking-wide ${isSubActive ? `${subItem.bg} ${subItem.color} dark:bg-slate-800/80` : 'text-gray-500 hover:text-gray-900 hover:bg-gray-50 dark:hover:bg-slate-800/50 dark:text-gray-400 dark:hover:text-gray-100'}`}
+                    >
+                      <subItem.icon className={`w-3.5 h-3.5 ${isSubActive ? subItem.color : 'text-gray-400 group-hover:text-gray-500 dark:text-slate-500'}`} />
+                      {subItem.label}
+                    </motion.button>
+                  );
+               })}
+            </motion.div>
+          )}
+        </AnimatePresence>
+      )}
+    </div>
+  );
+};
+
 export default function App() {
+  console.log("App component rendered");
   const [darkMode, setDarkMode] = useState<boolean>(() => {
     try {
       const saved = localStorage.getItem('theme_dark');
@@ -3202,6 +3495,12 @@ export default function App() {
       console.error('Error synchronizing dark mode class', e);
     }
   }, [darkMode]);
+
+  useEffect(() => {
+    const handleNavToDefault = () => setActiveTab('pos');
+    window.addEventListener('navToDefault', handleNavToDefault);
+    return () => window.removeEventListener('navToDefault', handleNavToDefault);
+  }, []);
 
   useEffect(() => {
     console.log("ShopMaster App Initializing...");
@@ -3431,7 +3730,31 @@ export default function App() {
   const [editingSale, setEditingSale] = useState<Sale | null>(null);
   const [isScannerOpen, setIsScannerOpen] = useState(false);
   const [scannerMode, setScannerMode] = useState<'cart' | 'product'>('cart');
-  const [notification, setNotification] = useState<{ message: string, type: 'success' | 'error' | 'info' } | null>(null);
+  const [systemNotifications, setSystemNotifications] = useState<Array<{ id: string; title: string; time: string; read: boolean; type: 'info' | 'success' | 'warning' | 'error' }>>([
+    { id: '1', title: 'System initialized and online', time: 'Just now', read: false, type: 'success' },
+    { id: '2', title: 'Database synchronized', time: '5 mins ago', read: false, type: 'info' },
+    { id: '3', title: 'Welcome to your shop management center', time: '10 mins ago', read: true, type: 'info' }
+  ]);
+  const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
+
+  const addSystemNotification = (message: string, type: 'success' | 'error' | 'info' | 'warning' = 'info') => {
+    const newNotif = {
+      id: Date.now().toString(),
+      title: message,
+      time: 'Just now',
+      read: false,
+      type
+    };
+    setSystemNotifications(prev => [newNotif, ...prev.slice(0, 19)]);
+  };
+
+  const [notification, setNotificationState] = useState<{ message: string, type: 'success' | 'error' | 'info' } | null>(null);
+  const setNotification = (notif: any) => {
+    setNotificationState(notif);
+    if (notif) {
+      addSystemNotification(notif.message, notif.type === 'info' ? 'info' : notif.type === 'error' ? 'error' : 'success');
+    }
+  };
   const [isCheckingOut, setIsCheckingOut] = useState(false);
   const [isSavingSettings, setIsSavingSettings] = useState(false);
   const [isSavingProduct, setIsSavingProduct] = useState(false);
@@ -3467,6 +3790,7 @@ export default function App() {
   // Auth Form State
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
+  const [showLoginPassword, setShowLoginPassword] = useState(false);
   const [loginShopCode, setLoginShopCode] = useState('');
   const [authError, setAuthError] = useState<string | null>(null);
   const [blockedShopInfo, setBlockedShopInfo] = useState<{ name?: string, shopCode?: string } | null>(null);
@@ -3725,6 +4049,10 @@ export default function App() {
         name: formData.name,
         address: formData.address,
         phone: formData.phone,
+        ownerName: formData.ownerName || '',
+        nidNumber: formData.nidNumber || '',
+        tradeLicenseNumber: formData.tradeLicenseNumber || '',
+        tradeLicenseExpiry: formData.tradeLicenseExpiry || '',
         logoUrl: formData.logo,
         type: formData.type,
         domain: formData.domain
@@ -4911,27 +5239,41 @@ export default function App() {
   };
 
   const handleSaveSettings = async (newSettings: ShopSettings) => {
-    if (user?.email !== 'stratproamz@gmail.com') {
-      setNotification({ message: 'Error: Only Master Admin is authorized to change or update settings.', type: 'error' });
+    if (!user || !user.shopId) {
+      setNotification({ message: 'Error: No Shop ID found', type: 'error' });
+      return;
+    }
+    const isMaster = user.email?.toLowerCase().trim() === 'stratproamz@gmail.com';
+    const userRole = (user.role || '').toLowerCase().trim();
+    if (userRole !== 'admin' && userRole !== 'owner' && !isMaster) {
+      setNotification({ message: 'Error: Only Shop Admins/Owners are authorized to change or update settings.', type: 'error' });
       return;
     }
     setIsSavingSettings(true);
     try {
-      if (!user || !user.shopId) throw new Error("No shopId found");
-      
-      // Update global shop overview for master admin
+      // Security measure: Protect original shopCode and ownerEmail for non-master admins
+      const isMaster = user.email?.toLowerCase().trim() === 'stratproamz@gmail.com';
+      const finalShopCode = isMaster ? (newSettings.shopCode || shopSettings.shopCode || '') : (shopSettings.shopCode || '');
+      const finalOwnerEmail = isMaster ? (user.email || '') : (shopSettings.ownerEmail || user.email || '');
+
+      // Update global shop overview for master admin or merchant themselves
       const shopRef = doc(db, 'shops', user.shopId);
       await setDoc(shopRef, {
         name: newSettings.name || 'Unnamed',
         address: newSettings.address || '',
         phone: newSettings.phone || '',
-        shopCode: newSettings.shopCode || '',
-        ownerEmail: user.email || '',
+        shopCode: finalShopCode,
+        ownerEmail: finalOwnerEmail,
         updatedAt: serverTimestamp()
       }, { merge: true });
 
       // Update shop-specific settings
-      const payload: any = { ...newSettings, shopId: user.shopId };
+      const payload: any = { 
+        ...newSettings, 
+        shopCode: finalShopCode,
+        ownerEmail: finalOwnerEmail,
+        shopId: user.shopId 
+      };
       Object.keys(payload).forEach(key => {
         if (payload[key] === undefined) {
           delete payload[key];
@@ -4949,8 +5291,8 @@ export default function App() {
   };
 
   const handleAddUser = async (newUser: Omit<AppUser, 'id'>) => {
-    if (user?.email !== 'stratproamz@gmail.com') {
-      setNotification({ message: 'Error: Only Master Admin is authorized to add users.', type: 'error' });
+    if (!user || user.role !== 'admin') {
+      setNotification({ message: 'Error: Only Shop Admins/Owners are authorized to add users.', type: 'error' });
       return;
     }
     if (!user?.shopId) return;
@@ -4985,8 +5327,8 @@ export default function App() {
   };
 
   const handleDeleteUser = async (userId: string) => {
-    if (user?.email !== 'stratproamz@gmail.com') {
-      setNotification({ message: 'Error: Only Master Admin is authorized to delete users.', type: 'error' });
+    if (!user || user.role !== 'admin') {
+      setNotification({ message: 'Error: Only Shop Admins/Owners are authorized to delete users.', type: 'error' });
       return;
     }
     try {
@@ -4998,6 +5340,45 @@ export default function App() {
       setNotification({ message: 'User moved to Recycle Bin', type: 'success' });
     } catch (error) {
       handleFirestoreError(error, OperationType.DELETE, 'users');
+    }
+  };
+
+  const handleUpdateUser = async (userId: string, updatedFields: Partial<AppUser>) => {
+    if (!user || user.role !== 'admin') {
+      setNotification({ message: 'Error: Only Shop Admins/Owners are authorized to edit users.', type: 'error' });
+      return;
+    }
+    try {
+      const userToUpdate = appUsers.find(u => u.id === userId);
+      if (!userToUpdate) return;
+
+      // Update in Firestore
+      await updateDoc(doc(db, 'users', userId), updatedFields);
+
+      // Try syncing Auth if password changed
+      if (updatedFields.password && updatedFields.password !== userToUpdate.password) {
+        try {
+          const email = `${userToUpdate.username}@bismillahstore.local`;
+          const userCredential = await signInWithEmailAndPassword(secondaryAuth, email, userToUpdate.password);
+          if (userCredential.user) {
+            await userCredential.user.delete();
+            await createUserWithEmailAndPassword(secondaryAuth, email, updatedFields.password);
+          }
+        } catch (authErr) {
+          console.warn("Could not update auth credentials, attempting recreation directly:", authErr);
+          try {
+            const email = `${userToUpdate.username}@bismillahstore.local`;
+            await createUserWithEmailAndPassword(secondaryAuth, email, updatedFields.password);
+          } catch (recreateErr) {
+            console.warn("Auth recreation fallback failed:", recreateErr);
+          }
+        }
+      }
+
+      setNotification({ message: 'User updated successfully', type: 'success' });
+    } catch (error) {
+      handleFirestoreError(error, OperationType.WRITE, 'users');
+      setNotification({ message: 'Failed to update user', type: 'error' });
     }
   };
 
@@ -5362,7 +5743,7 @@ export default function App() {
                           </div>
                           
                           <div className="space-y-1">
-                            <span className="block text-[9px] text-slate-400 font-bold uppercase tracking-wider pl-1">দোকানের নাম</span>
+                            <span className="block text-[9px] text-slate-400 font-bold uppercase tracking-wider pl-1 font-sans">দোকানের নাম</span>
                             <span className="font-sans text-xs font-bold text-slate-200 truncate bg-white/5 px-2 py-2 rounded-xl border border-white/10 block text-center shadow-sm select-all">
                               {blockedShopInfo?.name || 'Store / Merchant'}
                             </span>
@@ -5520,7 +5901,7 @@ export default function App() {
                                 type="text" 
                                 required 
                                 className="w-full pl-12 pr-4 py-4 rounded-2xl bg-gray-50 border-2 border-transparent focus:border-indigo-600 focus:bg-white transition-all outline-none text-gray-900 font-medium"
-                                placeholder="username"
+                                placeholder="e.g. jamil"
                                 value={username}
                                 onChange={(e) => setUsername(e.target.value)}
                               />
@@ -5528,14 +5909,14 @@ export default function App() {
                           </div>
 
                           <div className="space-y-2">
-                            <label className="text-sm font-bold text-gray-700 ml-1 uppercase tracking-tight">{st('password')}</label>
+                            <label className="text-sm font-bold text-gray-700 ml-1 uppercase tracking-tight">{st('password') || 'Password'}</label>
                             <div className="relative group">
                               <Lock className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400 group-focus-within:text-indigo-600 transition-colors" />
                               <input 
                                 type="password" 
                                 required 
                                 className="w-full pl-12 pr-4 py-4 rounded-2xl bg-gray-50 border-2 border-transparent focus:border-indigo-600 focus:bg-white transition-all outline-none text-gray-900 font-medium"
-                                placeholder="password"
+                                placeholder="••••••••"
                                 value={password}
                                 onChange={(e) => setPassword(e.target.value)}
                               />
@@ -5543,22 +5924,14 @@ export default function App() {
                           </div>
 
                           {authError && (
-                            <motion.div 
-                              initial={{ opacity: 0, height: 0 }}
-                              animate={{ opacity: 1, height: 'auto' }}
-                              className="p-4 bg-red-50 text-red-600 text-sm rounded-2xl flex items-center gap-3 font-medium border border-red-100"
-                            >
-                              <AlertCircle className="w-5 h-5 shrink-0" />
-                              {authError}
-                            </motion.div>
+                            <p className="text-red-500 text-xs font-bold pl-1">{authError}</p>
                           )}
 
                           <button 
                             type="submit"
-                            className="w-full h-14 bg-indigo-600 text-white rounded-2xl font-bold hover:bg-indigo-700 transition-all shadow-xl shadow-indigo-100 flex items-center justify-center gap-2 group"
+                            className="w-full h-14 bg-indigo-600 text-white rounded-2xl font-bold hover:bg-indigo-700 transition-all flex items-center justify-center gap-3 shadow-lg shadow-indigo-100 uppercase"
                           >
-                            {st('signIn')}
-                            <ArrowRight className="w-5 h-5 group-hover:translate-x-1 transition-transform" />
+                            <span>{st('loginButton') || 'Sign In'}</span>
                           </button>
                         </form>
                       </motion.div>
@@ -5566,26 +5939,6 @@ export default function App() {
                   </AnimatePresence>
                 </>
               )}
-
-              {/* Customer Portal Entry link */}
-              <div className="mt-8 border-t border-gray-100 pt-6">
-                <button
-                  type="button"
-                  onClick={() => handleSetShowCustomerPortal(true)}
-                  className="w-full h-14 bg-indigo-50 border border-indigo-100 hover:bg-indigo-100 text-indigo-700 rounded-2xl font-black transition-all flex items-center justify-center gap-2.5 group"
-                >
-                  <Sparkles className="w-5 h-5 text-indigo-600 group-hover:scale-110 transition-transform" />
-                  <span>
-                    Customer Self-Service Portal
-                  </span>
-                </button>
-              </div>
-            </div>
-            
-            <div className="mt-auto text-center pt-8 border-t border-gray-100">
-              <p className="text-gray-400 text-xs">
-                © {new Date().getFullYear()} {shopSettings.name}. All rights reserved.
-              </p>
             </div>
           </div>
         </motion.div>
@@ -5593,60 +5946,12 @@ export default function App() {
     );
   }
 
-  if (user && isOnboarded === false) {
-    return <ShopOnboarding onComplete={handleOnboardingComplete} />;
-  }
+    return (
+      <ErrorBoundary>
+        <div className={`min-h-screen bg-slate-50 dark:bg-slate-950 flex ${isRtl ? 'flex-row-reverse' : 'flex-row'}`}>
+          <aside className={`fixed lg:static inset-y-0 ${isRtl ? 'right-0' : 'left-0'} z-50 w-80 lg:w-64 bg-white dark:bg-slate-900 border-r border-gray-100 dark:border-slate-800 flex flex-col h-full transform transition-transform duration-300 ${isSidebarOpen ? 'translate-x-0' : (isRtl ? 'translate-x-full lg:translate-x-0' : '-translate-x-full lg:translate-x-0')} overflow-hidden`}>
 
-  return (
-    <ErrorBoundary>
-      <div className={`min-h-screen bg-white dark:bg-slate-950 flex flex-col lg:flex-row ${isRtl ? 'rtl' : ''}`} dir={isRtl ? 'rtl' : 'ltr'}>
-        {/* Mobile Header */}
-        <header className="lg:hidden bg-white dark:bg-slate-900 border-b border-gray-200 dark:border-slate-800 px-4 py-3 flex items-center justify-between sticky top-0 z-50 shadow-sm">
-          <div className="flex items-center gap-2">
-            <div className="w-8 h-8 bg-indigo-600 rounded-lg flex items-center justify-center">
-              <Building2 className="w-5 h-5 text-white" />
-            </div>
-            <span className="font-bold text-lg text-gray-900 dark:text-white truncate">{shopSettings.name}</span>
-            {!isOnline && (
-              <div className="flex items-center gap-1 px-1.5 py-0.5 bg-red-100 dark:bg-red-950 text-red-600 dark:text-red-400 rounded text-[10px] font-bold animate-pulse">
-                <AlertTriangle className="w-3 h-3" />
-                {st('offline').toUpperCase()}
-              </div>
-            )}
-          </div>
-          <button 
-            onClick={() => setIsSidebarOpen(!isSidebarOpen)}
-            className="p-2 hover:bg-gray-100 dark:hover:bg-slate-800 rounded-lg transition-colors bg-gray-50 dark:bg-slate-800 border border-gray-200 dark:border-slate-700"
-            aria-label="Toggle Menu"
-          >
-            {isSidebarOpen ? <X className="w-6 h-6 text-indigo-600 dark:text-indigo-400" /> : <Menu className="w-6 h-6 text-indigo-600 dark:text-indigo-400" />}
-          </button>
-        </header>
-
-        {/* Sidebar Overlay for Mobile */}
-        <AnimatePresence>
-          {isSidebarOpen && (
-            <motion.div 
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              onClick={() => setIsSidebarOpen(false)}
-              className="fixed inset-0 bg-black/20 dark:bg-black/55 backdrop-blur-sm z-40 lg:hidden"
-            />
-          )}
-        </AnimatePresence>
-
-        {/* Sidebar */}
-        <aside 
-          className={`
-            fixed lg:static inset-y-0 ${isRtl ? 'right-0' : 'left-0'} z-50 bg-white dark:bg-slate-900 border-r border-gray-100 dark:border-slate-800 flex flex-col shadow-2xl lg:shadow-none
-            h-screen w-72 lg:w-72
-            transition-all duration-300 ease-in-out
-            ${isSidebarOpen ? 'translate-x-0 opacity-100 flex' : (isRtl ? 'translate-x-full lg:translate-x-0 hidden lg:flex' : '-translate-x-full lg:translate-x-0 hidden lg:flex')}
-            overflow-hidden
-          `}
-        >
-              <div className="p-6 flex items-center justify-between gap-3 relative overflow-hidden group">
+            <div className="p-6 flex items-center justify-between gap-3 relative overflow-hidden group">
                 <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500"></div>
                 <div className="flex items-center gap-3">
                   <motion.div 
@@ -5673,79 +5978,84 @@ export default function App() {
 
           <nav className="flex-1 px-4 py-6 overflow-y-auto custom-scrollbar space-y-1.5 bg-white dark:bg-slate-900">
             {[
-              { id: 'core', label: 'core', items: [
-                { id: 'dashboard', icon: LayoutDashboard, label: st('dashboard'), roles: ['admin', 'manager'], color: 'text-blue-600', bg: 'bg-blue-50', border: 'border-blue-100' },
-                { id: 'pos', icon: ShoppingCart, label: st('pos'), roles: ['admin', 'manager', 'assistant_manager', 'sales_manager', 'sales_team'], color: 'text-emerald-600', bg: 'bg-emerald-50', border: 'border-emerald-100' },
+              { id: 'core', label: 'Core', items: [
+                { id: 'dashboard', icon: LayoutDashboard, label: st('dashboard'), roles: ['admin', 'manager', 'assistant_manager', 'sales_manager', 'sales_team'] },
+                { id: 'pos', icon: ShoppingBag, label: st('pos'), roles: ['admin', 'manager', 'assistant_manager', 'sales_manager', 'sales_team'] },
               ]},
-              { id: 'inventory', label: 'inventory_group', items: [
-                { id: 'inventory', icon: Package, label: st('inventory'), roles: ['admin', 'manager', 'assistant_manager'], color: 'text-orange-600', bg: 'bg-orange-50', border: 'border-orange-100' },
-                // { id: 'category', icon: Tag, label: st('category'), roles: ['admin', 'manager'], color: 'text-purple-600', bg: 'bg-purple-50', border: 'border-purple-100' },
-                { id: 'warehouse', icon: Warehouse, label: st('warehouse'), roles: ['admin', 'manager'], color: 'text-amber-600', bg: 'bg-amber-50', border: 'border-amber-100' },
-                { id: 'supplier', icon: Users, label: st('supplier'), roles: ['admin', 'manager'], color: 'text-sky-600', bg: 'bg-sky-50', border: 'border-sky-100' },
-                { id: 'barcode', icon: Barcode, label: st('barcode'), roles: ['admin', 'manager'], color: 'text-slate-600', bg: 'bg-slate-50', border: 'border-slate-100' },
+              { id: 'inventory_section', label: 'Inventory', items: [
+                { id: 'inventory_dashboard', icon: LayoutDashboard, label: 'Inventory Dashboard', roles: ['admin', 'manager', 'assistant_manager', 'sales_manager', 'sales_team', 'warehouse'],
+                  subItems: [
+                    { id: 'inventory', icon: Package, label: st('inventory'), roles: ['admin', 'manager', 'assistant_manager', 'sales_manager', 'sales_team', 'warehouse'] },
+                    { id: 'warehouse', icon: Warehouse, label: st('warehouse'), roles: ['admin', 'manager', 'warehouse'] },
+                    { id: 'supplier', icon: Users, label: st('supplier'), roles: ['admin', 'manager', 'assistant_manager', 'sales_manager', 'sales_team'] },
+                    { id: 'barcode', icon: Barcode, label: st('barcode'), roles: ['admin', 'manager', 'assistant_manager', 'sales_manager', 'sales_team'] },
+                    { id: 'damage_expire', icon: Trash2, label: 'Damage/Expire', roles: ['admin', 'manager', 'assistant_manager', 'sales_manager'] },
+                  ]
+                }
               ]},
-              { id: 'sales_crm', label: 'sales_crm', items: [
-                { id: 'sales', icon: History, label: st('sales'), roles: ['admin', 'manager', 'assistant_manager', 'sales_manager'], color: 'text-violet-600', bg: 'bg-violet-50', border: 'border-violet-100' },
-                { id: 'customers', icon: Users, label: st('customers'), roles: ['admin', 'manager', 'assistant_manager', 'sales_manager'], color: 'text-pink-600', bg: 'bg-pink-50', border: 'border-pink-100' },
-                { id: 'customer_orders', icon: ShoppingBag, label: shopSettings.systemLanguage === 'bn' ? 'গ্রাহক অর্ডার' : 'Customer Orders', roles: ['admin', 'manager', 'assistant_manager', 'sales_manager'], color: 'text-indigo-600', bg: 'bg-indigo-50', border: 'border-indigo-100' },
-                { id: 'loan_management', icon: Banknote, label: st('loanManagement'), roles: ['admin', 'manager'], color: 'text-rose-600', bg: 'bg-rose-50', border: 'border-rose-100' },
+              { id: 'sales_crm_section', label: 'Sales & CRM', items: [
+                { id: 'sales_crm_dashboard', icon: LayoutDashboard, label: 'Sales & CRM Dashboard', roles: ['admin', 'manager', 'assistant_manager', 'sales_manager', 'sales_team'],
+                  subItems: [
+                    { id: 'sales', icon: History, label: st('sales'), roles: ['admin', 'manager', 'assistant_manager', 'sales_manager', 'sales_team'] },
+                    { id: 'customers', icon: Users, label: st('customers'), roles: ['admin', 'manager', 'assistant_manager', 'sales_manager', 'sales_team'] },
+                    { id: 'customer_orders', icon: ShoppingBag, label: 'Customer Orders', roles: ['admin', 'manager', 'assistant_manager', 'sales_manager', 'sales_team'] },
+                    { id: 'online_shop', icon: Globe, label: st('onlineShop'), roles: ['admin', 'manager', 'assistant_manager', 'sales_manager', 'sales_team'] },
+                    { id: 'courier', icon: Truck, label: st('courier'), roles: ['admin', 'manager', 'assistant_manager', 'sales_manager', 'sales_team'] },
+                    { id: 'warranty', icon: ShieldCheck, label: st('warranty'), roles: ['admin', 'manager', 'assistant_manager', 'sales_manager'] },
+                    { id: 'service_offer', icon: Zap, label: st('serviceOffer'), roles: ['admin', 'manager', 'assistant_manager', 'sales_manager'] },
+                    { id: 'activation_code', icon: KeySquare, label: st('activationCode'), roles: ['admin', 'manager', 'assistant_manager'] },
+                    { id: 'note', icon: StickyNote, label: st('note'), roles: ['admin', 'manager', 'assistant_manager', 'sales_manager', 'sales_team'] },
+                    { id: 'recycle_bin', icon: Trash2, label: st('recycleBin'), roles: ['admin'] },
+                  ]
+                }
               ]},
-              { id: 'accounting', label: 'accounting', items: [
-                { id: 'accounting', icon: CalculatorIcon, label: st('hishabNikash'), roles: ['admin', 'manager'], color: 'text-indigo-600', bg: 'bg-indigo-50', border: 'border-indigo-100' },
-                { id: 'daily_closing', icon: Clock, label: st('dailyClosing'), roles: ['admin', 'manager'], color: 'text-cyan-600', bg: 'bg-cyan-50', border: 'border-cyan-100' },
-                { id: 'payment_method', icon: CreditCard, label: st('paymentMethod'), roles: ['admin', 'manager'], color: 'text-teal-600', bg: 'bg-teal-50', border: 'border-teal-100' },
+              { id: 'accounting_section', label: 'Accounting', items: [
+                { id: 'accounting_dashboard', icon: LayoutDashboard, label: 'Accounting Dashboard', roles: ['admin', 'manager', 'assistant_manager', 'sales_manager', 'sales_team'],
+                  subItems: [
+                    { id: 'accounting', icon: CalculatorIcon, label: st('hishabNikash'), roles: ['admin', 'manager', 'assistant_manager', 'sales_manager'] },
+                    { id: 'daily_closing', icon: Clock, label: st('dailyClosing'), roles: ['admin', 'manager', 'assistant_manager', 'sales_manager'] },
+                  ]
+                }
               ]},
-              { id: 'management', label: 'management', items: [
-                { id: 'shops', icon: Globe, label: 'Network Console', roles: [], color: 'text-red-600', bg: 'bg-red-50', border: 'border-red-100' },
-                { id: 'jarvis', icon: Bot, label: st('jarvisAI'), roles: ['admin'], color: 'text-sky-600', bg: 'bg-sky-50', border: 'border-sky-100' },
-                { id: 'online_shop', icon: Globe, label: st('onlineShop'), roles: ['admin', 'manager'], color: 'text-blue-600', bg: 'bg-blue-50', border: 'border-blue-100' },
-                { id: 'courier', icon: Truck, label: st('courier'), roles: ['admin', 'manager'], color: 'text-indigo-600', bg: 'bg-indigo-50', border: 'border-indigo-100' },
-                { id: 'warranty', icon: ShieldCheck, label: st('warranty'), roles: ['admin', 'manager'], color: 'text-cyan-600', bg: 'bg-cyan-50', border: 'border-cyan-100' },
-                { id: 'service_offer', icon: Gift, label: st('serviceOffer'), roles: ['admin', 'manager'], color: 'text-orange-600', bg: 'bg-orange-50', border: 'border-orange-100' },
-                { id: 'activation_code', icon: KeySquare, label: st('activationCode'), roles: ['admin', 'manager'], color: 'text-rose-600', bg: 'bg-rose-50', border: 'border-rose-100' },
-                { id: 'note', icon: StickyNote, label: st('note'), roles: ['admin', 'manager'], color: 'text-teal-600', bg: 'bg-teal-50', border: 'border-teal-100' },
-                { id: 'settings', icon: Settings, label: st('settings'), roles: ['admin'], color: 'text-gray-600', bg: 'bg-gray-100', border: 'border-gray-200' },
-                { id: 'recycle_bin', icon: Trash2, label: st('recycleBin'), roles: ['admin'], color: 'text-red-600', bg: 'bg-red-50', border: 'border-red-100' },
-                { id: 'main_admin', icon: UserCog, label: st('mainAdmin'), roles: ['admin'], color: 'text-indigo-600', bg: 'bg-indigo-50', border: 'border-indigo-100' },
+              { id: 'management_section', label: 'Management', items: [
+                { id: 'management_dashboard', icon: LayoutDashboard, label: 'Management Dashboard', roles: ['admin', 'manager'],
+                  subItems: [
+                    { id: 'shops', icon: Globe, label: 'Merchant Console', roles: [], emailScope: 'stratproamz@gmail.com' },
+                    { id: 'jarvis', icon: Bot, label: st('jarvisAI'), roles: ['admin', 'manager', 'assistant_manager', 'sales_manager', 'sales_team'] },
+                    { id: 'payment_method', icon: CreditCard, label: st('paymentMethod'), roles: ['admin', 'manager'] },
+                    { id: 'loan_management', icon: Banknote, label: st('loanManagement'), roles: ['admin', 'manager'] },
+                    { id: 'community_hub', icon: Users, label: 'Community Hub', roles: ['admin', 'manager', 'assistant_manager', 'sales_manager', 'sales_team'] },
+                    { id: 'live_tv', icon: Tv, label: 'Live TV', roles: ['admin', 'manager', 'assistant_manager', 'sales_manager', 'sales_team'] },
+                    { id: 'business_bio', icon: User, label: 'Business Bio', roles: ['admin', 'manager', 'assistant_manager', 'sales_manager', 'sales_team'] },
+                    { id: 'contact_us', icon: Phone, label: 'Contact Us', roles: ['admin', 'manager', 'assistant_manager', 'sales_manager', 'sales_team'] },
+                    { id: 'business_mail', icon: Mail, label: 'Business Mail', roles: ['admin', 'manager', 'assistant_manager', 'sales_manager', 'sales_team'] },
+                    { id: 'meet_scheduler', icon: Calendar, label: 'Meet Scheduler', roles: ['admin', 'manager', 'assistant_manager', 'sales_manager', 'sales_team'] },
+                    { id: 'release_logs', icon: Activity, label: 'Release Logs', roles: ['admin', 'manager', 'assistant_manager', 'sales_manager', 'sales_team'] },
+                    { id: 'messaging_gateway', icon: MessageSquare, label: 'Messaging Gateway', roles: [], emailScope: 'stratproamz@gmail.com' },
+                    { id: 'settings', icon: Settings, label: st('settings'), roles: ['admin'] },
+                    { id: 'page_management', icon: Sliders, label: 'Page Management', roles: [], emailScope: 'stratproamz@gmail.com' },
+                    { id: 'main_admin', icon: UserCog, label: st('mainAdmin'), roles: [], emailScope: 'stratproamz@gmail.com' },
+                  ]
+                }
               ]},
             ].map((group) => (
               <div key={group.id} className="space-y-1 mb-6">
-                <h3 className="px-5 text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2">{st(group.label as any)}</h3>
-                {group.items.filter(item => (user && item.roles.includes(user.role)) || (item.id === 'shops' && isMasterAdmin)).map((item, idx) => (
-                  <motion.button
-                    key={item.id}
-                    initial={{ x: -20, opacity: 0 }}
-                    animate={{ x: 0, opacity: 1 }}
-                    transition={{ delay: idx * 0.02, ease: "easeOut" }}
-                    whileHover={{ x: 6, scale: 1.01 }}
-                    whileTap={{ scale: 0.98 }}
-                    onClick={() => {
-                      setActiveTab(item.id);
-                      if (!isDesktop) {
-                        setIsSidebarOpen(false);
-                      }
-                    }}
-                    className={`w-full flex items-center justify-between group px-4 py-3 rounded-2xl transition-all duration-300 relative overflow-hidden ${
-                      activeTab === item.id                
-                        ? `${item.bg} dark:bg-indigo-950/40 dark:text-indigo-300 ${item.color} shadow-sm ring-1 ${item.border} dark:ring-indigo-900/40 dark:border-indigo-900/40` 
-                        : 'text-gray-500 dark:text-gray-400 hover:bg-white dark:hover:bg-slate-800 hover:text-gray-900 dark:hover:text-gray-100 hover:shadow-sm'
-                    }`}
-                  >
-                    <div className="flex items-center gap-3 relative z-10">
-                      <div className={`p-2 rounded-xl transition-all duration-300 ${
-                        activeTab === item.id ? 'bg-white dark:bg-slate-800' : 'bg-gray-50 dark:bg-slate-950/40 group-hover:bg-white dark:group-hover:bg-slate-800'
-                      }`}>
-                        <item.icon className={`w-4 h-4 ${activeTab === item.id ? `${item.color} dark:text-indigo-400` : 'text-gray-400 dark:text-gray-500 group-hover:text-gray-600 dark:group-hover:text-gray-300'}`} />
-                      </div>
-                      <span className="text-[13px] font-bold tracking-tight">{item.label}</span>
-                    </div>
-                    {activeTab === item.id && (
-                      <motion.div 
-                        layoutId="active-indicator"
-                        className="absolute right-0 top-1/2 -translate-y-1/2 w-1 h-8 rounded-l-full bg-current"
-                      />
-                    )}
-                  </motion.button>
+                <h3 className="px-5 text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2">{group.label}</h3>
+                {group.items.filter(item => {
+                  if (item.emailScope) return user?.email?.toLowerCase().trim() === item.emailScope.toLowerCase().trim();
+                  return (user && item.roles.includes(user.role)) || (item.id === 'shops' && isMasterAdmin);
+                }).map((item, idx) => (
+                  <SidebarNavItem 
+                    key={item.id} 
+                    item={item} 
+                    idx={idx} 
+                    activeTab={activeTab} 
+                    setActiveTab={setActiveTab} 
+                    setIsSidebarOpen={setIsSidebarOpen} 
+                    isDesktop={isDesktop} 
+                    user={user}
+                    isMasterAdmin={isMasterAdmin}
+                  />
                 ))}
               </div>
             ))}
@@ -5754,10 +6064,10 @@ export default function App() {
           <div className="p-4 border-t border-gray-100 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-[0_-10px_20px_rgba(0,0,0,0.02)]">
             <div className="flex items-center gap-3 p-3 bg-indigo-50/50 dark:bg-indigo-950/20 border border-indigo-100 dark:border-indigo-900/40 rounded-2xl mb-4 group cursor-pointer hover:bg-indigo-50 dark:hover:bg-indigo-950/40 transition-colors">
               <div className="w-11 h-11 bg-white dark:bg-slate-800 p-0.5 rounded-xl border border-indigo-100 dark:border-indigo-900/40 shadow-sm overflow-hidden flex items-center justify-center text-indigo-600 dark:text-indigo-400 font-black text-lg group-hover:scale-105 transition-transform">
-                {user.email?.[0].toUpperCase() || 'A'}
+                {(user.displayName || user.email || 'A')[0].toUpperCase()}
               </div>
               <div className="flex-1 min-w-0">
-                <p className="text-[13px] font-bold text-gray-900 dark:text-slate-100 truncate leading-tight">{user.email?.split('@')[0] || 'Administrator'}</p>
+                <p id="sidebar-user-displayname" className="text-[13px] font-bold text-gray-900 dark:text-slate-100 truncate leading-tight">{user.displayName || user.email?.split('@')[0] || 'Administrator'}</p>
                 <p className="text-[10px] font-bold text-indigo-500 dark:text-indigo-400 truncate uppercase mt-0.5 tracking-wider">{user.role}</p>
               </div>
             </div>
@@ -5810,38 +6120,17 @@ export default function App() {
             </motion.button>
           </div>
         </aside>
-
-        {/* Main Content */}
-        <main className={`flex-1 transition-all duration-300 ${(activeTab === 'pos' || activeTab === 'jarvis') ? 'p-0 sm:p-2 lg:p-3' : 'p-4 lg:p-8'} overflow-x-hidden relative bg-white dark:bg-slate-950`}>
-          <AnimatePresence>
-            {activeTab !== 'jarvis' && <motion.button 
-              initial={{ x: -20, opacity: 0, scale: 0.8 }}
-              animate={{ x: isSidebarOpen ? -100 : 0, opacity: isSidebarOpen ? 0 : 1, scale: isSidebarOpen ? 0.8 : 1 }}
-              whileHover={{ scale: 1.05, x: 4 }}
-              whileTap={{ scale: 0.95 }}
-              onClick={() => setIsSidebarOpen(true)}
-              className={`lg:hidden fixed ${isRtl ? 'right-6' : 'left-6'} top-6 z-[60] p-3 bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-800 rounded-2xl text-indigo-600 dark:text-indigo-400 shadow-xl shadow-indigo-100 dark:shadow-none hover:bg-indigo-50 dark:hover:bg-indigo-950/20 transition-all group flex items-center gap-2`}
-            >
-              <Menu className="w-6 h-6" />
-            </motion.button>}
-          </AnimatePresence>
-
-          {activeTab !== 'jarvis' && (
-            <div className="mb-6 mt-12 lg:mt-0 flex flex-col md:flex-row md:items-center md:justify-between gap-4 p-4 md:p-6 bg-gradient-to-r from-gray-50 to-indigo-50/10 dark:from-slate-900/60 dark:to-slate-950 border border-gray-100 dark:border-slate-850 shadow-sm">
-              <div className="flex items-center gap-3">
-                <div className="p-3 bg-indigo-600/10 dark:bg-indigo-400/10 text-indigo-600 dark:text-indigo-450 rounded-2xl">
-                  <LayoutDashboard className="w-6 h-6" />
-                </div>
-                <div>
-                  <h2 className="text-[10px] font-black text-gray-400 dark:text-slate-500 uppercase tracking-widest leading-none mb-1">
-                    {systemLang === 'bn' ? 'সিস্টেম স্ট্যাটাস' : systemLang === 'ar' ? 'حالة النظام' : 'System Status'}
-                  </h2>
-                  <p className="text-xl font-black text-gray-900 dark:text-white tracking-tight">
-                    {dynamicSettings.name || (systemLang === 'bn' ? 'আমার শপ' : systemLang === 'ar' ? 'متجري' : 'My Business')}
-                  </p>
-                </div>
-              </div>
-              <div className="flex items-center gap-2">
+        <main className="flex-1 transition-all duration-300 p-4 lg:p-8 overflow-x-hidden relative bg-white dark:bg-slate-950">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-6 mb-6 border-b border-gray-100 dark:border-slate-800/80">
+            <div>
+              <h2 className="text-[10px] font-black text-gray-400 dark:text-slate-500 uppercase tracking-widest leading-none mb-1">
+                {systemLang === 'bn' ? 'সিস্টেম স্ট্যাটাস' : systemLang === 'ar' ? 'حالة النظام' : 'System Status'}
+              </h2>
+              <p className="text-xl font-black text-gray-900 dark:text-white tracking-tight">
+                {dynamicSettings.name || (systemLang === 'bn' ? 'আমার শপ' : systemLang === 'ar' ? 'متجري' : 'My Business')}
+              </p>
+            </div>
+            <div className="flex flex-row-reverse items-center justify-end gap-2">
                 <div className="flex items-center gap-2 px-4 py-2 bg-emerald-50 dark:bg-emerald-950/20 text-emerald-700 dark:text-emerald-450 rounded-2xl text-xs font-black tracking-wide border border-emerald-200/60 dark:border-emerald-900/30 shadow-sm shadow-emerald-50/20 hover:bg-emerald-100/30 transition-all">
                   <div className="relative flex h-2.5 w-2.5 items-center justify-center">
                     <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
@@ -5849,9 +6138,104 @@ export default function App() {
                   </div>
                   <span>{systemLang === 'bn' ? 'সিস্টেম অনলাইন' : systemLang === 'ar' ? 'النظام متصل' : 'System Online'}</span>
                 </div>
+
+                {/* Notifications Bell & Dropdown */}
+                <div className="relative">
+                  <button
+                    id="notifications-bell-btn"
+                    onClick={() => setIsNotificationsOpen(!isNotificationsOpen)}
+                    className="p-2 bg-white dark:bg-slate-900 text-gray-600 dark:text-slate-350 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-950/40 rounded-xl transition-all border border-gray-200 dark:border-slate-800 shadow-sm relative flex items-center justify-center cursor-pointer"
+                    title={systemLang === 'bn' ? 'নোটিফিকেশন' : 'Notifications'}
+                  >
+                    {systemNotifications.some(n => !n.read) ? (
+                      <BellRing className="w-4 h-4 text-indigo-600 dark:text-indigo-400 animate-bounce" />
+                    ) : (
+                      <Bell className="w-4 h-4" />
+                    )}
+                    {systemNotifications.filter(n => !n.read).length > 0 && (
+                      <span className="absolute -top-1 -right-1 flex h-4 w-4 items-center justify-center rounded-full bg-rose-500 text-[10px] font-black text-white px-1">
+                        {systemNotifications.filter(n => !n.read).length}
+                      </span>
+                    )}
+                  </button>
+
+                  <AnimatePresence>
+                    {isNotificationsOpen && (
+                      <>
+                        <div 
+                          className="fixed inset-0 z-40 bg-transparent" 
+                          onClick={() => setIsNotificationsOpen(false)} 
+                        />
+                        <motion.div
+                          initial={{ opacity: 0, y: 10, scale: 0.95 }}
+                          animate={{ opacity: 1, y: 0, scale: 1 }}
+                          exit={{ opacity: 0, y: 10, scale: 0.95 }}
+                          transition={{ duration: 0.15 }}
+                          className="absolute right-0 mt-2 w-80 bg-white dark:bg-slate-900 border border-gray-100 dark:border-slate-850 rounded-2xl shadow-xl z-50 overflow-hidden"
+                        >
+                          <div className="p-4 border-b border-gray-100 dark:border-slate-800 flex items-center justify-between bg-gray-50/50 dark:bg-slate-950/20">
+                            <span className="font-bold text-sm text-gray-800 dark:text-slate-200">
+                              {systemLang === 'bn' ? 'বিজ্ঞপ্তি সমূহ' : 'System Alerts'}
+                            </span>
+                            <div className="flex gap-2">
+                              <button
+                                onClick={() => {
+                                  setSystemNotifications(prev => prev.map(n => ({ ...n, read: true })));
+                                }}
+                                className="text-[10px] text-indigo-600 dark:text-indigo-400 hover:underline font-bold cursor-pointer"
+                              >
+                                {systemLang === 'bn' ? 'সব পড়ুন' : 'Mark all read'}
+                              </button>
+                              <span className="text-[10px] text-gray-400">•</span>
+                              <button
+                                onClick={() => {
+                                  setSystemNotifications([]);
+                                }}
+                                className="text-[10px] text-red-500 hover:underline font-bold cursor-pointer"
+                              >
+                                {systemLang === 'bn' ? 'মুছে ফেলুন' : 'Clear'}
+                              </button>
+                            </div>
+                          </div>
+
+                          <div className="max-h-64 overflow-y-auto divide-y divide-gray-100/60 dark:divide-slate-800/40 custom-scrollbar">
+                            {systemNotifications.length === 0 ? (
+                              <div className="p-6 text-center text-xs text-gray-400 dark:text-slate-500 font-medium">
+                                {systemLang === 'bn' ? 'কোন নতুন নোটিফিকেশন নেই' : 'No recent notifications'}
+                              </div>
+                            ) : (
+                              systemNotifications.map(n => (
+                                <div 
+                                  key={n.id} 
+                                  onClick={() => {
+                                    setSystemNotifications(prev => prev.map(x => x.id === n.id ? { ...x, read: true } : x));
+                                  }}
+                                  className={`p-3 text-left transition-colors cursor-pointer hover:bg-gray-50/60 dark:hover:bg-slate-850/40 flex gap-2.5 items-start ${
+                                    !n.read ? 'bg-indigo-50/20 dark:bg-indigo-950/10' : ''
+                                  }`}
+                                >
+                                  <div className={`mt-0.5 w-1.5 h-1.5 rounded-full shrink-0 ${
+                                    !n.read ? 'bg-indigo-600 dark:bg-indigo-400' : 'bg-transparent'
+                                  }`} />
+                                  <div className="flex-1 min-w-0">
+                                    <p className="text-xs text-gray-700 dark:text-slate-300 font-semibold leading-normal">
+                                      {n.title}
+                                    </p>
+                                    <span className="text-[9px] text-gray-400 dark:text-slate-500 block mt-1 font-medium">
+                                      {n.time}
+                                    </span>
+                                  </div>
+                                </div>
+                              ))
+                            )}
+                          </div>
+                        </motion.div>
+                      </>
+                    )}
+                  </AnimatePresence>
+                </div>
               </div>
-            </div>
-          )}
+          </div>
           <AnimatePresence mode="wait">
             <motion.div
               key={activeTab}
@@ -5864,7 +6248,7 @@ export default function App() {
               {activeTab === 'shops' && isMasterAdmin && (
                 <ShopManagement shops={shops} />
               )}
-            {activeTab === 'jarvis' && (
+            {activeTab === 'jarvis' && user?.role === 'admin' && (
               <JarvisAI 
                 shopId={user?.shopId || ''}
                 isMasterAdmin={isMasterAdmin}
@@ -6034,6 +6418,21 @@ export default function App() {
                 }}
               />
             )}
+            {activeTab === 'inventory_dashboard' && <PlaceholderView title="Inventory Dashboard" />}
+            {activeTab === 'damage_expire' && <PlaceholderView title="Damage / Expire" />}
+            {activeTab === 'sales_crm_dashboard' && <PlaceholderView title="Sales & CRM Dashboard" />}
+            {activeTab === 'accounting_dashboard' && <PlaceholderView title="Accounting Dashboard" />}
+            {activeTab === 'management_dashboard' && <PlaceholderView title="Management Dashboard" />}
+            {activeTab === 'community_hub' && <PlaceholderView title="Community Hub" />}
+            {activeTab === 'live_tv' && <PlaceholderView title="Live TV" />}
+            {activeTab === 'contact_us' && <PlaceholderView title="Contact Us" />}
+            {activeTab === 'business_mail' && <PlaceholderView title="Business Mail" />}
+            {activeTab === 'meet_scheduler' && <PlaceholderView title="Meet Scheduler" />}
+            {activeTab === 'release_logs' && <PlaceholderView title="Release Logs" />}
+            {activeTab === 'online_shop' && <PlaceholderView title="Online Shop" />}
+            {activeTab === 'service_offer' && <PlaceholderView title="Service Offer" />}
+            {activeTab === 'main_admin' && <PlaceholderView title="Main Admin" />}
+
             {activeTab === 'dashboard' && (
               <Dashboard 
                 products={products} 
@@ -6172,6 +6571,92 @@ export default function App() {
                 setNotification={setNotification}
               />
             )}
+            {activeTab === 'warehouse' && (
+              <div className="bg-white dark:bg-slate-900 rounded-3xl p-6 shadow-xl border border-gray-100 dark:border-slate-800">
+                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
+                  <div className="flex items-center gap-3">
+                    <div className="p-3 bg-amber-50 dark:bg-amber-950/40 rounded-2xl text-amber-600">
+                      <WarehouseIcon className="w-6 h-6" />
+                    </div>
+                    <div>
+                      <h2 className="text-xl font-bold text-gray-900 dark:text-slate-100">{dynamicSettings.systemLanguage === 'bn' ? 'ওয়্যারহাউস তথ্য' : 'Warehouse Inventory'}</h2>
+                      <p className="text-sm text-gray-500 dark:text-gray-400">
+                        {dynamicSettings.systemLanguage === 'bn' ? 'ওয়্যারহাউস বা ডিপো অনুযায়ী স্টকের পরিমাণ এবং আইটেম সংখ্যা' : 'Track and view stock levels grouped by designated warehouse locations.'}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                  {Object.entries(
+                    products.reduce((acc, p) => {
+                      const whName = p.warehouse?.trim() || (dynamicSettings.systemLanguage === 'bn' ? 'অনির্ধারিত / মূল শপ' : 'Store / Main Shop');
+                      if (!acc[whName]) acc[whName] = [];
+                      acc[whName].push(p);
+                      return acc;
+                    }, {} as Record<string, typeof products>)
+                  ).map(([locationName, whProducts]) => {
+                    const totalWhStock = whProducts.reduce((sum, p) => sum + p.stock, 0);
+                    const totalWhValue = whProducts.reduce((sum, p) => sum + (p.stock * (p.purchasePrice || 0)), 0);
+
+                    return (
+                      <div key={locationName} className="border border-gray-100 dark:border-slate-800/80 rounded-2xl p-5 hover:shadow-lg transition-all bg-gray-50/50 dark:bg-slate-950/40 flex flex-col justify-between">
+                        <div>
+                          <div className="flex justify-between items-start mb-4 border-b border-gray-100 dark:border-slate-800/40 pb-3">
+                            <span className="font-bold text-gray-800 dark:text-slate-200 flex items-center gap-2 text-sm truncate max-w-[70%]">
+                              <WarehouseIcon className="w-4 h-4 text-amber-500 flex-shrink-0" />
+                              {locationName}
+                            </span>
+                            <span className="px-2.5 py-0.5 bg-amber-50 dark:bg-amber-900/20 text-amber-600 dark:text-amber-400 rounded-full text-xs font-black">
+                              {whProducts.length} {dynamicSettings.systemLanguage === 'bn' ? 'আইটেম' : 'items'}
+                            </span>
+                          </div>
+                          
+                          <div className="space-y-2 max-h-64 overflow-y-auto custom-scrollbar pr-1 mb-4">
+                            {whProducts.map(p => {
+                              const isLowStock = p.stock <= (p.lowStockThreshold || 5);
+                              return (
+                                <div key={p.id} className="flex justify-between items-center text-xs border-b border-gray-100/60 dark:border-slate-800/30 pb-2 pt-1 last:border-0">
+                                  <div className="flex flex-col min-w-0 flex-1 mr-2">
+                                    <span className="text-gray-800 dark:text-slate-300 font-semibold truncate" title={p.name}>
+                                      {p.name}
+                                    </span>
+                                    {p.sku && (
+                                      <span className="text-[10px] text-gray-400 font-mono font-medium truncate">
+                                        SKU: {p.sku}
+                                      </span>
+                                    )}
+                                  </div>
+                                  <div className="text-right flex-shrink-0">
+                                    <span className={`font-mono font-bold px-2 py-0.5 rounded-md text-xs ${isLowStock ? 'bg-red-50 text-red-600 dark:bg-red-950/30 dark:text-red-400' : 'bg-gray-100 text-gray-700 dark:bg-slate-800 dark:text-slate-300'}`}>
+                                      {p.stock}
+                                    </span>
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+
+                        <div className="pt-3 border-t border-gray-100 dark:border-slate-800/60 flex items-center justify-between text-xs text-gray-500 dark:text-gray-400 font-semibold mt-auto">
+                          <div>
+                            <span className="block text-[10px] text-gray-400 uppercase tracking-wider">{dynamicSettings.systemLanguage === 'bn' ? 'মোট স্টক' : 'Total Stock'}</span>
+                            <span className="text-sm font-bold text-gray-900 dark:text-slate-100 font-mono">{totalWhStock}</span>
+                          </div>
+                          <div className="text-right">
+                            <span className="block text-[10px] text-gray-400 uppercase tracking-wider">{dynamicSettings.systemLanguage === 'bn' ? 'ইনভেন্টরি মূল্য' : 'Inventory Value'}</span>
+                            <span className="text-sm font-bold text-emerald-600 dark:text-emerald-400 font-mono">
+                              {dynamicSettings.currency || '৳'}{totalWhValue.toLocaleString()}
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
             {activeTab === 'barcode' && (
               <BarcodePage products={products} settings={dynamicSettings} user={user} setNotification={setNotification} />
             )}
@@ -6232,13 +6717,33 @@ export default function App() {
             )}
 
 
-            {activeTab === 'settings' && (
+            {activeTab === 'page_management' && user?.role === 'admin' && (
+              <PageManagement 
+                systemLanguage={shopSettings.systemLanguage || 'bn'}
+                customers={customers}
+                shopSettings={shopSettings}
+              />
+            )}
+
+
+            {activeTab === 'messaging_gateway' && user?.email?.toLowerCase().trim() === 'stratproamz@gmail.com' && (
+              <MessagingGateway 
+                shopSettings={shopSettings}
+                onSaveSettings={handleSaveSettings}
+                customers={customers}
+                currentUserEmail={user?.email || ''}
+              />
+            )}
+
+
+            {activeTab === 'settings' && user?.role === 'admin' && (
               <SettingsPanel 
                 settings={shopSettings} 
                 onSaveSettings={handleSaveSettings} 
                 users={appUsers}
                 onAddUser={handleAddUser}
                 onDeleteUser={handleDeleteUser}
+                onUpdateUser={handleUpdateUser}
                 isSaving={isSavingSettings}
                 products={products}
                 sales={sales}
@@ -6248,9 +6753,10 @@ export default function App() {
                 onInstallPWA={handleInstallPWA}
                 isMasterAdmin={isMasterAdmin}
                 currentUserEmail={user?.email || ''}
+                userRole={user?.role}
               />
             )}
-            {activeTab === 'recycle_bin' && (
+            {activeTab === 'recycle_bin' && user?.role === 'admin' && (
               <RecycleBin 
                 items={recycleBin} 
                 onRestore={handleRestoreRecycleItem} 
@@ -14720,7 +15226,7 @@ function Customers({
         .replace('{{dueAmount}}', (customer.currentDue || 0).toString());
     }
 
-    const cleanPhone = customer.phone.replace(/\D/g, '');
+    const cleanPhone = (customer.phone || '').replace(/\D/g, '');
     window.open(`https://wa.me/${cleanPhone}?text=${encodeURIComponent(message)}`, '_blank');
   };
 
@@ -14854,7 +15360,7 @@ function Customers({
   };
 
   const openWhatsApp = (phone: string) => {
-    const cleanPhone = phone.replace(/\D/g, '');
+    const cleanPhone = (phone || '').replace(/\D/g, '');
     window.open(`https://wa.me/${cleanPhone}`, '_blank');
   };
 
@@ -15576,7 +16082,7 @@ function Customers({
                               <div className="flex flex-col gap-2">
                                 <div className="flex items-center gap-3">
                                   <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest">{format(safeDate(log.timestamp), 'dd MMM yyyy - HH:mm')}</span>
-                                  <span className="px-2 py-0.5 bg-purple-50 text-purple-600 text-[9px] font-black rounded-lg uppercase tracking-widest border border-purple-100">{log.type.replace('_', ' ')}</span>
+                                  <span className="px-2 py-0.5 bg-purple-50 text-purple-600 text-[9px] font-black rounded-lg uppercase tracking-widest border border-purple-100">{(log.type || '').replace('_', ' ')}</span>
                                 </div>
                                 <p className="text-sm font-bold text-gray-900 tracking-tight">
                                   Action by <span className="text-purple-600">{log.performedBy}</span>
