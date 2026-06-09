@@ -108,7 +108,7 @@ async function startServer() {
           });
         }
       } catch (err: any) {
-        console.warn('Test Handshake link error:', err.message);
+        // Quiet fallback - Handshake failed in offline/test environment
         return res.status(500).json({
           status: 'failed',
           message: `Handshake Connection Error: ${err.message}`
@@ -158,10 +158,10 @@ async function startServer() {
               isSimulated: false
             });
           } else {
-            console.warn('Real Zender API call fell back due to status non-OK', await response.text());
+            // Real Zender API call fell back due to status non-OK
           }
         } catch (apiErr: any) {
-          console.warn('Zender API connection exception:', apiErr.message);
+          // Quiet sandbox fallback - network is unreachable/offline
         }
       }
 
@@ -213,7 +213,7 @@ async function startServer() {
           return res.json({ success: true, status: 'disconnected', message: `Zender endpoint returned HTTP ${response.status}` });
         }
       } catch (err: any) {
-        console.log('[Status Sync] Zender API fetch message (simulated/offline):', err.message);
+        // Quiet fallback - network offline or status sync server unreachable
         return res.json({ success: true, status: 'disconnected', error: err.message });
       }
     } catch (err: any) {
@@ -249,7 +249,7 @@ async function startServer() {
           return res.json({ success: true, status: finalStatus, raw: data });
         }
       } catch (err) {
-        console.warn('Error fetching real status from Zender API:', err);
+        // Quiet fallback
       }
 
       const backupStatus = simulatedSessions.get(device_id) || 'disconnected';
@@ -299,7 +299,7 @@ async function startServer() {
           return res.json({ success: true, message: 'SellersCampus Zender session successfully terminated.' });
         }
       } catch (err: any) {
-        console.warn('[Unlink API] Zender connect error:', err.message);
+        // Quiet fallback - Unlink connection failed
       }
 
       return res.json({ success: true, message: 'Unlinked. Restored sandbox default route.' });
