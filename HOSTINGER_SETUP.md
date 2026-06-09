@@ -11,7 +11,7 @@ Congratulations on your POS system! To make it live on **pos.sellerscampus.com**
 2. Go to **Websites** -> **Manage** -> **Node.js**.
 3. Click **Create New Application** or **Import from GitHub**.
 4. **Application Setup**:
-   - **Entry File**: `server.ts`
+   - **Entry File**: `dist/server.cjs`
    - **Framework**: Custom (Express)
    - **Port**: 3000
 5. **Environment Variables**:
