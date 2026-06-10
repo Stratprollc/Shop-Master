@@ -135,6 +135,8 @@ import { CustomerPortal } from './components/CustomerPortal';
 import { SellerOrdersView } from './components/SellerOrdersView';
 import { PageManagement } from './components/PageManagement';
 import { MessagingGateway } from './components/MessagingGateway';
+import { LiveTVPortal } from './components/LiveTVPortal';
+import { GlobalPipPlayer } from './components/GlobalPipPlayer';
 import Dashboard from './components/Dashboard';
 
 import { fuzzyMatchProduct } from './utils/productMatcher';
@@ -2213,6 +2215,10 @@ function SettingsPanel({
       nidNumber: formData.get('nidNumber') as string,
       tradeLicenseNumber: formData.get('tradeLicenseNumber') as string,
       tradeLicenseExpiry: formData.get('tradeLicenseExpiry') as string,
+      tradeLicenseAuthority: formData.get('tradeLicenseAuthority') as string,
+      businessRegType: formData.get('businessRegType') as string,
+      supportEmail: formData.get('supportEmail') as string,
+      emergencyHotline: formData.get('emergencyHotline') as string,
       logoUrl: formData.get('logoUrl') as string,
       logoBase64: logoBase64,
       faviconBase64: faviconBase64,
@@ -2313,19 +2319,19 @@ function SettingsPanel({
       </div>
 
       {activeSubTab === 'shop' && (
-        <div className="bg-white p-8 rounded-[2rem] shadow-sm border border-gray-100 w-full max-w-5xl mx-auto">
+        <div className="bg-gradient-to-b from-white to-slate-50 p-8 rounded-[2rem] shadow-xs border border-gray-100 w-full max-w-5xl mx-auto hover:shadow-xl transition-all duration-300">
           <div className="mb-10 text-center flex flex-col sm:flex-row items-center justify-between gap-4">
             <div className="text-left">
               <h3 className="text-2xl font-black text-gray-900 flex items-center gap-3">
-                <div className="p-2 bg-indigo-50 rounded-xl">
-                  <Building2 className="w-7 h-7 text-indigo-600" />
+                <div className="p-2 bg-indigo-50 text-indigo-600 rounded-xl transition-transform hover:rotate-6">
+                  <Building2 className="w-7 h-7" />
                 </div>
                 Business Profile Settings
               </h3>
               <p className="text-gray-500 text-sm mt-1 sm:ml-12">Configure your shop identity, legal details, and core preferences.</p>
             </div>
             {isAuthorized && (
-              <button disabled={isSaving} className="px-8 py-3 bg-indigo-600 text-white font-bold rounded-xl shadow-lg shadow-indigo-600/20 hover:bg-indigo-700 hover:-translate-y-0.5 transition-all outline-none disabled:opacity-50">
+              <button disabled={isSaving} className="px-8 py-3 bg-indigo-600 text-white font-bold rounded-xl shadow-lg shadow-indigo-650/10 hover:bg-indigo-700 hover:shadow-indigo-650/25 hover:-translate-y-0.5 transition-all outline-none disabled:opacity-50">
                 {isSaving ? 'Saving...' : 'Save All Settings'}
               </button>
             )}
@@ -2336,83 +2342,104 @@ function SettingsPanel({
               
               {/* SECTION: BASIC INFO */}
               <div className="space-y-6">
-                <div className="border-b border-gray-100 pb-4">
+                <div className="border-b border-gray-150 pb-4">
                   <h4 className="text-lg font-black text-gray-900">Basic Information</h4>
                 </div>
                 
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6 bg-gray-50/50 p-6 rounded-3xl border border-gray-100">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6 bg-white p-6 rounded-3xl border border-gray-200/85 hover:border-indigo-400 hover:shadow-lg transition-all duration-300">
                   <div>
                     <label className="block text-xs font-black text-gray-500 uppercase tracking-wider mb-2">Shop Name <span className="text-red-500">*</span></label>
-                    <input name="name" defaultValue={settings.name || ''} required className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-indigo-500 outline-none bg-white font-bold" />
+                    <input name="name" defaultValue={settings.name || ''} required className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 outline-none bg-white font-bold transition-all" />
                   </div>
                   <div>
                     <label className="block text-xs font-black text-gray-500 uppercase tracking-wider mb-2">Phone Number</label>
-                    <input name="phone" defaultValue={settings.phone || ''} pattern="^01\d{9}$" title="Bangladeshi number must be 11 digits starting with 01" className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-indigo-500 outline-none bg-white font-mono placeholder-gray-300" placeholder="01XXXXXXXXX" />
+                    <input name="phone" defaultValue={settings.phone || ''} pattern="^01\d{9}$" title="Bangladeshi number must be 11 digits starting with 01" className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 outline-none bg-white font-mono placeholder-gray-300 transition-all" placeholder="01XXXXXXXXX" />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-black text-gray-400 uppercase tracking-wider mb-2">Support Email Contact</label>
+                    <input name="supportEmail" type="email" defaultValue={settings.supportEmail || ''} className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 outline-none bg-white font-medium transition-all" placeholder="support@yourshop.com" />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-black text-gray-400 uppercase tracking-wider mb-2">Emergency Hotline</label>
+                    <input name="emergencyHotline" type="tel" defaultValue={settings.emergencyHotline || ''} className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 outline-none bg-white font-mono transition-all" placeholder="e.g., +880 1700-000000" />
                   </div>
                   <div className="md:col-span-2">
                     <label className="block text-xs font-black text-gray-500 uppercase tracking-wider mb-2">Shop Address</label>
-                    <textarea name="address" defaultValue={settings.address || ''} required className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-indigo-500 outline-none bg-white h-24 resize-none leading-relaxed" />
+                    <textarea name="address" defaultValue={settings.address || ''} required className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 outline-none bg-white h-24 resize-none leading-relaxed transition-all" />
                   </div>
                 </div>
 
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6 p-6 bg-indigo-50/30 rounded-3xl border border-indigo-100/50">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6 p-6 bg-indigo-50/10 rounded-3xl border border-indigo-100 hover:border-indigo-400 hover:shadow-lg transition-all duration-300">
                   <div>
                     <label className="block text-xs font-black text-gray-500 uppercase tracking-wider mb-2">Shop Account Email</label>
-                    <input value={currentUserEmail} readOnly className="w-full px-4 py-3 rounded-xl border border-indigo-100 bg-white text-gray-600 font-medium cursor-default outline-none shadow-sm" />
-                    <p className="text-[10px] text-gray-400 mt-1 pl-1">Primary identifier for this system.</p>
+                    <input value={currentUserEmail} readOnly className="w-full px-4 py-3 rounded-xl border border-indigo-100 bg-white text-gray-600 font-medium cursor-default outline-none shadow-xs" />
+                    <p className="text-[10px] text-gray-450 mt-1 pl-1">Primary identifier for this system.</p>
                   </div>
                   <div>
                     <label className="block text-xs font-black text-gray-500 uppercase tracking-wider mb-2 flex justify-between items-center">
                       <span>Unique Shop Code</span>
-                      <button type="button" onClick={() => { if (settings.shopCode) navigator.clipboard.writeText(settings.shopCode); }} className="text-indigo-600 hover:text-indigo-700 flex items-center gap-1 bg-white px-2 py-0.5 rounded shadow-sm border border-indigo-100">
-                        <Copy className="w-3 h-3" /> <span className="text-[10px]">Copy</span>
+                      <button type="button" onClick={() => { if (settings.shopCode) navigator.clipboard.writeText(settings.shopCode); }} className="text-indigo-600 hover:text-indigo-700 flex items-center gap-1 bg-white px-2.5 py-0.5 rounded shadow-xs border border-indigo-100 text-[10px] font-bold cursor-pointer">
+                        <Copy className="w-3 h-3" /> <span>Copy</span>
                       </button>
                     </label>
-                    <input value={settings.shopCode || 'Not Generated'} readOnly className="w-full px-4 py-3 rounded-xl border border-indigo-100 bg-white font-mono font-black text-indigo-700 tracking-[0.2em] text-center cursor-default outline-none shadow-sm" />
+                    <input value={settings.shopCode || 'Not Generated'} readOnly className="w-full px-4 py-3 rounded-xl border border-indigo-100 bg-white font-mono font-black text-indigo-700 tracking-[0.2em] text-center cursor-default outline-none shadow-xs" />
                   </div>
                 </div>
               </div>
 
               {/* SECTION: LEGAL INFO */}
               <div className="space-y-6">
-                <div className="border-b border-gray-100 pb-4">
+                <div className="border-b border-gray-150 pb-4">
                   <h4 className="text-lg font-black text-gray-900">Legal & Licensing Information</h4>
                 </div>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6 bg-gray-50/50 p-6 rounded-3xl border border-gray-100">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6 bg-white p-6 rounded-3xl border border-gray-200/85 hover:border-indigo-400 hover:shadow-lg transition-all duration-300">
                   <div>
                     <label className="block text-xs font-black text-gray-500 uppercase tracking-wider mb-2">Owner Name (As per NID)</label>
-                    <input name="ownerName" defaultValue={settings.ownerName || ''} className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-indigo-500 outline-none bg-white font-bold" />
+                    <input name="ownerName" defaultValue={settings.ownerName || ''} className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 outline-none bg-white font-bold transition-all" />
                   </div>
                   <div>
                     <label className="block text-xs font-black text-gray-500 uppercase tracking-wider mb-2">National ID (NID) Number</label>
-                    <input name="nidNumber" defaultValue={settings.nidNumber || ''} className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-indigo-500 outline-none bg-white font-mono" placeholder="XXXXXXXXXX" />
+                    <input name="nidNumber" defaultValue={settings.nidNumber || ''} className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 outline-none bg-white font-mono transition-all" placeholder="XXXXXXXXXX" />
                   </div>
                   <div>
                     <label className="block text-xs font-black text-gray-500 uppercase tracking-wider mb-2">Trade License Number</label>
-                    <input name="tradeLicenseNumber" defaultValue={settings.tradeLicenseNumber || ''} className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-indigo-500 outline-none bg-white font-mono" />
+                    <input name="tradeLicenseNumber" defaultValue={settings.tradeLicenseNumber || ''} className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 outline-none bg-white font-mono transition-all" />
                   </div>
                   <div>
                     <label className="block text-xs font-black text-gray-500 uppercase tracking-wider mb-2">License Expiry Date</label>
-                    <input name="tradeLicenseExpiry" type="date" defaultValue={settings.tradeLicenseExpiry || ''} className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-indigo-500 outline-none bg-white font-mono text-sm" />
+                    <input name="tradeLicenseExpiry" type="date" defaultValue={settings.tradeLicenseExpiry || ''} className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 outline-none bg-white font-mono text-sm transition-all" />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-black text-gray-400 uppercase tracking-wider mb-2">License Issuing Authority</label>
+                    <input name="tradeLicenseAuthority" defaultValue={settings.tradeLicenseAuthority || ''} className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 outline-none bg-white transition-all" placeholder="e.g. City Corporation / Union Parishad" />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-black text-gray-400 uppercase tracking-wider mb-2">Business Type</label>
+                    <select name="businessRegType" defaultValue={settings.businessRegType || 'sole'} className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 outline-none bg-white transition-all">
+                      <option value="sole">Sole Proprietorship</option>
+                      <option value="partnership">Partnership</option>
+                      <option value="pvt_ltd">Private Limited Company</option>
+                      <option value="cooperative">Public Cooperative</option>
+                    </select>
                   </div>
                 </div>
               </div>
 
               {/* SECTION: BRANDING */}
               <div className="space-y-6">
-                <div className="border-b border-gray-100 pb-4">
+                <div className="border-b border-gray-150 pb-4">
                   <h4 className="text-lg font-black text-gray-900">Branding & Visuals</h4>
                 </div>
                 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
                   {/* Logo Upload */}
-                  <div className="bg-gray-50/50 p-6 rounded-3xl border border-gray-100 flex flex-col gap-4">
+                  <div className="bg-white p-6 rounded-3xl border border-gray-200 hover:border-indigo-400 hover:shadow-lg transition-all duration-300 flex flex-col gap-4">
                     <div>
                       <label className="block text-xs font-black text-gray-500 uppercase tracking-wider mb-1">Primary Logo</label>
                       <p className="text-[10px] text-gray-400">Used on receipts and POS interface.</p>
                     </div>
                     <div className="flex items-center gap-4">
-                      <div className="w-20 h-20 bg-white rounded-2xl border border-gray-200 flex items-center justify-center overflow-hidden shadow-sm shrink-0 p-2">
+                      <div className="w-20 h-20 bg-white rounded-2xl border border-gray-150 flex items-center justify-center overflow-hidden shadow-xs shrink-0 p-2 hover:scale-105 transition-transform">
                         {logoPreview ? (
                           <img src={logoPreview} alt="Logo" className="w-full h-full object-contain" />
                         ) : (
@@ -2434,18 +2461,18 @@ function SettingsPanel({
                     </div>
                     <div>
                         <label className="block text-xs font-bold text-gray-400 mb-2">Or Provide an Image URL:</label>
-                        <input name="logoUrl" defaultValue={settings.logoUrl || ''} className="w-full px-4 py-2 rounded-xl border border-gray-200 text-sm focus:ring-1 focus:ring-indigo-500 outline-none bg-white" placeholder="https://" />
+                        <input name="logoUrl" defaultValue={settings.logoUrl || ''} className="w-full px-4 py-2 rounded-xl border border-gray-200 text-sm focus:ring-1 focus:ring-indigo-500 outline-none bg-white transition-all" placeholder="https://" />
                     </div>
                   </div>
 
                   {/* Favicon Upload */}
-                  <div className="bg-gray-50/50 p-6 rounded-3xl border border-gray-100 flex flex-col gap-4">
+                  <div className="bg-white p-6 rounded-3xl border border-gray-200 hover:border-indigo-400 hover:shadow-lg transition-all duration-300 flex flex-col gap-4">
                     <div>
                       <label className="block text-xs font-black text-gray-500 uppercase tracking-wider mb-1">Web Favicon</label>
                       <p className="text-[10px] text-gray-400">Icon shown in browser tabs (32x32px recommended).</p>
                     </div>
                     <div className="flex items-center gap-4">
-                      <div className="w-20 h-20 bg-white rounded-2xl border border-gray-200 flex items-center justify-center overflow-hidden shadow-sm shrink-0 p-4">
+                      <div className="w-20 h-20 bg-white rounded-2xl border border-gray-150 flex items-center justify-center overflow-hidden shadow-xs shrink-0 p-4 hover:scale-105 transition-transform">
                         {faviconPreview ? (
                           <img src={faviconPreview} alt="Favicon" className="w-full h-full object-contain" />
                         ) : (
@@ -2468,18 +2495,18 @@ function SettingsPanel({
                     </div>
                     <div>
                         <label className="block text-xs font-bold text-gray-400 mb-2">Platform Browser Title:</label>
-                        <input name="platformTitle" defaultValue={settings.platformTitle || ''} className="w-full px-4 py-2 rounded-xl border border-gray-200 text-sm focus:ring-1 focus:ring-indigo-500 outline-none bg-white" placeholder="e.g. ShopMaster - Dashboard" />
+                        <input name="platformTitle" defaultValue={settings.platformTitle || ''} className="w-full px-4 py-2 rounded-xl border border-gray-200 text-sm focus:ring-1 focus:ring-indigo-500 outline-none bg-white transition-all" placeholder="e.g. ShopMaster - Dashboard" />
                     </div>
                   </div>
                 </div>
 
                 {isBrandingAuthorized && (
-                  <div className="bg-gray-50/50 p-6 rounded-3xl border border-gray-100">
+                  <div className="bg-white p-6 rounded-3xl border border-gray-200 hover:border-indigo-400 hover:shadow-lg transition-all duration-300">
                     <label className="block text-xs font-black text-gray-500 uppercase tracking-wider mb-2">Receipt Footer Text</label>
                     <textarea 
                       name="receiptFooter" 
                       defaultValue={settings.receiptFooter || "Thank you for shopping with us!\nPowered by ShopMaster"} 
-                      className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-indigo-500 outline-none bg-white h-24"
+                      className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 outline-none bg-white h-24 transition-all"
                     />
                   </div>
                 )}
@@ -2487,34 +2514,34 @@ function SettingsPanel({
 
               {/* SECTION: LOCALIZATION */}
               <div className="space-y-6">
-                <div className="border-b border-gray-100 pb-4">
+                <div className="border-b border-gray-150 pb-4">
                   <h4 className="text-lg font-black text-gray-900">Localization & Preferences</h4>
                 </div>
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
-                  <div className="bg-gray-50/50 p-5 rounded-2xl border border-gray-100">
+                  <div className="bg-white p-5 rounded-2xl border border-gray-200 hover:border-indigo-400 hover:shadow-lg transition-all duration-300">
                     <label className="block text-[11px] font-black text-gray-500 uppercase tracking-wider mb-2">System Language</label>
-                    <select name="systemLanguage" defaultValue={settings.systemLanguage || 'bn'} className="w-full px-4 py-3 rounded-xl border border-gray-200 font-bold focus:ring-2 focus:ring-indigo-500 outline-none bg-white appearance-none">
+                    <select name="systemLanguage" defaultValue={settings.systemLanguage || 'bn'} className="w-full px-4 py-3 rounded-xl border border-gray-200 font-bold focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 outline-none bg-white appearance-none transition-all">
                       <option value="bn">Bengali (বাংলা)</option>
                       <option value="en">English (English)</option>
                       <option value="ar">Arabic (العربية)</option>
                     </select>
                   </div>
-                  <div className="bg-gray-50/50 p-5 rounded-2xl border border-gray-100">
+                  <div className="bg-white p-5 rounded-2xl border border-gray-200 hover:border-indigo-400 hover:shadow-lg transition-all duration-300">
                     <label className="block text-[11px] font-black text-gray-500 uppercase tracking-wider mb-2">Print Language</label>
-                    <select name="printLanguage" defaultValue={settings.printLanguage || 'bn'} className="w-full px-4 py-3 rounded-xl border border-gray-200 font-bold focus:ring-2 focus:ring-indigo-500 outline-none bg-white appearance-none">
+                    <select name="printLanguage" defaultValue={settings.printLanguage || 'bn'} className="w-full px-4 py-3 rounded-xl border border-gray-200 font-bold focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 outline-none bg-white appearance-none transition-all">
                       <option value="bn">Bengali (বাংলা)</option>
                       <option value="en">English (English)</option>
                       <option value="ar">Arabic (العربية)</option>
                     </select>
                   </div>
-                  <div className="bg-gray-50/50 p-5 rounded-2xl border border-gray-100">
+                  <div className="bg-white p-5 rounded-2xl border border-gray-200 hover:border-indigo-400 hover:shadow-lg transition-all duration-300">
                     <label className="block text-[11px] font-black text-gray-500 uppercase tracking-wider mb-2">Currency Symbol</label>
-                    <input name="currencySymbol" defaultValue={settings.currencySymbol || 'TK'} className="w-full px-4 py-3 rounded-xl border border-gray-200 font-black text-center focus:ring-2 focus:ring-indigo-500 outline-none bg-white" placeholder="TK, $, SAR" />
+                    <input name="currencySymbol" defaultValue={settings.currencySymbol || 'TK'} className="w-full px-4 py-3 rounded-xl border border-gray-200 font-black text-center focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 outline-none bg-white transition-all" placeholder="TK, $, SAR" />
                   </div>
-                  <div className="bg-gray-50/50 p-5 rounded-2xl border border-gray-100">
+                  <div className="bg-white p-5 rounded-2xl border border-gray-200 hover:border-indigo-400 hover:shadow-lg transition-all duration-300">
                     <label className="block text-[11px] font-black text-gray-500 uppercase tracking-wider mb-2">AI Output Language</label>
-                    <select name="jarvisLanguage" defaultValue={settings.jarvisLanguage || 'bn'} className="w-full px-4 py-3 rounded-xl border border-gray-200 font-bold focus:ring-2 focus:ring-indigo-500 outline-none bg-white appearance-none">
+                    <select name="jarvisLanguage" defaultValue={settings.jarvisLanguage || 'bn'} className="w-full px-4 py-3 rounded-xl border border-gray-200 font-bold focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 outline-none bg-white appearance-none transition-all">
                       <option value="bn">Bengali</option>
                       <option value="en">English</option>
                     </select>
@@ -2522,18 +2549,15 @@ function SettingsPanel({
                 </div>
               </div>
 
-
-
-
                {/* SECTION: HARDWARE */}
               <div className="space-y-6">
-                <div className="border-b border-gray-100 pb-4">
+                <div className="border-b border-gray-150 pb-4">
                   <h4 className="text-lg font-black text-gray-900">Hardware Compatibility</h4>
                 </div>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6 bg-gray-50/50 p-6 rounded-3xl border border-gray-100">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6 bg-white p-6 rounded-3xl border border-gray-200 hover:border-indigo-400 hover:shadow-lg transition-all duration-300">
                     <div>
                       <label className="block text-xs font-black text-gray-500 uppercase tracking-wider mb-2">Receipt Printer Width</label>
-                      <select name="receiptWidth" defaultValue={settings.receiptWidth || '58mm'} className="w-full px-4 py-3 rounded-xl border border-gray-200 font-bold focus:ring-2 focus:ring-indigo-500 outline-none bg-white">
+                      <select name="receiptWidth" defaultValue={settings.receiptWidth || '58mm'} className="w-full px-4 py-3 rounded-xl border border-gray-200 font-bold focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 outline-none bg-white transition-all">
                         <option value="58mm">58mm (Small Thermal)</option>
                         <option value="80mm">80mm (Large Thermal)</option>
                       </select>
@@ -2543,7 +2567,7 @@ function SettingsPanel({
             </fieldset>
             
             <div className="flex justify-end pt-8">
-                <button type="submit" disabled={isSaving || !isAuthorized} className="px-8 py-3 bg-indigo-600 text-white font-bold rounded-xl shadow-lg hover:bg-indigo-700 transition-all shadow-indigo-100 flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed">
+                <button type="submit" disabled={isSaving || !isAuthorized} className="px-8 py-3 bg-indigo-600 text-white font-bold rounded-xl shadow-lg hover:bg-indigo-750 hover:scale-102 hover:shadow-indigo-650/40 active:scale-98 transition-all flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer">
                   {isSaving ? <Loader2 className="w-5 h-5 animate-spin" /> : <Save className="w-5 h-5" />}
                   {isSaving ? 'Updating Profile...' : 'Update Shop Profile'}
                 </button>
@@ -3529,6 +3553,7 @@ export default function App() {
   const [loading, setLoading] = useState(true);
   const [authChecked, setAuthChecked] = useState(false);
   const [activeTab, setActiveTab] = useState('dashboard');
+  const [currentStream, setCurrentStream] = useState<any>(null);
   const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
 
   useEffect(() => {
@@ -6424,7 +6449,14 @@ export default function App() {
             {activeTab === 'accounting_dashboard' && <PlaceholderView title="Accounting Dashboard" />}
             {activeTab === 'management_dashboard' && <PlaceholderView title="Management Dashboard" />}
             {activeTab === 'community_hub' && <PlaceholderView title="Community Hub" />}
-            {activeTab === 'live_tv' && <PlaceholderView title="Live TV" />}
+            {activeTab === 'live_tv' && <LiveTVPortal currentStream={currentStream} setCurrentStream={setCurrentStream} />}
+            {activeTab !== 'live_tv' && currentStream && (
+              <GlobalPipPlayer 
+                currentStream={currentStream} 
+                setCurrentStream={setCurrentStream} 
+                onMaximize={() => setActiveTab('live_tv')} 
+              />
+            )}
             {activeTab === 'contact_us' && <PlaceholderView title="Contact Us" />}
             {activeTab === 'business_mail' && <PlaceholderView title="Business Mail" />}
             {activeTab === 'meet_scheduler' && <PlaceholderView title="Meet Scheduler" />}
