@@ -60,6 +60,12 @@ export default defineConfig(({mode}) => {
               if (id.includes('hls.js')) {
                 return 'vendor-hls';
               }
+              if (id.includes('html5-qrcode')) {
+                return 'vendor-qrcode';
+              }
+              if (id.includes('papaparse')) {
+                return 'vendor-papaparse';
+              }
             }
           }
         }
