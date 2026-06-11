@@ -296,11 +296,22 @@ export const PageManagement: React.FC<PageManagementProps> = ({
 
 
   // 4. RELEASE VERSION STATE & DATA
-  const [currentVersion, setCurrentVersion] = useState(localStorage.getItem('pm_version') || 'v4.2.2');
+  const [currentVersion, setCurrentVersion] = useState(localStorage.getItem('pm_version') || 'v4.2.3');
   const [releaseNotes, setReleaseNotes] = useState<ReleaseNote[]>(() => {
     const cached = localStorage.getItem('pm_releases');
     if (cached) return JSON.parse(cached);
     return [
+      {
+        id: 'rel-new-0',
+        version: 'v4.2.3',
+        date: '2026-06-11',
+        type: 'patch',
+        isPublished: true,
+        changes: [
+          { category: 'new', text: isBn ? 'ইউজার গিট সিঙ্ক এবং ডাইরেক্ট হোস্টিংগার ডেপ্লয়মেন্ট মডিউলের জন্য আপডেট করা হয়েছে।' : 'Verified user Git synchronization and optimized direct Hostinger deployment module.' },
+          { category: 'perf', text: isBn ? 'বিল্ড পাইপলাইন স্পিড বাড়ানো হয়েছে এবং ক্যাশে ক্লিয়ারেন্স ইমপ্রুভ করা হয়েছে।' : 'Boosted build pipeline speed and improved compiled static asset cache clearance.' }
+        ]
+      },
       {
         id: 'rel-0',
         version: 'v4.2.2',

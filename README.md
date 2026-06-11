@@ -91,7 +91,11 @@ npm run start
 
 ## 📈 Release History
 
-### 🟢 Version v4.2.2 (2026-06-11) - current
+### 🟢 Version v4.2.3 (2026-06-11) - current
+* **Git Synchronization**: Refactored static configurations and package variables to make sure uncommitted configurations are picked up dynamically by GitHub Sync UI.
+* **Asset Optimization**: Strengthened build workflow performance on Node runtime.
+
+### 🟢 Version v4.2.2 (2026-06-11)
 * **Production Optimization**: Reconfigured the pipeline to use `esbuild` to bundle `server.ts` into a self-contained `dist/server.cjs` bundle with external module mappings.
 * **Hostinger Compatibility**: Added explicit guides and directory checks for deployment on `pos.sellerscampus.com` via Hostinger NodeJS app controller.
 * **Linter & Syntax Cleanups**: Resolved import conflicts and ensured successful TypeScript builds.
