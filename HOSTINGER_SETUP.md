@@ -4,7 +4,7 @@ Congratulations on your POS system! Version v4.2.5 is ready for release. To make
 
 ## 1. Prepare your Repository
 1. Push your code to a **GitHub repository** (Private or Public).
-2. Ensure you have the `server.ts`, `server.js`, `package.json`, and `.env.example` files at the root.
+2. Ensure you have the `server.ts`, `package.json`, and `.env.example` files at the root.
 
 ## 2. Hostinger Setup (Node.js App)
 1. Log in to your **Hostinger hPanel**.
@@ -15,7 +15,8 @@ Congratulations on your POS system! Version v4.2.5 is ready for release. To make
 3. Click **Create Application** or **Import from GitHub**.
 4. **Application Configuration**:
    - **App Directory / Application URL**: Map it to your subdomain (e.g., `pos.sellerscampus.com`).
-   - **Entry File**: Set this to `server.js` (Leave it as default or enter `server.js` exactly! We have built a root-level automatic script that routes everything perfectly).
+   - **Entry File**: Set this exactly to **`dist/server.cjs`** (This is the production-ready pre-compiled file generated during the build step!).
+     - *Alternative (only if Hostinger complains about directories)*: Keep the Entry File as `server.js` but create a simple `server.js` file inside Hostinger's File Manager with the content: `require('./dist/server.cjs');` (This way it stays out of your main Git repository where it would break compiler pipelines!).
    - **Port Settings (Automatic)**: **You do not need to configure any custom or manual ports inside Hostinger!** Leave any port settings to default. Hostinger assigns a dynamic port inside their environment and we automatically listen to it using modern environment bindings.
 5. **Environment Variables**:
    - Go to the **Environment Variables** tab inside the Hostinger Node.js manager interface (matching your screenshot).
