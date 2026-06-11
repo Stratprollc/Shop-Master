@@ -116,7 +116,6 @@ import {
   Delete,
   Star,
   ShieldAlert,
-  ShieldCheck,
   Sun,
   Moon,
   Sliders,
