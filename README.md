@@ -86,3 +86,13 @@ Start your deployed instance with:
 ```bash
 npm run start
 ```
+
+---
+
+## 📈 Release History
+
+### 🟢 Version v4.2.2 (2026-06-11) - current
+* **Production Optimization**: Reconfigured the pipeline to use `esbuild` to bundle `server.ts` into a self-contained `dist/server.cjs` bundle with external module mappings.
+* **Hostinger Compatibility**: Added explicit guides and directory checks for deployment on `pos.sellerscampus.com` via Hostinger NodeJS app controller.
+* **Linter & Syntax Cleanups**: Resolved import conflicts and ensured successful TypeScript builds.
+
