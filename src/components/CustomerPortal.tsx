@@ -37,6 +37,23 @@ interface CustomerPortalProps {
 export function CustomerPortal({ onBack, lang, platformBranding }: CustomerPortalProps) {
   const isBn = lang === 'bn';
 
+  const isValidImageSource = (src: any): boolean => {
+    if (!src || typeof src !== 'string') return false;
+    const s = src.trim();
+    if (s.startsWith('<svg') || s.includes('xmlns="http://www.w3.org/2000/svg"')) return false;
+    return s.startsWith('data:image/') || s.startsWith('http://') || s.startsWith('https://') || s.startsWith('/') || s.startsWith('./');
+  };
+
+  const getShopInitials = (name: string): string => {
+    if (!name) return 'M';
+    const cleanName = name.trim();
+    // Filter out parts and return initials
+    const parts = cleanName.split(/\s+/).filter(Boolean);
+    if (parts.length === 0) return 'M';
+    if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+    return (parts[0][0] + (parts[1]?.[0] || '')).toUpperCase();
+  };
+
   const toBengaliNumber = (num: number | string | undefined | null): string => {
     if (num === undefined || num === null) return '';
     const bengaliDigits = ['০', '১', '২', '৩', '৪', '৫', '৬', '৭', '৮', '৯'];
@@ -559,22 +576,26 @@ export function CustomerPortal({ onBack, lang, platformBranding }: CustomerPorta
           
           {selectedShop && stage !== 'shop_selection' ? (
             <div className="flex items-center gap-3">
-              <div className="w-10 h-10 bg-white border border-gray-150 rounded-xl overflow-hidden flex items-center justify-center shrink-0 shadow-xs">
-                {selectedShop.logoUrl || selectedShop.logo || selectedShop.logoBase64 ? (
+              <div className="w-10 h-10 bg-white border border-gray-150 rounded-xl overflow-hidden flex items-center justify-center shrink-0 shadow-xs relative">
+                {isValidImageSource(selectedShop.logoUrl || selectedShop.logo || selectedShop.logoBase64) ? (
                   <img 
                     src={selectedShop.logoUrl || selectedShop.logo || selectedShop.logoBase64} 
                     alt={selectedShop.name} 
-                    className="w-full h-full object-contain p-0.5" 
+                    className="w-full h-full object-contain p-0.5 relative z-10" 
                     onError={(e) => {
                       e.currentTarget.style.display = 'none';
-                      if (e.currentTarget.nextElementSibling) {
-                        (e.currentTarget.nextElementSibling as HTMLElement).style.display = 'flex';
+                      const fallback = e.currentTarget.parentElement?.querySelector('.logo-fallback');
+                      if (fallback) {
+                        (fallback as HTMLElement).style.display = 'flex';
                       }
                     }}
                   />
                 ) : null}
-                <div className="w-full h-full items-center justify-center bg-indigo-50" style={{ display: (selectedShop.logoUrl || selectedShop.logo || selectedShop.logoBase64) ? 'none' : 'flex' }}>
-                  <Building2 className="w-5 h-5 text-indigo-600" />
+                <div 
+                  className="logo-fallback absolute inset-0 w-full h-full flex flex-col items-center justify-center bg-indigo-600 text-white font-black text-xs select-none uppercase tracking-tight"
+                  style={{ display: isValidImageSource(selectedShop.logoUrl || selectedShop.logo || selectedShop.logoBase64) ? 'none' : 'flex' }}
+                >
+                  {getShopInitials(selectedShop.name || '')}
                 </div>
               </div>
               <div>
@@ -712,8 +733,27 @@ export function CustomerPortal({ onBack, lang, platformBranding }: CustomerPorta
                     className="w-full p-5 bg-white border border-gray-100/80 hover:border-indigo-500 rounded-2xl text-left flex items-center justify-between shadow-xs hover:shadow-md transition-all duration-300 group cursor-pointer active:bg-indigo-50/10"
                   >
                     <div className="flex items-center gap-4">
-                      <div className="w-12 h-12 bg-indigo-50 text-indigo-600 rounded-xl flex items-center justify-center font-black text-lg border border-indigo-100 group-hover:bg-indigo-600 group-hover:text-white transition-colors">
-                        {shop.name?.[0]?.toUpperCase() || 'S'}
+                      <div className="w-12 h-12 bg-indigo-50 text-indigo-600 rounded-xl overflow-hidden flex items-center justify-center font-black text-lg border border-indigo-100 group-hover:text-white transition-colors shrink-0 relative">
+                        {isValidImageSource(shop.logo || shop.logoUrl || shop.logoBase64) ? (
+                          <img 
+                            src={shop.logo || shop.logoUrl || shop.logoBase64} 
+                            alt={shop.name} 
+                            className="w-full h-full object-contain p-0.5 relative z-10" 
+                            onError={(e) => {
+                              e.currentTarget.style.display = 'none';
+                              const fallback = e.currentTarget.parentElement?.querySelector('.logo-fallback');
+                              if (fallback) {
+                                (fallback as HTMLElement).style.display = 'flex';
+                              }
+                            }}
+                          />
+                        ) : null}
+                        <div 
+                          className="logo-fallback absolute inset-0 w-full h-full flex items-center justify-center bg-indigo-50 text-indigo-650 font-black text-base select-none group-hover:bg-indigo-600 group-hover:text-white transition-all duration-300"
+                          style={{ display: isValidImageSource(shop.logo || shop.logoUrl || shop.logoBase64) ? 'none' : 'flex' }}
+                        >
+                          {getShopInitials(shop.name || '')}
+                        </div>
                       </div>
                       <div>
                         <div className="flex items-center gap-2">
@@ -753,16 +793,27 @@ export function CustomerPortal({ onBack, lang, platformBranding }: CustomerPorta
               
               <div className="relative z-10">
                 <div className="flex items-center gap-4 mb-6 pb-4 border-b border-gray-100">
-                  <div className="w-14 h-14 bg-indigo-50 border border-indigo-100 rounded-2xl overflow-hidden flex items-center justify-center shrink-0 shadow-inner">
-                    {selectedShop?.logoUrl || selectedShop?.logo || selectedShop?.logoBase64 ? (
+                  <div className="w-14 h-14 bg-indigo-50 border border-indigo-100 rounded-2xl overflow-hidden flex items-center justify-center shrink-0 shadow-inner relative">
+                    {isValidImageSource(selectedShop?.logoUrl || selectedShop?.logo || selectedShop?.logoBase64) ? (
                       <img 
                         src={selectedShop.logoUrl || selectedShop.logo || selectedShop.logoBase64} 
                         alt={selectedShop.name} 
-                        className="w-full h-full object-contain p-0.5" 
+                        className="w-full h-full object-contain p-0.5 relative z-10" 
+                        onError={(e) => {
+                          e.currentTarget.style.display = 'none';
+                          const fallback = e.currentTarget.parentElement?.querySelector('.logo-fallback');
+                          if (fallback) {
+                            (fallback as HTMLElement).style.display = 'flex';
+                          }
+                        }}
                       />
-                    ) : (
-                      <Building2 className="w-6 h-6 text-indigo-600" />
-                    )}
+                    ) : null}
+                    <div 
+                      className="logo-fallback absolute inset-0 w-full h-full flex items-center justify-center bg-indigo-650 text-white font-black text-lg select-none uppercase tracking-tight"
+                      style={{ display: isValidImageSource(selectedShop?.logoUrl || selectedShop?.logo || selectedShop?.logoBase64) ? 'none' : 'flex' }}
+                    >
+                      {getShopInitials(selectedShop?.name || '')}
+                    </div>
                   </div>
                   <div>
                     <h3 className="text-base font-black text-gray-950 leading-tight tracking-tight">{selectedShop?.name}</h3>
