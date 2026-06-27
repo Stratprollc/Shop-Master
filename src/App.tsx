@@ -5241,6 +5241,62 @@ export default function App() {
     window.history.pushState({}, '', show ? '/' : '/login');
   };
 
+  // Real-time Community Notifications Sync
+  useEffect(() => {
+    if (!user || !user.uid) return;
+
+    const timeAgo = (dateInput: Date | number) => {
+      const seconds = Math.floor((new Date().getTime() - new Date(dateInput).getTime()) / 1000);
+      if (seconds < 0) return 'Just now';
+      let interval = Math.floor(seconds / 31536000);
+      if (interval >= 1) return `${interval}y ago`;
+      interval = Math.floor(seconds / 2592000);
+      if (interval >= 1) return `${interval}mo ago`;
+      interval = Math.floor(seconds / 86400);
+      if (interval >= 1) return `${interval}d ago`;
+      interval = Math.floor(seconds / 3600);
+      if (interval >= 1) return `${interval}h ago`;
+      interval = Math.floor(seconds / 60);
+      if (interval >= 1) return `${interval}m ago`;
+      return 'Just now';
+    };
+
+    const q = query(
+      collection(db, 'community_notifications'),
+      where('recipientId', '==', user.uid),
+      orderBy('createdAt', 'desc'),
+      limit(20)
+    );
+
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const dbNotifs = snapshot.docs.map(doc => {
+        const data = doc.data();
+        let timeStr = 'Just now';
+        if (data.createdAt) {
+          try {
+            const dateVal = data.createdAt.toDate ? data.createdAt.toDate() : new Date(data.createdAt);
+            timeStr = timeAgo(dateVal);
+          } catch (e) {
+            timeStr = 'Just now';
+          }
+        }
+        return {
+          id: doc.id,
+          title: data.title || '',
+          time: timeStr,
+          read: !!data.read,
+          type: data.type || 'info'
+        };
+      });
+
+      setSystemNotifications(dbNotifs);
+    }, (error) => {
+      console.error("Error fetching community notifications:", error);
+    });
+
+    return () => unsubscribe();
+  }, [user]);
+
   // Auth State Sync
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
@@ -8891,6 +8947,13 @@ export default function App() {
                               <button
                                 onClick={() => {
                                   setSystemNotifications(prev => prev.map(n => ({ ...n, read: true })));
+                                  systemNotifications.forEach(async (n) => {
+                                    if (!n.read && n.id.length > 5) {
+                                      try {
+                                        await updateDoc(doc(db, 'community_notifications', n.id), { read: true });
+                                      } catch (err) { console.error(err); }
+                                    }
+                                  });
                                 }}
                                 className="text-[10px] text-indigo-600 dark:text-indigo-400 hover:underline font-bold cursor-pointer"
                               >
@@ -8900,6 +8963,13 @@ export default function App() {
                               <button
                                 onClick={() => {
                                   setSystemNotifications([]);
+                                  systemNotifications.forEach(async (n) => {
+                                    if (n.id.length > 5) {
+                                      try {
+                                        await deleteDoc(doc(db, 'community_notifications', n.id));
+                                      } catch (err) { console.error(err); }
+                                    }
+                                  });
                                 }}
                                 className="text-[10px] text-red-500 hover:underline font-bold cursor-pointer"
                               >
@@ -8919,6 +8989,11 @@ export default function App() {
                                   key={n.id} 
                                   onClick={() => {
                                     setSystemNotifications(prev => prev.map(x => x.id === n.id ? { ...x, read: true } : x));
+                                    if (!n.read && n.id.length > 5) {
+                                      try {
+                                        updateDoc(doc(db, 'community_notifications', n.id), { read: true });
+                                      } catch (err) { console.error(err); }
+                                    }
                                   }}
                                   className={`p-3 text-left transition-colors cursor-pointer hover:bg-gray-50/60 dark:hover:bg-slate-850/40 flex gap-2.5 items-start ${
                                     !n.read ? 'bg-indigo-50/20 dark:bg-indigo-950/10' : ''

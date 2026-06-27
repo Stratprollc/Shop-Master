@@ -130,6 +130,8 @@ export default function BranchCrm({ shopSettings, user, onSendMessage, setNotifi
           console.error("Error creating default branch", err);
         }
       }
+    }, (err) => {
+      console.error("Branch CRM - Branches sync error:", err);
     });
 
     return () => {
@@ -162,6 +164,8 @@ export default function BranchCrm({ shopSettings, user, onSendMessage, setNotifi
           addDoc(collection(db, 'leads'), leadData).catch(console.error);
         });
       }
+    }, (err) => {
+      console.error("Branch CRM - Leads sync error:", err);
     });
 
     // 3. Sync Transfers
@@ -184,6 +188,8 @@ export default function BranchCrm({ shopSettings, user, onSendMessage, setNotifi
           addDoc(collection(db, 'transfers'), transferData).catch(console.error);
         });
       }
+    }, (err) => {
+      console.error("Branch CRM - Transfers sync error:", err);
     });
 
     // 4. Sync Staff List
@@ -206,6 +212,8 @@ export default function BranchCrm({ shopSettings, user, onSendMessage, setNotifi
           addDoc(collection(db, 'branch_staff'), staffData).catch(console.error);
         });
       }
+    }, (err) => {
+      console.error("Branch CRM - Staff sync error:", err);
     });
 
     return () => {

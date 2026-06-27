@@ -179,6 +179,8 @@ export default function MembershipPage({ shopSettings, user, onRefreshSettings, 
     activePackageName = packs[shopSettings.packageType].name;
   } else if (shopSettings.plan && shopSettings.plan !== 'free') {
     activePackageName = shopSettings.plan;
+  } else if (hasActivePaidPackage) {
+    activePackageName = 'Premium Active';
   } else if (isTrialActive) {
     activePackageName = '90-Day Free Trial';
   }

@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { db, collection, addDoc, query, orderBy, onSnapshot, serverTimestamp, doc, updateDoc, deleteDoc, limit } from '../firebase';
+import { db, collection, addDoc, query, orderBy, onSnapshot, serverTimestamp, doc, updateDoc, deleteDoc, limit, setDoc } from '../firebase';
 import { User } from 'firebase/auth';
-import { MessageSquare, Link as LinkIcon, Image as ImageIcon, Send, Clock, Trash2, Heart, MessageCircle, MoreVertical, Edit2, ShieldAlert, Search, Filter, Tag, Pin } from 'lucide-react';
+import { MessageSquare, Link as LinkIcon, Image as ImageIcon, Send, Clock, Trash2, Heart, MessageCircle, MoreVertical, Edit2, ShieldAlert, Search, Filter, Tag, Pin, ChevronLeft, ChevronRight, X, Maximize2, Minimize2 } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 
 export type ReactionType = 'like' | 'love' | 'haha' | 'sad';
@@ -105,7 +105,7 @@ const ReactionPicker = ({ onSelect }: { onSelect: (r: ReactionType) => void }) =
   );
 };
 
-const LinkPreview: React.FC<{ url: string; className?: string }> = ({ url, className = "mt-3" }) => {
+const LinkPreview: React.FC<{ url: string; className?: string; onClickImage?: () => void }> = ({ url, className = "mt-3", onClickImage }) => {
   const ytId = getYoutubeId(url);
   if (ytId) {
     return (
@@ -144,10 +144,22 @@ const LinkPreview: React.FC<{ url: string; className?: string }> = ({ url, class
   }
 
   if (isImageUrl(finalUrl)) {
-    // Basic image preview for known extensions
     return (
-      <div className={`${className} rounded-xl overflow-hidden shadow-md max-h-96`}>
-        <img src={finalUrl} alt="Shared content" className="w-full h-full object-cover" onError={(e) => { e.currentTarget.style.display = 'none'; }} />
+      <div 
+        onClick={onClickImage} 
+        className={`${className} rounded-xl overflow-hidden shadow-md max-h-96 cursor-pointer group relative`}
+      >
+        <img 
+          src={finalUrl} 
+          alt="Shared content" 
+          className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105" 
+          onError={(e) => { e.currentTarget.style.display = 'none'; }} 
+        />
+        <div className="absolute inset-0 bg-black/10 group-hover:bg-black/35 transition-colors flex items-center justify-center opacity-0 group-hover:opacity-100">
+          <span className="text-white bg-black/60 px-3 py-1.5 rounded-full text-xs font-bold flex items-center gap-1.5 font-sans">
+            🔍 View / দেখতে ক্লিক করুন
+          </span>
+        </div>
       </div>
     );
   }
@@ -187,6 +199,14 @@ const CommentNode: React.FC<{
   const [isEditing, setIsEditing] = useState(false);
   const [editText, setEditText] = useState(comment.text);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [showReactionPicker, setShowReactionPicker] = useState(false);
+
+  useEffect(() => {
+    if (!showReactionPicker) return;
+    const handleOutsideClick = () => setShowReactionPicker(false);
+    window.addEventListener('click', handleOutsideClick);
+    return () => window.removeEventListener('click', handleOutsideClick);
+  }, [showReactionPicker]);
   
   const replies = allComments.filter(c => c.parentId === comment.id);
   const isOwner = comment.merchantId === user.uid;
@@ -256,11 +276,34 @@ const CommentNode: React.FC<{
               <span className="text-[11px] font-medium text-slate-400">
                 {formatDistanceToNow(comment.createdAt, { addSuffix: true })}
               </span>
-              <div className="relative group inline-block">
-                <button className={`text-[11px] font-bold transition-colors ${userReaction ? 'text-indigo-600' : 'text-slate-500 hover:text-indigo-600'}`}>
+              <div className="relative inline-block">
+                <button 
+                  onClick={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    setShowReactionPicker(!showReactionPicker);
+                  }}
+                  className={`text-[11px] font-bold transition-colors ${userReaction ? 'text-indigo-600' : 'text-slate-500 hover:text-indigo-600'}`}
+                >
                    {userReaction ? REACTION_EMOJIS[userReaction] + ' ' + (userReaction.charAt(0).toUpperCase() + userReaction.slice(1)) : 'React'}
                 </button>
-                <ReactionPicker onSelect={(r) => onReact(post.id, comment.id, r)} />
+                <div className={`absolute bottom-full left-1/2 -translate-x-1/2 mb-2 bg-white dark:bg-slate-800 shadow-xl border border-slate-200 dark:border-slate-700 rounded-full flex gap-1 p-1.5 transition-all z-50 ${showReactionPicker ? 'opacity-100 scale-100 pointer-events-auto' : 'opacity-0 scale-95 pointer-events-none'}`}>
+                  {(Object.keys(REACTION_EMOJIS) as ReactionType[]).map(r => (
+                    <button
+                      key={r}
+                      onClick={(e) => { 
+                        e.preventDefault(); 
+                        e.stopPropagation(); 
+                        onReact(post.id, comment.id, r); 
+                        setShowReactionPicker(false); 
+                      }}
+                      className="w-8 h-8 flex items-center justify-center hover:bg-slate-100 dark:hover:bg-slate-700 rounded-full text-lg hover:scale-125 transition-transform"
+                      title={r}
+                    >
+                      {REACTION_EMOJIS[r]}
+                    </button>
+                  ))}
+                </div>
               </div>
               <button onClick={() => onReply(comment.id, comment.merchantName)} className="text-[11px] font-bold text-slate-500 hover:text-indigo-600 transition-colors">
                 Reply
@@ -292,6 +335,18 @@ const CommentNode: React.FC<{
   );
 };
 
+const BAD_WORDS_PATTERN = /\b(fuck|shit|bitch|asshole|porn|sex|bastard|cunt|dick|pussy|nude|naked|sexual|choda|chodi|chud|khanki|magi|gandu|harami|haramsala|sala|bhal|gand)\b|চোদ|চুদি|চুদ|খানকি|মাগী|বাল|পোদ|যৌন|বেশ্যা|হারামজাদা|হারামি/i;
+
+const checkContentSafety = (text: string): { isSafe: boolean; warning?: string } => {
+  if (BAD_WORDS_PATTERN.test(text)) {
+    return {
+      isSafe: false,
+      warning: "আপনার পোস্টে বা কমেন্টে আপত্তিকর বা অশালীন ভাষা (অশ্লীল, গালিগালাজ বা যৌন শব্দ) সনাক্ত করা হয়েছে। দয়া করে ভদ্র ও পেশাদার ভাষা ব্যবহার করুন।"
+    };
+  }
+  return { isSafe: true };
+};
+
 export default function CommunityHubPage({ user, shopSettings }: CommunityHubPageProps) {
   const [posts, setPosts] = useState<Post[]>([]);
   const [postLimit, setPostLimit] = useState(15);
@@ -302,6 +357,74 @@ export default function CommunityHubPage({ user, shopSettings }: CommunityHubPag
   const [isPosting, setIsPosting] = useState(false);
   const [isAd, setIsAd] = useState(false);
   const [newPostTag, setNewPostTag] = useState(TAGS[0]);
+
+  // Lightbox Gallery states
+  const [isLightboxOpen, setIsLightboxOpen] = useState(false);
+  const [activeLightboxUrls, setActiveLightboxUrls] = useState<string[] | null>(null);
+  const [activeLightboxIndex, setActiveLightboxIndex] = useState(0);
+  const [isZoomed, setIsZoomed] = useState(false);
+
+  // Helper to send real-time notification to Firestore
+  const sendNotification = async (recipientId: string, title: string, type: 'info' | 'success' | 'warning' | 'error' = 'info') => {
+    if (!recipientId || recipientId === user.uid) return;
+    try {
+      await addDoc(collection(db, 'community_notifications'), {
+        recipientId,
+        title,
+        read: false,
+        type,
+        createdAt: Date.now()
+      });
+    } catch (err) {
+      console.error("Failed to send notification:", err);
+    }
+  };
+
+  // Helper to find a user's UID based on name (with spaces removed, matching mention style)
+  const getUidFromMention = (mentionName: string): string | null => {
+    const cleanMention = mentionName.toLowerCase().replace(/\s+/g, '');
+    for (const post of posts) {
+      if (post.merchantName.toLowerCase().replace(/\s+/g, '') === cleanMention) {
+        return post.merchantId;
+      }
+      if (post.comments) {
+        for (const c of post.comments) {
+          if (c.merchantName.toLowerCase().replace(/\s+/g, '') === cleanMention) {
+            return c.merchantId;
+          }
+        }
+      }
+    }
+    return null;
+  };
+
+  // Extract mention tags e.g. @SazzadHossain from text
+  const scanMentions = (text: string): string[] => {
+    const mentionRegex = /@([a-zA-Z0-9_\-]+)/g;
+    const matches: string[] = [];
+    let match;
+    while ((match = mentionRegex.exec(text)) !== null) {
+      matches.push(match[1]);
+    }
+    return matches;
+  };
+
+  // Scan mentions and trigger actual notifications for each mentioned user
+  const notifyMentions = async (text: string, authorName: string, snippet: string, isPost: boolean = false) => {
+    const mentions = scanMentions(text);
+    const notifiedUids = new Set<string>();
+    for (const name of mentions) {
+      const uid = getUidFromMention(name);
+      if (uid && uid !== user.uid && !notifiedUids.has(uid)) {
+        notifiedUids.add(uid);
+        await sendNotification(
+          uid,
+          `${authorName} আপনাকে একটি ${isPost ? 'পোস্টে' : 'কমেন্টে'} মেনশন করেছেন: "${snippet.substring(0, 50)}${snippet.length > 50 ? '...' : ''}"`,
+          'info'
+        );
+      }
+    }
+  };
   
   // Search and Filter state
   const [searchQuery, setSearchQuery] = useState('');
@@ -318,6 +441,58 @@ export default function CommunityHubPage({ user, shopSettings }: CommunityHubPag
   const [commentText, setCommentText] = useState<{ [postId: string]: string }>({});
   const [replyingTo, setReplyingTo] = useState<{ postId: string, commentId: string, merchantName: string } | null>(null);
   const [mentionQuery, setMentionQuery] = useState<{ postId: string, query: string, position: number } | null>(null);
+
+  // Master Admin & Moderation states
+  const isMasterAdmin = user?.email?.toLowerCase().trim() === 'stratproamz@gmail.com';
+  const [activeView, setActiveView] = useState<'feed' | 'reports'>('feed');
+  const [reports, setReports] = useState<any[]>([]);
+  const [bannedUids, setBannedUids] = useState<string[]>([]);
+  
+  // Reaction picker state
+  const [activePostPickerId, setActivePostPickerId] = useState<string | null>(null);
+
+  // Reporting states
+  const [isReportModalOpen, setIsReportModalOpen] = useState(false);
+  const [selectedReportPost, setSelectedReportPost] = useState<Post | null>(null);
+  const [reportReason, setReportReason] = useState('Offensive Language');
+  const [reportDetails, setReportDetails] = useState('');
+  const [isSubmittingReport, setIsSubmittingReport] = useState(false);
+
+  // Load banned users
+  useEffect(() => {
+    const q = query(collection(db, 'community_banned_users'));
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const uids = snapshot.docs.map(doc => doc.id);
+      setBannedUids(uids);
+    }, (err) => {
+      console.error("Error loading banned uids:", err);
+    });
+    return () => unsubscribe();
+  }, []);
+
+  // Load reports for Master Admin
+  useEffect(() => {
+    if (!isMasterAdmin) return;
+    const q = query(collection(db, 'community_reports'), orderBy('createdAt', 'desc'));
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const reportsData = snapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      }));
+      setReports(reportsData);
+    }, (err) => {
+      console.error("Error loading reports:", err);
+    });
+    return () => unsubscribe();
+  }, [isMasterAdmin]);
+
+  // Handle outside clicks to close picker
+  useEffect(() => {
+    if (!activePostPickerId) return;
+    const handleOutsideClick = () => setActivePostPickerId(null);
+    window.addEventListener('click', handleOutsideClick);
+    return () => window.removeEventListener('click', handleOutsideClick);
+  }, [activePostPickerId]);
 
   const getAllUsers = () => {
     const users = new Map<string, string>();
@@ -339,6 +514,8 @@ export default function CommunityHubPage({ user, shopSettings }: CommunityHubPag
       })) as Post[];
       setPosts(postsData);
       setHasMore(snapshot.docs.length === postLimit);
+    }, (err) => {
+      console.error("Community Hub - Posts sync error:", err);
     });
     return () => unsubscribe();
   }, [postLimit]);
@@ -359,7 +536,18 @@ export default function CommunityHubPage({ user, shopSettings }: CommunityHubPag
   };
 
   const handlePost = async () => {
+    if (bannedUids.includes(user.uid)) {
+      alert("আপনার অ্যাকাউন্টটি এই কমুনিটি থেকে সাময়িকভাবে ব্লক করা হয়েছে। আপনি কোনো পোস্ট করতে পারবেন না।");
+      return;
+    }
     if (!newPostText.trim() && !newAttachmentUrl.trim()) return;
+
+    const safety = checkContentSafety(newPostText);
+    if (!safety.isSafe) {
+      alert(safety.warning);
+      return;
+    }
+
     setIsPosting(true);
     
     let processedText = newPostText.trim();
@@ -389,10 +577,11 @@ export default function CommunityHubPage({ user, shopSettings }: CommunityHubPag
     }
 
     try {
+      const authorName = shopSettings.ownerName || user.displayName || user.email?.split('@')[0] || 'Unknown Merchant';
       await addDoc(collection(db, 'community_posts'), {
         text: processedText,
         attachmentUrl: finalAttachmentUrl || null,
-        merchantName: shopSettings.ownerName || user.displayName || user.email?.split('@')[0] || 'Unknown Merchant',
+        merchantName: authorName,
         shopName: shopSettings.name || 'Unknown Shop',
         merchantId: user.uid,
         shopId: shopSettings.id || 'global',
@@ -403,6 +592,12 @@ export default function CommunityHubPage({ user, shopSettings }: CommunityHubPag
         isPinned: false,
         comments: []
       });
+
+      // Notify mentioned merchants in the post text
+      if (processedText) {
+        await notifyMentions(processedText, authorName, processedText, true);
+      }
+
       setNewPostText('');
       setNewAttachmentUrl('');
       setIsAd(false);
@@ -425,6 +620,13 @@ export default function CommunityHubPage({ user, shopSettings }: CommunityHubPag
   };
 
   const handleTogglePin = async (postId: string, currentPinStatus: boolean) => {
+    const post = posts.find(p => p.id === postId);
+    if (!post) return;
+    const isOwner = post.merchantId === user.uid;
+    if (!isOwner && !isMasterAdmin) {
+      alert("আপনি শুধুমাত্র নিজের তৈরি পোস্ট পিন বা আনপিন করতে পারবেন।");
+      return;
+    }
     try {
       await updateDoc(doc(db, 'community_posts', postId), {
         isPinned: !currentPinStatus
@@ -435,7 +637,17 @@ export default function CommunityHubPage({ user, shopSettings }: CommunityHubPag
   };
 
   const handleEditPost = async (postId: string) => {
+    if (bannedUids.includes(user.uid)) {
+      alert("আপনার অ্যাকাউন্টটি ব্লক করা হয়েছে।");
+      return;
+    }
     if (!editPostText.trim() && !editPostAttachmentUrl.trim()) return;
+
+    const safety = checkContentSafety(editPostText);
+    if (!safety.isSafe) {
+      alert(safety.warning);
+      return;
+    }
 
     let processedText = editPostText.trim();
     let finalAttachmentUrl = editPostAttachmentUrl.trim();
@@ -467,17 +679,28 @@ export default function CommunityHubPage({ user, shopSettings }: CommunityHubPag
   };
 
   const handleComment = async (postId: string) => {
+    if (bannedUids.includes(user.uid)) {
+      alert("আপনার অ্যাকাউন্টটি এই কমুনিটি থেকে সাময়িকভাবে ব্লক করা হয়েছে। আপনি কোনো মন্তব্য করতে পারবেন না।");
+      return;
+    }
     const txt = commentText[postId];
     if (!txt?.trim()) return;
+
+    const safety = checkContentSafety(txt);
+    if (!safety.isSafe) {
+      alert(safety.warning);
+      return;
+    }
 
     try {
       const post = posts.find(p => p.id === postId);
       if (!post) return;
 
+      const authorName = shopSettings.ownerName || user.displayName || user.email?.split('@')[0] || 'Unknown';
       const newComment: Comment = {
         id: Date.now().toString() + Math.random().toString(36).substring(7),
         text: txt.trim(),
-        merchantName: shopSettings.ownerName || user.displayName || user.email?.split('@')[0] || 'Unknown',
+        merchantName: authorName,
         merchantId: user.uid,
         createdAt: Date.now(),
         ...(replyingTo?.postId === postId ? { parentId: replyingTo.commentId } : {})
@@ -488,6 +711,31 @@ export default function CommunityHubPage({ user, shopSettings }: CommunityHubPag
       await updateDoc(doc(db, 'community_posts', postId), {
         comments: updatedComments
       });
+
+      // Send real-time notifications
+      if (replyingTo?.postId === postId) {
+        // Reply notification
+        const parentComment = post.comments?.find(c => c.id === replyingTo.commentId);
+        if (parentComment && parentComment.merchantId !== user.uid) {
+          await sendNotification(
+            parentComment.merchantId,
+            `${authorName} আপনার মন্তব্যের উত্তর দিয়েছেন: "${txt.trim().substring(0, 40)}${txt.trim().length > 40 ? '...' : ''}"`,
+            'info'
+          );
+        }
+      } else {
+        // Standard comment notification to post owner
+        if (post.merchantId !== user.uid) {
+          await sendNotification(
+            post.merchantId,
+            `${authorName} আপনার পোস্টে একটি মন্তব্য করেছেন: "${txt.trim().substring(0, 40)}${txt.trim().length > 40 ? '...' : ''}"`,
+            'info'
+          );
+        }
+      }
+
+      // Notify mentioned merchants in the comment text
+      await notifyMentions(txt.trim(), authorName, txt.trim(), false);
 
       setCommentText(prev => ({ ...prev, [postId]: '' }));
       setReplyingTo(null);
@@ -522,6 +770,15 @@ export default function CommunityHubPage({ user, shopSettings }: CommunityHubPag
   };
 
   const handleEditComment = async (postId: string, commentId: string, newText: string) => {
+    if (bannedUids.includes(user.uid)) {
+      alert("আপনার অ্যাকাউন্টটি ব্লক করা হয়েছে।");
+      return;
+    }
+    const safety = checkContentSafety(newText);
+    if (!safety.isSafe) {
+      alert(safety.warning);
+      return;
+    }
     try {
       const post = posts.find(p => p.id === postId);
       if (!post) return;
@@ -536,19 +793,91 @@ export default function CommunityHubPage({ user, shopSettings }: CommunityHubPag
     }
   };
 
+  // Admin report actions
+  const handleSendReport = async () => {
+    if (!selectedReportPost) return;
+    setIsSubmittingReport(true);
+    try {
+      await addDoc(collection(db, 'community_reports'), {
+        postId: selectedReportPost.id,
+        postText: selectedReportPost.text,
+        reportedMerchantId: selectedReportPost.merchantId,
+        reportedMerchantName: selectedReportPost.merchantName,
+        reportedShopName: selectedReportPost.shopName,
+        reporterId: user.uid,
+        reporterName: shopSettings.ownerName || user.displayName || user.email?.split('@')[0] || 'Unknown',
+        reason: reportReason,
+        details: reportDetails,
+        status: 'pending',
+        createdAt: serverTimestamp()
+      });
+      alert('রিপোর্টটি সফলভাবে জমা দেওয়া হয়েছে। এডমিন দ্রুত ব্যবস্থা গ্রহণ করবেন।');
+      setIsReportModalOpen(false);
+      setReportDetails('');
+    } catch (error) {
+      console.error('Error submitting report:', error);
+      alert('Failed to submit report. Please try again.');
+    } finally {
+      setIsSubmittingReport(false);
+    }
+  };
+
+  const handleAdminDeletePost = async (postId: string, reportId: string, reportedMerchantId: string, reason: string) => {
+    try {
+      await deleteDoc(doc(db, 'community_posts', postId));
+      await updateDoc(doc(db, 'community_reports', reportId), { status: 'resolved_deleted' });
+      
+      // Send warning notification to the merchant
+      if (reportedMerchantId) {
+        await sendNotification(
+          reportedMerchantId,
+          `[Warning/সতর্কবার্তা] আপনার পোস্টটি নীতিমালার পরিপন্থী হওয়ায় ডিলিট করা হয়েছে। কারণ: ${reason} / Your post was deleted for violating guidelines. Reason: ${reason}`,
+          'warning'
+        );
+      }
+
+      alert('পোস্টটি সফলভাবে ডিলিট করা হয়েছে এবং রিপোর্টটি সমাধান করা হয়েছে।');
+    } catch (error) {
+      console.error("Error deleting post via admin:", error);
+      alert('Failed to delete post.');
+    }
+  };
+
+  const handleAdminDismissReport = async (reportId: string) => {
+    try {
+      await updateDoc(doc(db, 'community_reports', reportId), { status: 'dismissed' });
+      alert('রিপোর্টটি খারিজ করা হয়েছে।');
+    } catch (error) {
+      console.error("Error dismissing report:", error);
+      alert('Failed to dismiss report.');
+    }
+  };
+
   const handleReactPost = async (postId: string, reaction: ReactionType) => {
     try {
       const post = posts.find(p => p.id === postId);
       if (!post) return;
       
       const reactions = { ...(post.reactions || {}) };
+      let addedReaction = false;
       if (reactions[user.uid] === reaction) {
         delete reactions[user.uid]; // Toggle off if clicking the same
       } else {
         reactions[user.uid] = reaction;
+        addedReaction = true;
       }
 
       await updateDoc(doc(db, 'community_posts', postId), { reactions });
+
+      if (addedReaction && post.merchantId !== user.uid) {
+        const authorName = shopSettings.ownerName || user.displayName || user.email?.split('@')[0] || 'Someone';
+        const emoji = REACTION_EMOJIS[reaction] || '👍';
+        await sendNotification(
+          post.merchantId,
+          `${authorName} আপনার পোস্টে রিঅ্যাক্ট করেছেন ${emoji}`,
+          'success'
+        );
+      }
     } catch (error) {
       console.error('Error reacting to post:', error);
     }
@@ -559,13 +888,18 @@ export default function CommunityHubPage({ user, shopSettings }: CommunityHubPag
       const post = posts.find(p => p.id === postId);
       if (!post) return;
       
+      let targetCommentOwnerId = '';
+      let addedReaction = false;
+      
       const updatedComments = (post.comments || []).map(c => {
         if (c.id === commentId) {
+          targetCommentOwnerId = c.merchantId;
           const reactions = { ...(c.reactions || {}) };
           if (reactions[user.uid] === reaction) {
             delete reactions[user.uid];
           } else {
             reactions[user.uid] = reaction;
+            addedReaction = true;
           }
           return { ...c, reactions };
         }
@@ -573,6 +907,16 @@ export default function CommunityHubPage({ user, shopSettings }: CommunityHubPag
       });
 
       await updateDoc(doc(db, 'community_posts', postId), { comments: updatedComments });
+
+      if (addedReaction && targetCommentOwnerId && targetCommentOwnerId !== user.uid) {
+        const authorName = shopSettings.ownerName || user.displayName || user.email?.split('@')[0] || 'Someone';
+        const emoji = REACTION_EMOJIS[reaction] || '👍';
+        await sendNotification(
+          targetCommentOwnerId,
+          `${authorName} আপনার মন্তব্যে রিঅ্যাক্ট করেছেন ${emoji}`,
+          'success'
+        );
+      }
     } catch (error) {
       console.error('Error reacting to comment:', error);
     }
@@ -621,7 +965,8 @@ export default function CommunityHubPage({ user, shopSettings }: CommunityHubPag
       const matchesSearch = 
         post.text.toLowerCase().includes(searchLower) || 
         post.merchantName.toLowerCase().includes(searchLower) ||
-        post.shopName.toLowerCase().includes(searchLower);
+        post.shopName.toLowerCase().includes(searchLower) ||
+        (post.tag && post.tag.toLowerCase().includes(searchLower));
       if (!matchesSearch) return false;
     }
     
@@ -648,14 +993,30 @@ export default function CommunityHubPage({ user, shopSettings }: CommunityHubPag
           </div>
           <div>
             <h1 className="text-3xl font-black text-gray-900 dark:text-white tracking-tight">
-              {selectedMerchantId ? `${selectedMerchantName}'s Profile` : 'Community Hub'}
+              {selectedMerchantId ? `${selectedMerchantName}'s Profile` : activeView === 'reports' ? 'Reports Dashboard' : 'Community Hub'}
             </h1>
             <p className="text-slate-500 dark:text-slate-400 mt-1">
-              {selectedMerchantId ? `Viewing posts from ${selectedMerchantShopName}` : 'Share ideas, products, and updates with fellow merchants.'}
+              {selectedMerchantId ? `Viewing posts from ${selectedMerchantShopName}` : activeView === 'reports' ? 'Manage reported posts, comments, and merchants.' : 'Share ideas, products, and updates with fellow merchants.'}
             </p>
           </div>
         </div>
-        <div className="flex flex-col gap-2">
+        <div className="flex flex-col sm:flex-row gap-2">
+          {isMasterAdmin && (
+            <button
+              onClick={() => {
+                setActiveView(activeView === 'feed' ? 'reports' : 'feed');
+                setSelectedMerchantId(null);
+              }}
+              className={`px-4 py-2 font-bold text-sm rounded-xl transition-colors flex items-center gap-2 ${
+                activeView === 'reports' 
+                  ? 'bg-amber-600 text-white hover:bg-amber-750' 
+                  : 'bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-750 dark:text-slate-250 border border-slate-200 dark:border-slate-700'
+              }`}
+            >
+              <ShieldAlert className="w-4 h-4" />
+              {activeView === 'reports' ? 'Back to Feed' : `Reports Dashboard (${reports.filter(r => r.status === 'pending').length})`}
+            </button>
+          )}
           {selectedMerchantId ? (
             <button
               onClick={() => setSelectedMerchantId(null)}
@@ -664,17 +1025,187 @@ export default function CommunityHubPage({ user, shopSettings }: CommunityHubPag
               Back to Hub
             </button>
           ) : (
-            <button
-              onClick={() => setSelectedMerchantId(user.uid)}
-              className="px-4 py-2 bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-900/30 dark:hover:bg-indigo-900/50 text-indigo-600 dark:text-indigo-400 font-bold text-sm rounded-xl transition-colors"
-            >
-              My Profile
-            </button>
+            activeView === 'feed' && (
+              <button
+                onClick={() => setSelectedMerchantId(user.uid)}
+                className="px-4 py-2 bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-900/30 dark:hover:bg-indigo-900/50 text-indigo-600 dark:text-indigo-400 font-bold text-sm rounded-xl transition-colors"
+              >
+                My Profile
+              </button>
+            )
           )}
         </div>
       </div>
 
-      {!selectedMerchantId && (
+      {activeView === 'reports' && isMasterAdmin ? (
+        <div className="space-y-6">
+          <div className="bg-white dark:bg-slate-900 rounded-[2rem] p-6 shadow-sm border border-gray-150 dark:border-slate-800">
+            <h2 className="text-xl font-bold text-gray-900 dark:text-white mb-4">কমিউনিটি রিপোর্টসমূহ / Active Reports</h2>
+            
+            {reports.length === 0 ? (
+              <div className="text-center py-12 text-slate-500">
+                কোনো রিপোর্ট পেন্ডিং নেই! / No pending reports.
+              </div>
+            ) : (
+              <div className="space-y-4">
+                {reports.map((report) => {
+                  const isBanned = bannedUids.includes(report.reportedMerchantId);
+                  
+                  return (
+                    <div key={report.id} className="p-5 bg-slate-50 dark:bg-slate-800/40 border border-slate-150 dark:border-slate-800/80 rounded-2xl flex flex-col md:flex-row justify-between items-start md:items-center gap-4 hover:shadow-sm transition-shadow">
+                      <div className="space-y-2 flex-1 min-w-0">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="px-2.5 py-0.5 bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300 text-[11px] font-bold rounded-full font-mono">
+                            Reason: {report.reason}
+                          </span>
+                          <span className="text-xs text-slate-400">
+                            {report.createdAt ? formatDistanceToNow(report.createdAt.toDate(), { addSuffix: true }) : ''}
+                          </span>
+                          <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase font-mono ${
+                            report.status === 'pending' ? 'bg-yellow-100 text-yellow-800' : 'bg-green-150 text-green-800'
+                          }`}>
+                            {report.status}
+                          </span>
+                        </div>
+                        
+                        <div className="text-sm">
+                          <strong>Reported User:</strong> <span className="text-indigo-600 dark:text-indigo-400">@{report.reportedMerchantName}</span> (Shop: {report.reportedShopName})
+                        </div>
+                        
+                        <div className="text-sm">
+                          <strong>Reporter:</strong> {report.reporterName}
+                        </div>
+
+                        {report.postText && (
+                          <div className="bg-white dark:bg-slate-900/60 border border-slate-200 dark:border-slate-700/60 rounded-xl p-3 text-xs text-slate-750 dark:text-slate-350 max-h-24 overflow-y-auto italic">
+                            "{report.postText}"
+                          </div>
+                        )}
+
+                        {report.details && (
+                          <div className="text-xs text-slate-500">
+                            <strong>Additional details:</strong> {report.details}
+                          </div>
+                        )}
+                      </div>
+
+                      <div className="flex flex-wrap md:flex-col gap-2 shrink-0 w-full md:w-auto">
+                        {report.status === 'pending' && (
+                          <>
+                            <button
+                              onClick={() => handleAdminDeletePost(report.postId, report.id, report.reportedMerchantId, report.reason)}
+                              className="px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs rounded-xl transition-colors shadow-sm"
+                            >
+                              Delete Reported Post
+                            </button>
+                            <button
+                              onClick={() => handleAdminDismissReport(report.id)}
+                              className="px-4 py-2 bg-slate-200 hover:bg-slate-300 dark:bg-slate-700 dark:hover:bg-slate-600 text-slate-700 dark:text-slate-300 font-bold text-xs rounded-xl transition-colors"
+                            >
+                              Dismiss Report
+                            </button>
+                            <button
+                              onClick={async () => {
+                                const customMsg = prompt("সতর্কবার্তা লিখুন / Enter custom warning message:", `নীতিমালার পরিপন্থী পোস্ট করার জন্য আপনাকে সতর্ক করা হচ্ছে। / You are being warned for posting content violating community rules.`);
+                                if (customMsg) {
+                                  await sendNotification(
+                                    report.reportedMerchantId,
+                                    `[Warning/সতর্কবার্তা] ${customMsg}`,
+                                    'warning'
+                                  );
+                                  alert('মার্চেন্টকে সতর্কবার্তা পাঠানো হয়েছে।');
+                                }
+                              }}
+                              className="px-4 py-2 bg-yellow-500 hover:bg-yellow-600 text-white font-bold text-xs rounded-xl transition-colors shadow-sm"
+                            >
+                              Warn Merchant
+                            </button>
+                          </>
+                        )}
+                        
+                        {isBanned ? (
+                          <button
+                            onClick={async () => {
+                              try {
+                                await deleteDoc(doc(db, 'community_banned_users', report.reportedMerchantId));
+                                alert('মার্চেন্টকে সফলভাবে আনব্লক করা হয়েছে।');
+                              } catch (e) {
+                                console.error(e);
+                              }
+                            }}
+                            className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-xl transition-colors shadow-sm"
+                          >
+                            Unblock Merchant
+                          </button>
+                        ) : (
+                          <button
+                            onClick={async () => {
+                              if (confirm(`আপনি কি নিশ্চিতভাবে @${report.reportedMerchantName} কে কমুনিটি থেকে ব্লক করতে চান?`)) {
+                                try {
+                                  await setDoc(doc(db, 'community_banned_users', report.reportedMerchantId), {
+                                    bannedAt: Date.now(),
+                                    shopName: report.reportedShopName,
+                                    merchantName: report.reportedMerchantName
+                                  });
+                                  
+                                  // Send warning/error notification to the merchant
+                                  await sendNotification(
+                                    report.reportedMerchantId,
+                                    `[Blocked/ব্লকড] আপনাকে কমুনিটি হাব থেকে ব্লক করা হয়েছে। / You have been blocked from the community hub.`,
+                                    'error'
+                                  );
+
+                                  alert('মার্চেন্টকে সফলভাবে ব্লক করা হয়েছে।');
+                                } catch (e) {
+                                  console.error(e);
+                                }
+                              }
+                            }}
+                            className="px-4 py-2 bg-amber-500 hover:bg-amber-600 text-white font-bold text-xs rounded-xl transition-colors shadow-sm"
+                          >
+                            Block Merchant
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+          
+          {/* Banned Merchants List */}
+          <div className="bg-white dark:bg-slate-900 rounded-[2rem] p-6 shadow-sm border border-gray-150 dark:border-slate-800">
+            <h2 className="text-xl font-bold text-gray-900 dark:text-white mb-4">ব্লক করা মার্চেন্টদের তালিকা / Banned Merchants</h2>
+            <div className="space-y-2">
+              {bannedUids.length === 0 ? (
+                <div className="text-sm text-slate-500 py-4 text-center">কোনো মার্চেন্ট ব্লক করা নেই।</div>
+              ) : (
+                bannedUids.map(bannedUid => (
+                  <div key={bannedUid} className="flex justify-between items-center p-3 bg-rose-50/50 dark:bg-rose-950/10 border border-rose-100 dark:border-rose-950/40 rounded-xl">
+                    <span className="text-sm font-semibold text-rose-800 dark:text-rose-300">UID: {bannedUid}</span>
+                    <button
+                      onClick={async () => {
+                        try {
+                          await deleteDoc(doc(db, 'community_banned_users', bannedUid));
+                          alert('মার্চেন্টকে সফলভাবে আনব্লক করা হয়েছে।');
+                        } catch (e) {
+                          console.error(e);
+                        }
+                      }}
+                      className="px-3 py-1 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-lg transition-colors"
+                    >
+                      Unblock
+                    </button>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+        </div>
+      ) : (
+        <>
+          {!selectedMerchantId && (
         <div className="bg-white dark:bg-slate-900 rounded-[2rem] p-6 shadow-sm border border-gray-100 dark:border-slate-800">
           <div className="flex gap-4">
             <div className="w-10 h-10 bg-indigo-100 dark:bg-indigo-900/50 rounded-full flex items-center justify-center text-indigo-600 font-bold shrink-0">
@@ -831,11 +1362,27 @@ export default function CommunityHubPage({ user, shopSettings }: CommunityHubPag
                           <Clock className="w-3.5 h-3.5" />
                           {post.createdAt ? formatDistanceToNow(post.createdAt.toDate(), { addSuffix: true }) : 'Just now'}
                         </span>
-                        <div className="opacity-0 group-hover/header:opacity-100 transition-opacity flex items-center gap-1">
-                          <button onClick={() => handleTogglePin(post.id, post.isPinned || false)} className={`p-1.5 rounded-lg transition-colors ${post.isPinned ? 'text-rose-600 bg-rose-50' : 'text-slate-400 hover:text-indigo-600 hover:bg-indigo-50'}`} title={post.isPinned ? 'Unpin Post' : 'Pin Post'}>
-                            <Pin className="w-4 h-4" />
-                          </button>
-                        </div>
+                        {(isOwner || isMasterAdmin) && (
+                          <div className="flex items-center gap-1">
+                            <button onClick={() => handleTogglePin(post.id, post.isPinned || false)} className={`p-1.5 rounded-lg transition-colors ${post.isPinned ? 'text-rose-600 bg-rose-50' : 'text-slate-400 hover:text-indigo-600 hover:bg-indigo-50'}`} title={post.isPinned ? 'Unpin Post' : 'Pin Post'}>
+                              <Pin className="w-4 h-4" />
+                            </button>
+                          </div>
+                        )}
+                        {!isOwner && (
+                          <div className="flex items-center gap-1">
+                            <button 
+                              onClick={() => {
+                                setSelectedReportPost(post);
+                                setIsReportModalOpen(true);
+                              }} 
+                              className="p-1.5 text-slate-400 hover:text-amber-600 rounded-lg hover:bg-amber-50 transition-colors" 
+                              title="Report Post"
+                            >
+                              <ShieldAlert className="w-4 h-4" />
+                            </button>
+                          </div>
+                        )}
                         {isOwner && (
                           <div className="opacity-0 group-hover/header:opacity-100 transition-opacity flex items-center gap-1">
                             {deletingPostId === post.id ? (
@@ -887,9 +1434,25 @@ export default function CommunityHubPage({ user, shopSettings }: CommunityHubPag
                           {renderTextWithLinks(post.text)}
                           {post.attachmentUrl && (
                             <div className={`mt-3 ${post.attachmentUrl.split(/[\s,]+/).filter(Boolean).length > 1 ? 'grid gap-2 grid-cols-2' : ''}`}>
-                              {post.attachmentUrl.split(/[\s,]+/).filter(Boolean).map((u, i, arr) => (
-                                <LinkPreview key={i} url={u} className={arr.length > 1 ? "mt-0" : "mt-3"} />
-                              ))}
+                              {post.attachmentUrl.split(/[\s,]+/).filter(Boolean).map((u, i, arr) => {
+                                const allImageUrls = arr.filter(url => isImageUrl(url));
+                                const imageIndex = allImageUrls.indexOf(u);
+                                return (
+                                  <LinkPreview 
+                                    key={i} 
+                                    url={u} 
+                                    className={arr.length > 1 ? "mt-0 h-48" : "mt-3"} 
+                                    onClickImage={() => {
+                                      if (imageIndex !== -1) {
+                                        setActiveLightboxUrls(allImageUrls);
+                                        setActiveLightboxIndex(imageIndex);
+                                        setIsLightboxOpen(true);
+                                        setIsZoomed(false);
+                                      }
+                                    }}
+                                  />
+                                );
+                              })}
                             </div>
                           )}
                         </div>
@@ -898,15 +1461,38 @@ export default function CommunityHubPage({ user, shopSettings }: CommunityHubPag
                     
                     {/* Footer actions */}
                     <div className="mt-6 pt-4 border-t border-slate-100 dark:border-slate-800 flex items-center gap-6">
-                      <div className="relative group inline-block">
-                        <button className={`flex items-center gap-2 font-semibold text-sm transition-colors ${post.reactions?.[user.uid] ? 'text-indigo-600' : 'text-slate-500 hover:text-indigo-600'}`}>
-                          <div className="p-2 rounded-full group-hover:bg-indigo-50 dark:group-hover:bg-indigo-500/10 transition-colors">
+                      <div className="relative inline-block">
+                        <button 
+                          onClick={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            setActivePostPickerId(activePostPickerId === post.id ? null : post.id);
+                          }}
+                          className={`flex items-center gap-2 font-semibold text-sm transition-colors ${post.reactions?.[user.uid] ? 'text-indigo-600' : 'text-slate-500 hover:text-indigo-600'}`}
+                        >
+                          <div className="p-2 rounded-full hover:bg-indigo-50 dark:hover:bg-indigo-500/10 transition-colors">
                             <Heart className="w-5 h-5" />
                           </div>
                           {post.reactions?.[user.uid] ? REACTION_EMOJIS[post.reactions[user.uid]] + ' ' + post.reactions[user.uid].charAt(0).toUpperCase() + post.reactions[user.uid].slice(1) : 'React'} 
                           {Object.keys(post.reactions || {}).length > 0 && ` (${Object.keys(post.reactions || {}).length})`}
                         </button>
-                        <ReactionPicker onSelect={(r) => handleReactPost(post.id, r)} />
+                        <div className={`absolute bottom-full left-1/2 -translate-x-1/2 mb-2 bg-white dark:bg-slate-800 shadow-xl border border-slate-200 dark:border-slate-700 rounded-full flex gap-1 p-1.5 transition-all z-50 ${activePostPickerId === post.id ? 'opacity-100 scale-100 pointer-events-auto' : 'opacity-0 scale-95 pointer-events-none'}`}>
+                          {(Object.keys(REACTION_EMOJIS) as ReactionType[]).map(r => (
+                            <button
+                              key={r}
+                              onClick={(e) => { 
+                                e.preventDefault(); 
+                                e.stopPropagation(); 
+                                handleReactPost(post.id, r); 
+                                setActivePostPickerId(null); 
+                              }}
+                              className="w-8 h-8 flex items-center justify-center hover:bg-slate-100 dark:hover:bg-slate-700 rounded-full text-lg hover:scale-125 transition-transform"
+                              title={r}
+                            >
+                              {REACTION_EMOJIS[r]}
+                            </button>
+                          ))}
+                        </div>
                       </div>
                       <label htmlFor={`comment-${post.id}`} className="flex items-center gap-2 text-slate-500 hover:text-blue-600 font-semibold text-sm transition-colors group cursor-pointer">
                         <div className="p-2 rounded-full group-hover:bg-blue-50 dark:group-hover:bg-blue-500/10 transition-colors">
@@ -1032,6 +1618,179 @@ export default function CommunityHubPage({ user, shopSettings }: CommunityHubPag
           >
             Load More Posts
           </button>
+        </div>
+      )}
+        </>
+      )}
+
+      {/* Report Modal */}
+      {isReportModalOpen && selectedReportPost && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+          <div className="bg-white dark:bg-slate-900 rounded-[2rem] max-w-lg w-full p-6 shadow-2xl border border-slate-100 dark:border-slate-800 space-y-4">
+            <div className="flex items-center gap-3 text-amber-600">
+              <ShieldAlert className="w-6 h-6" />
+              <h3 className="text-xl font-bold text-gray-900 dark:text-white">রিপোর্ট করুন / Report Content</h3>
+            </div>
+            
+            <p className="text-sm text-slate-500 dark:text-slate-400">
+              আপনি <span className="font-bold text-slate-700 dark:text-slate-250">@{selectedReportPost.merchantName}</span> (শপ: {selectedReportPost.shopName})-এর পোস্ট বা অ্যাকাউন্টের বিরুদ্ধে রিপোর্ট করছেন।
+            </p>
+
+            <div className="space-y-3">
+              <label className="block text-sm font-bold text-gray-750 dark:text-gray-300">রিপোর্টের কারণ নির্বাচন করুন / Select Reason:</label>
+              <select
+                value={reportReason}
+                onChange={(e) => setReportReason(e.target.value)}
+                className="w-full p-3 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl outline-none font-medium text-sm text-slate-900 dark:text-slate-150"
+              >
+                <option value="Offensive Language">অশালীন বা কটু ভাষা / Offensive Language</option>
+                <option value="Sexual Content">যৌন বা অশালীন কন্টেন্ট / Sexual Content</option>
+                <option value="Spam / Promo Key Abuse">স্প্যাম বা অবৈধ প্রমো কোড / Spam / Promo Key Abuse</option>
+                <option value="Harassment / Bullying">হয়রানি বা উস্কানিমূলক / Harassment / Bullying</option>
+                <option value="Fake Account / Scam">ভুয়া অ্যাকাউন্ট বা প্রতারণা / Fake Account / Scam</option>
+              </select>
+            </div>
+
+            <div className="space-y-2">
+              <label className="block text-sm font-bold text-gray-750 dark:text-gray-300">বিস্তারিত লিখুন (ঐচ্ছিক) / Describe details:</label>
+              <textarea
+                value={reportDetails}
+                onChange={(e) => setReportDetails(e.target.value)}
+                placeholder="এ বিষয়ে বিস্তারিত লিখুন..."
+                className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-3 min-h-[80px] focus:ring-2 focus:ring-indigo-500 outline-none text-sm resize-none text-slate-900 dark:text-slate-100"
+              />
+            </div>
+
+            <div className="flex items-center justify-end gap-3 pt-2">
+              <button
+                onClick={() => {
+                  setIsReportModalOpen(false);
+                  setReportDetails('');
+                }}
+                className="px-5 py-2.5 text-sm font-bold text-slate-500 hover:text-slate-700 dark:hover:text-slate-300"
+              >
+                বাতিল / Cancel
+              </button>
+              <button
+                onClick={handleSendReport}
+                disabled={isSubmittingReport}
+                className="px-6 py-2.5 bg-amber-600 hover:bg-amber-700 text-white text-sm font-bold rounded-xl transition-all shadow-md flex items-center gap-2"
+              >
+                {isSubmittingReport ? 'জমা হচ্ছে...' : 'রিপোর্ট জমা দিন / Submit'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Lightbox / Slideshow Gallery Modal */}
+      {isLightboxOpen && activeLightboxUrls && activeLightboxUrls.length > 0 && (
+        <div className="fixed inset-0 z-[100] flex flex-col bg-black/95 select-none animate-fadeIn transition-colors">
+          {/* Top Bar */}
+          <div className="flex items-center justify-between p-4 md:p-6 text-white bg-gradient-to-b from-black/60 to-transparent absolute top-0 left-0 w-full z-10">
+            <div className="flex flex-col">
+              <span className="text-sm font-bold tracking-wider font-sans">
+                {activeLightboxUrls.length > 1 
+                  ? `ইমেজ ${activeLightboxIndex + 1} / ${activeLightboxUrls.length}` 
+                  : 'ইমেজ গ্যালারি / Image Viewer'}
+              </span>
+              <span className="text-[10px] text-gray-300">
+                ডাবল ক্লিক করুন বড় করে দেখতে / Double click to zoom
+              </span>
+            </div>
+            
+            <div className="flex items-center gap-3">
+              <button 
+                onClick={() => setIsZoomed(!isZoomed)}
+                className="p-2.5 rounded-full bg-white/10 hover:bg-white/20 transition-all"
+                title={isZoomed ? "Zoom Out / ছোট করুন" : "Zoom In / বড় করুন"}
+              >
+                {isZoomed ? <Minimize2 className="w-5 h-5" /> : <Maximize2 className="w-5 h-5" />}
+              </button>
+              <button 
+                onClick={() => {
+                  setIsLightboxOpen(false);
+                  setIsZoomed(false);
+                }}
+                className="p-2.5 rounded-full bg-rose-600/80 hover:bg-rose-600 transition-all shadow-lg"
+                title="Close / বন্ধ করুন"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+          </div>
+
+          {/* Main Stage */}
+          <div className="flex-1 flex items-center justify-center relative p-4 overflow-hidden">
+            {/* Previous Button */}
+            {activeLightboxUrls.length > 1 && (
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setActiveLightboxIndex(prev => (prev - 1 + activeLightboxUrls.length) % activeLightboxUrls.length);
+                  setIsZoomed(false);
+                }}
+                className="absolute left-4 md:left-8 p-3 md:p-4 rounded-full bg-black/50 hover:bg-black/80 hover:scale-105 border border-white/10 text-white transition-all z-20 cursor-pointer shadow-2xl"
+                title="Previous / পূর্ববর্তী"
+              >
+                <ChevronLeft className="w-6 h-6 md:w-8 md:h-8" />
+              </button>
+            )}
+
+            {/* Active Image Canvas */}
+            <div 
+              className="max-w-full max-h-[80vh] flex items-center justify-center transition-all duration-300"
+              onDoubleClick={() => setIsZoomed(!isZoomed)}
+            >
+              <img 
+                src={activeLightboxUrls[activeLightboxIndex]} 
+                alt={`Gallery index ${activeLightboxIndex}`} 
+                referrerPolicy="no-referrer"
+                className={`max-w-full max-h-[75vh] md:max-h-[80vh] object-contain select-none transition-transform duration-300 ease-out shadow-2xl rounded-lg ${
+                  isZoomed ? 'scale-150 cursor-zoom-out' : 'scale-100 cursor-zoom-in'
+                }`}
+              />
+            </div>
+
+            {/* Next Button */}
+            {activeLightboxUrls.length > 1 && (
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setActiveLightboxIndex(prev => (prev + 1) % activeLightboxUrls.length);
+                  setIsZoomed(false);
+                }}
+                className="absolute right-4 md:right-8 p-3 md:p-4 rounded-full bg-black/50 hover:bg-black/80 hover:scale-105 border border-white/10 text-white transition-all z-20 cursor-pointer shadow-2xl"
+                title="Next / পরবর্তী"
+              >
+                <ChevronRight className="w-6 h-6 md:w-8 md:h-8" />
+              </button>
+            )}
+          </div>
+
+          {/* Bottom Thumbnails Navigation (Only if > 1 images) */}
+          {activeLightboxUrls.length > 1 && (
+            <div className="p-4 md:p-6 bg-gradient-to-t from-black/80 to-transparent flex flex-col items-center gap-3">
+              <div className="flex gap-2 max-w-full overflow-x-auto py-2 custom-scrollbar justify-center">
+                {activeLightboxUrls.map((url, index) => (
+                  <button
+                    key={index}
+                    onClick={() => {
+                      setActiveLightboxIndex(index);
+                      setIsZoomed(false);
+                    }}
+                    className={`w-12 h-12 md:w-16 md:h-16 rounded-xl overflow-hidden border-2 shrink-0 transition-all ${
+                      index === activeLightboxIndex 
+                        ? 'border-indigo-500 scale-110 opacity-100 shadow-md shadow-indigo-500/50' 
+                        : 'border-white/20 opacity-60 hover:opacity-100'
+                    }`}
+                  >
+                    <img src={url} alt={`Thumb ${index}`} className="w-full h-full object-cover" />
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
       )}
     </div>

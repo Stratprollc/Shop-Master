@@ -62,6 +62,8 @@ export default function CentralWarehouse({ products, user, setNotification }: Ce
         data.push({ id: doc.id, ...doc.data() } as TransferRequest);
       });
       setTransfers(data.sort((a,b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()));
+    }, (err) => {
+      console.error("Central Warehouse - Transfers sync error:", err);
     });
     return () => unsubscribe();
   }, [user?.shopId]);

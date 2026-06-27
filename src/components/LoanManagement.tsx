@@ -61,6 +61,9 @@ export default function LoanManagement({ products, customers, settings, user }: 
       const data = snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Loan));
       setLoans(data);
       setLoading(false);
+    }, (err) => {
+      console.error("Loan Management - Loans sync error:", err);
+      setLoading(false);
     });
     return () => unsubscribe();
   }, [user]);

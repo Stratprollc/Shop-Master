@@ -112,7 +112,7 @@ service cloud.firestore {
 
     // Generic Shop Data match block (expenses, investments, etc.)
     match /{collection}/{docId} {
-      allow read: if !(collection in ['categories', 'products', 'customers', 'customer_orders', 'users', 'settings', 'shops', 'sales', 'support_tickets']) && (
+      allow read: if !(collection in ['categories', 'products', 'customers', 'customer_orders', 'users', 'settings', 'shops', 'sales', 'support_tickets', 'community_posts', 'promo_keys']) && (
         isMasterAdmin() || (
           isSignedIn() && (
             resource == null || (
@@ -123,7 +123,7 @@ service cloud.firestore {
         )
       );
       
-      allow create: if !(collection in ['categories', 'products', 'customers', 'customer_orders', 'users', 'settings', 'shops', 'sales', 'support_tickets']) && (
+      allow create: if !(collection in ['categories', 'products', 'customers', 'customer_orders', 'users', 'settings', 'shops', 'sales', 'support_tickets', 'community_posts', 'promo_keys']) && (
         isMasterAdmin() || (
           isSignedIn() && 
           request.resource != null && 
@@ -132,7 +132,7 @@ service cloud.firestore {
         )
       );
 
-      allow update: if !(collection in ['categories', 'products', 'customers', 'customer_orders', 'users', 'settings', 'shops', 'sales', 'support_tickets']) && (
+      allow update: if !(collection in ['categories', 'products', 'customers', 'customer_orders', 'users', 'settings', 'shops', 'sales', 'support_tickets', 'community_posts', 'promo_keys']) && (
         isMasterAdmin() || (
           isSignedIn() && 
           resource != null && 
@@ -143,7 +143,7 @@ service cloud.firestore {
         )
       );
 
-      allow delete: if !(collection in ['categories', 'products', 'customers', 'customer_orders', 'users', 'settings', 'shops', 'sales', 'support_tickets']) && (
+      allow delete: if !(collection in ['categories', 'products', 'customers', 'customer_orders', 'users', 'settings', 'shops', 'sales', 'support_tickets', 'community_posts', 'promo_keys']) && (
         isMasterAdmin() || (
           isSignedIn() && 
           resource != null && 
@@ -152,6 +152,51 @@ service cloud.firestore {
           collection in ['recycleBin', 'daily_closings', 'expenses', 'investments', 'staff_salaries', 'stockRecords', 'branches', 'employees', 'notes', 'customer_logs', 'due_payments', 'warranty_records', 'meet_sessions', 'ai_memories', 'ai_synonyms', 'ai_settings', 'suppliers', 'draft_invoices']
         )
       );
+    }
+
+    // Community Posts Match Block (Global Social Hub)
+    match /community_posts/{docId} {
+      allow read: if true;
+      allow create: if isSignedIn();
+      allow update: if isSignedIn();
+      allow delete: if isMasterAdmin() || (
+        isSignedIn() && 
+        resource != null && 
+        resource.data.merchantId == request.auth.uid
+      );
+    }
+
+    // Community Reports Match Block
+    match /community_reports/{docId} {
+      allow create: if isSignedIn();
+      allow read, update, delete: if isMasterAdmin();
+    }
+
+    // Community Notifications Match Block
+    match /community_notifications/{docId} {
+      allow read, update, delete: if isSignedIn() && (isMasterAdmin() || resource.data.recipientId == request.auth.uid);
+      allow create: if isSignedIn();
+    }
+
+    // Community Banned Users Match Block
+    match /community_banned_users/{docId} {
+      allow read: if true;
+      allow create, update, delete: if isMasterAdmin();
+    }
+
+    // Promo / Activation Keys Match Block
+    match /promo_keys/{docId} {
+      allow get: if isSignedIn();
+      allow list: if isMasterAdmin();
+      allow create: if isMasterAdmin();
+      allow update: if isMasterAdmin() || (
+        isSignedIn() && 
+        resource != null && 
+        resource.data.isUsed == false && 
+        request.resource != null && 
+        request.resource.data.isUsed == true
+      );
+      allow delete: if isMasterAdmin();
     }
 
     // Support Tickets Match Block
@@ -238,6 +283,10 @@ service cloud.firestore {
     }
 
     match /shops/{shopId}/workspace/{docId} {
+      allow read, write: if isMasterAdmin() || isOwnerOrStaff(shopId);
+    }
+
+    match /shops/{shopId}/loans/{loanId} {
       allow read, write: if isMasterAdmin() || isOwnerOrStaff(shopId);
     }
     
