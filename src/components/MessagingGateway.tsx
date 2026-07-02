@@ -713,16 +713,7 @@ export const MessagingGateway: React.FC<MessagingGatewayProps> = ({
                   ? 'আপনার ৯০ দিনের ফ্রি ট্রায়াল মেয়াদ শেষ হয়েছে। স্বয়ংক্রিয় হোয়াটসঅ্যাপ সার্ভিস ব্যবহার করতে অনুগ্রহ করে আপনার সাবস্ক্রিপশন প্ল্যান আপডেট করুন।'
                   : 'Your 90-day free trial period has expired. To continue using automated WhatsApp messaging services, please upgrade your subscription plan.'}
               </p>
-              <div className="pt-2">
-                <button 
-                  onClick={() => {
-                    window.dispatchEvent(new CustomEvent('navigateToMembership'));
-                  }}
-                  className="px-4 py-2 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 text-white rounded-xl text-xs font-bold transition-all shadow-md shadow-amber-200 dark:shadow-none cursor-pointer"
-                >
-                  {settings.systemLanguage === 'bn' ? 'সাবস্ক্রিপশন আপডেট করুন' : 'Upgrade Subscription'}
-                </button>
-              </div>
+
             </div>
           </div>
         )}
