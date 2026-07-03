@@ -231,7 +231,9 @@ import {
   deleteShopAllData,
   setCachedAccessToken,
   getCachedAccessToken,
-  isQuotaExceeded
+  isQuotaExceeded,
+  resetQuotaExceeded,
+  clearAllLocalStorage
 } from './firebase';
 
 import { 
@@ -5348,6 +5350,7 @@ export default function App() {
       
       if (firebaseUser && !firebaseUser.isAnonymous) {
         // Authenticated real user
+        await resetQuotaExceeded();
         setShowCustomerPortal(false);
         const isMaster = firebaseUser.email?.toLowerCase().trim() === 'stratproamz@gmail.com';
         
@@ -6939,17 +6942,21 @@ export default function App() {
     try {
       await signOut(auth);
     } catch(e) {}
+    await resetQuotaExceeded();
+    clearAllLocalStorage();
     setCachedAccessToken(null);
     setUser(null);
     resetStateToDefaults();
-    localStorage.removeItem('shopmaster_user');
-    localStorage.removeItem('shopmaster_active_tab');
+    
+    // Force a complete browser refresh to flush all memory/states and restart in a clean environment
+    window.location.reload();
   };
 
   const handleSandboxLogin = async () => {
     try {
       setLoading(true);
       setAuthError(null);
+      await resetQuotaExceeded();
       
       const result = await signInAnonymously(auth);
       const anonUser = result.user;

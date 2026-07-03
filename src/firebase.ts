@@ -23,6 +23,7 @@ import {
   persistentMultipleTabManager, 
   memoryLocalCache,
   disableNetwork,
+  enableNetwork,
   setLogLevel
 } from 'firebase/firestore';
 import firebaseConfig from '../firebase-applet-config.json';
@@ -36,6 +37,39 @@ try {
 
 // Global quota tracker
 export let isQuotaExceeded = typeof window !== 'undefined' ? localStorage.getItem('firestore_quota_exceeded') === 'true' : false;
+
+export const resetQuotaExceeded = async () => {
+  isQuotaExceeded = false;
+  if (typeof window !== 'undefined') {
+    try {
+      localStorage.removeItem('firestore_quota_exceeded');
+      if (db) {
+        await enableNetwork(db).catch(() => {});
+      }
+    } catch (e) {}
+  }
+};
+
+export const clearAllLocalStorage = () => {
+  if (typeof window !== 'undefined') {
+    try {
+      const keysToKeep = ['theme_dark'];
+      const temp: Record<string, string> = {};
+      for (const key of keysToKeep) {
+        const val = localStorage.getItem(key);
+        if (val !== null) temp[key] = val;
+      }
+      localStorage.clear();
+      for (const key of keysToKeep) {
+        if (temp[key] !== undefined) {
+          localStorage.setItem(key, temp[key]);
+        }
+      }
+    } catch (e) {
+      console.warn('Failed to clear localStorage:', e);
+    }
+  }
+};
 
 const markQuotaExceeded = () => {
   if (!isQuotaExceeded) {

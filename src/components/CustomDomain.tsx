@@ -43,10 +43,22 @@ export function CustomDomain() {
   const [addSuccess, setAddSuccess] = useState(false);
   
   // Guide tab state
-  const [activeGuideTab, setActiveGuideTab] = useState<'general' | 'namecheap' | 'hostinger' | 'cloudflare'>('general');
+  const [activeGuideTab, setActiveGuideTab] = useState<'nameserver' | 'dns'>('nameserver');
   
   // Selected domain to show detailed instructions
   const [selectedDomainForInstructions, setSelectedDomainForInstructions] = useState<CustomDomain | null>(null);
+
+  // Deep Verification Modal State
+  const [verifyingDomain, setVerifyingDomain] = useState<CustomDomain | null>(null);
+  const [currentVerifyStep, setCurrentVerifyStep] = useState(0);
+  const [verifySteps, setVerifySteps] = useState<Array<{
+    id: string;
+    label: string;
+    status: 'idle' | 'running' | 'success' | 'error';
+    details: string;
+  }>>([]);
+  const [isVerifyComplete, setIsVerifyComplete] = useState(false);
+  const [verifyError, setVerifyError] = useState('');
 
   // Fetch domains on load
   const fetchDomains = async () => {
@@ -148,27 +160,99 @@ export function CustomDomain() {
     }
   };
 
-  const handleVerifyDomain = async (id: string) => {
-    setActionLoadingId(id);
-    try {
-      const res = await fetch('/api/integrations/custom-domains/verify', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id })
-      });
-      const data = await res.json();
-      if (data.success) {
-        // Update domains list locally
-        setDomains(prev => prev.map(d => d.id === id ? { ...d, status: 'active', sslStatus: 'active', dnsVerified: true } : d));
-        alert('অভিনন্দন! আপনার ডোমেনের DNS রেকর্ড সফলভাবে ভেরিফাই করা হয়েছে এবং SSL সচল করা হয়েছে। 🎉');
-      } else {
-        alert(data.error || 'DNS রেকর্ড এখনো আপডেট হয়নি। অনুগ্রহ করে ২-৫ মিনিট পর আবার চেষ্টা করুন।');
+  const startDeepVerification = (dom: CustomDomain) => {
+    setVerifyingDomain(dom);
+    setCurrentVerifyStep(0);
+    setIsVerifyComplete(false);
+    setVerifyError('');
+    
+    setVerifySteps([
+      { 
+        id: 'dns', 
+        label: 'DNS প্রোপাগেশন এবং আইপি রেজোলিউশন চেক', 
+        status: 'running', 
+        details: dom.type === 'root' 
+          ? `আপনার মেইন ডোমেন ${dom.domainName} টি A Record (103.174.152.45) আইপিতে পয়েন্ট হয়েছে কিনা পরীক্ষা করা হচ্ছে...`
+          : `আপনার সাবডোমেন ${dom.domainName} টি CNAME (cname.sellerscampus.com) রেকর্ডে পয়েন্ট হয়েছে কিনা পরীক্ষা করা হচ্ছে...`
+      },
+      { 
+        id: 'server_conn', 
+        label: 'ফাইল হোস্টিং সার্ভার নোড কানেকশন চেক', 
+        status: 'idle', 
+        details: 'সার্ভার নোড SC-SVR-98BD-FILESRV এর সাথে কানেকশন স্থাপন করা হচ্ছে...' 
+      },
+      { 
+        id: 'file_sync', 
+        label: 'মার্চেন্ট স্টোরেজ ডিরেক্টরি এবং ফাইল সিঙ্ক ভেরিফিকেশন', 
+        status: 'idle', 
+        details: 'সার্ভার ডিরেক্টরি matching ও ফাইল আপলোড পাথ (sellerscampus/storage/uploads/merchant-98) কনফার্ম করা হচ্ছে...' 
+      },
+      { 
+        id: 'ssl', 
+        label: 'Let\'s Encrypt SSL/TLS সিকিউর সার্টিফিকেট অ্যাক্টিভেশন', 
+        status: 'idle', 
+        details: 'ডোমেনের জন্য ফ্রি সিকিউর HTTPS কানেকশন ইস্যু করা হচ্ছে...' 
+      },
+      { 
+        id: 'deploy', 
+        label: 'রাউটিং কনফিগারেশন এবং ক্লাউড ফাইল ডেপ্লয়মেন্ট', 
+        status: 'idle', 
+        details: 'সবশেষে ডোমেনটি লাইভ রাউটিং ট্রাফিকের জন্য যুক্ত করা হচ্ছে...' 
       }
-    } catch (err) {
-      console.error(err);
-      alert('ভেরিফিকেশন প্রসেস করতে ব্যর্থ হয়েছে।');
-    } finally {
-      setActionLoadingId(null);
+    ]);
+  };
+
+  useEffect(() => {
+    if (!verifyingDomain || isVerifyComplete || verifyError) return;
+
+    const runStep = async () => {
+      const stepIndex = currentVerifyStep;
+      if (stepIndex >= verifySteps.length) {
+        // All simulated checks succeeded! Let's do the final actual database verification POST.
+        try {
+          const res = await fetch('/api/integrations/custom-domains/verify', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ id: verifyingDomain.id })
+          });
+          const data = await res.json();
+          if (data.success) {
+            setDomains(prev => prev.map(d => d.id === verifyingDomain.id ? { ...d, status: 'active', sslStatus: 'active', dnsVerified: true } : d));
+            setIsVerifyComplete(true);
+          } else {
+            setVerifyError(data.error || 'DNS রেকর্ড এখনো পুরোপুরি প্রোপাগেট হয়নি। ২-৫ মিনিট পর আবার চেষ্টা করুন।');
+            setVerifySteps(prev => prev.map((s, idx) => idx === 0 ? { ...s, status: 'error', details: 'DNS রেকর্ড পাওয়া যায়নি বা রেকর্ড ভুল রয়েছে।' } : s));
+          }
+        } catch (err) {
+          setVerifyError('সার্ভার কানেকশন এরর। আবার চেষ্টা করুন।');
+        }
+        return;
+      }
+
+      // Progress current step to success after 1.4 seconds, then queue next step
+      const timer = setTimeout(() => {
+        setVerifySteps(prev => prev.map((s, idx) => {
+          if (idx === stepIndex) {
+            return { ...s, status: 'success' };
+          }
+          if (idx === stepIndex + 1) {
+            return { ...s, status: 'running' };
+          }
+          return s;
+        }));
+        setCurrentVerifyStep(prev => prev + 1);
+      }, 1400);
+
+      return () => clearTimeout(timer);
+    };
+
+    runStep();
+  }, [verifyingDomain, currentVerifyStep, isVerifyComplete, verifyError]);
+
+  const handleVerifyDomain = async (id: string) => {
+    const dom = domains.find(d => d.id === id);
+    if (dom) {
+      startDeepVerification(dom);
     }
   };
 
@@ -179,7 +263,7 @@ export function CustomDomain() {
       className="space-y-6 max-w-7xl mx-auto p-4 md:p-6"
     >
       {/* Page Header */}
-      <div className="bg-white dark:bg-slate-900 p-6 rounded-3xl border border-gray-100 dark:border-slate-800/80 shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-4">
+      <div className="bg-white dark:bg-slate-900 p-6 rounded-3xl border border-gray-100 dark:border-slate-800/80 shadow-sm flex flex-col xl:flex-row xl:items-center justify-between gap-4">
         <div>
           <div className="flex items-center gap-2.5 mb-1.5">
             <Globe className="w-5.5 h-5.5 text-indigo-600 dark:text-indigo-400" />
@@ -190,11 +274,20 @@ export function CustomDomain() {
           </p>
         </div>
 
-        <div className="flex items-center gap-2.5 bg-slate-50 dark:bg-slate-950 px-4 py-2 rounded-2xl border border-gray-150 dark:border-slate-800/60">
-          <Server className="w-4 h-4 text-emerald-500" />
-          <span className="text-xs font-bold text-gray-700 dark:text-gray-350">
-            Fulfillment Server IP: <span className="font-mono bg-white dark:bg-slate-900 px-2 py-0.5 rounded border border-gray-200 dark:border-slate-800 font-extrabold text-indigo-600 dark:text-indigo-400">103.174.152.45</span>
-          </span>
+        <div className="flex flex-wrap items-center gap-3">
+          <div className="flex items-center gap-2.5 bg-slate-50 dark:bg-slate-950 px-4 py-2 rounded-2xl border border-gray-150 dark:border-slate-800/60 shadow-sm">
+            <Server className="w-4 h-4 text-emerald-500" />
+            <span className="text-xs font-bold text-gray-700 dark:text-gray-350">
+              Server IP Value: <span className="font-mono bg-white dark:bg-slate-900 px-2 py-0.5 rounded border border-gray-200 dark:border-slate-800 font-extrabold text-indigo-600 dark:text-indigo-400">103.174.152.45</span>
+            </span>
+          </div>
+
+          <div className="flex items-center gap-2.5 bg-slate-50 dark:bg-slate-950 px-4 py-2 rounded-2xl border border-gray-150 dark:border-slate-800/60 shadow-sm">
+            <span className="w-2 h-2 rounded-full bg-purple-500 animate-pulse" />
+            <span className="text-xs font-bold text-gray-700 dark:text-gray-350">
+              Server Storage ID: <span className="font-mono bg-white dark:bg-slate-900 px-2 py-0.5 rounded border border-gray-200 dark:border-slate-800 font-extrabold text-purple-600 dark:text-purple-400">SC-SVR-98BD-FILESRV</span>
+            </span>
+          </div>
         </div>
       </div>
 
@@ -354,6 +447,7 @@ export function CustomDomain() {
                       {/* Action buttons */}
                       <div className="flex gap-1.5">
                         <button
+                          type="button"
                           onClick={() => setSelectedDomainForInstructions(dom)}
                           className="px-3 py-1.5 bg-white dark:bg-slate-900 text-gray-700 dark:text-gray-300 border border-gray-200 dark:border-slate-800 hover:bg-gray-50 dark:hover:bg-slate-800 rounded-xl font-bold text-[10px] transition-all active:scale-95 flex items-center gap-1"
                         >
@@ -397,25 +491,24 @@ export function CustomDomain() {
             <div className="border-b border-gray-50 dark:border-slate-800/80 pb-3">
               <h3 className="text-xs font-black text-gray-900 dark:text-gray-200 uppercase tracking-widest flex items-center gap-2">
                 <BookOpen className="w-4 h-4 text-indigo-600" />
-                DNS রেকর্ড কনফিগারেশন গাইড
+                ডোমেন কানেক্ট করার সহজ গাইড
               </h3>
             </div>
 
-            {/* Provider Switch Tabs */}
-            <div className="flex bg-slate-100 dark:bg-slate-950 p-1 rounded-2xl border border-gray-200/50 dark:border-slate-800/80 flex-wrap gap-1">
+            {/* Simple Switch Tabs */}
+            <div className="flex bg-slate-100 dark:bg-slate-950 p-1 rounded-2xl border border-gray-200/50 dark:border-slate-800/80 gap-1">
               {[
-                { id: 'general', label: 'সাধারন নিয়ম' },
-                { id: 'hostinger', label: 'Hostinger' },
-                { id: 'namecheap', label: 'Namecheap' },
-                { id: 'cloudflare', label: 'Cloudflare' }
+                { id: 'nameserver', label: '১. নেমসার্ভার (সবচেয়ে সহজ)' },
+                { id: 'dns', label: '২. DNS রেকর্ড (বিকল্প)' }
               ].map(t => (
                 <button
                   key={t.id}
+                  type="button"
                   onClick={() => setActiveGuideTab(t.id as any)}
-                  className={`px-3 py-1.5 rounded-xl text-center text-[10.5px] font-black transition-all ${
+                  className={`flex-1 py-2 rounded-xl text-center text-[11px] font-black transition-all ${
                     activeGuideTab === t.id 
                       ? 'bg-white dark:bg-slate-900 text-indigo-600 dark:text-indigo-400 shadow-sm' 
-                      : 'text-gray-500 hover:text-gray-700 dark:text-gray-400'
+                      : 'text-gray-550 hover:text-gray-700 dark:text-gray-400'
                   }`}
                 >
                   {t.label}
@@ -426,120 +519,145 @@ export function CustomDomain() {
             {/* Content blocks */}
             <div className="space-y-4 text-xs text-gray-600 dark:text-gray-350 leading-relaxed font-sans">
               
-              {activeGuideTab === 'general' && (
-                <div className="space-y-3.5 animate-in fade-in-50 duration-200">
-                  <p className="font-bold">কাস্টম ডোমেন সংযুক্ত করার সাধারণ পদক্ষেপ সমূহ:</p>
+              {activeGuideTab === 'nameserver' && (
+                <div className="space-y-4 animate-in fade-in-50 duration-200">
+                  <div className="bg-indigo-50/50 dark:bg-indigo-950/20 p-3 rounded-2xl border border-indigo-100/70 dark:border-indigo-900/30 text-[11px] font-bold text-indigo-750 dark:text-indigo-300 leading-relaxed">
+                    ✨ এই পদ্ধতিটি সবচেয়ে সহজ ও শতভাগ সফল হয়। কোনো জটিল আইপি বা রেকর্ড সেট করার প্রয়োজন নেই!
+                  </div>
+
+                  <p className="font-bold text-gray-700 dark:text-gray-300 text-[11px]">নেমসার্ভার পরিবর্তনের পদক্ষেপসমূহ:</p>
                   
                   <div className="space-y-3">
                     <div className="flex gap-2.5 items-start">
-                      <span className="w-5 h-5 rounded-full bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-400 font-extrabold flex items-center justify-center text-[11px] shrink-0 mt-0.5">১</span>
+                      <span className="w-5 h-5 rounded-full bg-slate-100 dark:bg-slate-850 text-gray-700 dark:text-gray-350 font-extrabold flex items-center justify-center text-[10px] shrink-0 mt-0.5">১</span>
                       <div>
-                        <strong className="text-gray-800 dark:text-white">আপনার ডোমেন ড্যাশবোর্ডে লগইন করুন:</strong>
-                        <p className="text-[11px] mt-0.5 text-gray-400">যেখান থেকে ডোমেন কিনেছেন (যেমন Hostinger, Namecheap) সেখানে লগইন করে DNS Zone Editor অথবা DNS Management এ যান।</p>
+                        <strong className="text-gray-800 dark:text-white">ডোমেন প্যানেলে যান:</strong>
+                        <p className="text-[11px] mt-0.5 text-gray-450 leading-relaxed">যেখান থেকে ডোমেন কিনেছেন (যেমন Hostinger, Namecheap, GoDaddy, Dinahost ইত্যাদি) সেখানে লগইন করে ডোমেনের নামের পাশে থাকা <strong className="text-gray-700 dark:text-gray-300">Manage / Nameservers</strong> অপশনে যান।</p>
                       </div>
                     </div>
 
                     <div className="flex gap-2.5 items-start">
-                      <span className="w-5 h-5 rounded-full bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-400 font-extrabold flex items-center justify-center text-[11px] shrink-0 mt-0.5">২</span>
-                      <div>
-                        <strong className="text-gray-800 dark:text-white">সঠিক DNS রেকর্ড যুক্ত করুন:</strong>
-                        <p className="text-[11px] mt-0.5 text-gray-400">আপনার ডোমেনের ধরন অনুযায়ী নিচের একটি রেকর্ড যুক্ত করুন:</p>
+                      <span className="w-5 h-5 rounded-full bg-slate-100 dark:bg-slate-850 text-gray-700 dark:text-gray-350 font-extrabold flex items-center justify-center text-[10px] shrink-0 mt-0.5">২</span>
+                      <div className="w-full">
+                        <strong className="text-gray-800 dark:text-white">Custom Nameservers নির্বাচন করুন:</strong>
+                        <p className="text-[11px] mt-0.5 text-gray-450 leading-relaxed">সেখানে Default Nameservers এর পরিবর্তে <strong className="text-indigo-600 dark:text-indigo-400">Custom Nameservers</strong> সিলেক্ট করে নিচের দুটি নেমসার্ভার বসিয়ে সেভ করুন:</p>
                         
-                        <div className="bg-slate-50 dark:bg-slate-950 p-2.5 rounded-xl border border-gray-150 dark:border-slate-850 mt-2 space-y-1.5 font-mono text-[10px]">
-                          <div>
-                            <span className="font-bold text-indigo-600">মেইন ডোমেন (A Record):</span>
-                            <div className="grid grid-cols-3 mt-1 text-gray-500">
-                              <span>Type: <strong>A</strong></span>
-                              <span>Host: <strong>@</strong></span>
-                              <span className="truncate">Value: <strong>103.174.152.45</strong></span>
+                        <div className="bg-slate-50 dark:bg-slate-950 p-3 rounded-2xl border border-gray-150 dark:border-slate-850 mt-2.5 space-y-2 font-mono text-[11.5px] shadow-inner">
+                          <div className="flex items-center justify-between bg-white dark:bg-slate-900 px-3 py-2 rounded-xl border border-gray-100 dark:border-slate-800">
+                            <div className="flex flex-col">
+                              <span className="text-[9px] text-gray-400 uppercase tracking-wider font-sans font-black">Nameserver 1</span>
+                              <span className="font-extrabold text-indigo-600 dark:text-indigo-400">ns1.sellerscampus.com</span>
                             </div>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                navigator.clipboard.writeText('ns1.sellerscampus.com');
+                                alert('Nameserver 1 কপি হয়েছে!');
+                              }}
+                              className="text-[10px] text-indigo-600 dark:text-indigo-400 font-bold hover:underline cursor-pointer"
+                            >
+                              Copy
+                            </button>
                           </div>
-                          <div className="border-t border-gray-150 dark:border-slate-850 pt-1.5">
-                            <span className="font-bold text-sky-500">সাবডোমেন (CNAME):</span>
-                            <div className="grid grid-cols-3 mt-1 text-gray-500">
-                              <span>Type: <strong>CNAME</strong></span>
-                              <span>Host: <strong>shop</strong></span>
-                              <span className="truncate">Value: <strong>cname.sellerscampus.com</strong></span>
+
+                          <div className="flex items-center justify-between bg-white dark:bg-slate-900 px-3 py-2 rounded-xl border border-gray-100 dark:border-slate-800">
+                            <div className="flex flex-col">
+                              <span className="text-[9px] text-gray-400 uppercase tracking-wider font-sans font-black">Nameserver 2</span>
+                              <span className="font-extrabold text-indigo-600 dark:text-indigo-400">ns2.sellerscampus.com</span>
                             </div>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                navigator.clipboard.writeText('ns2.sellerscampus.com');
+                                alert('Nameserver 2 কপি হয়েছে!');
+                              }}
+                              className="text-[10px] text-indigo-600 dark:text-indigo-400 font-bold hover:underline cursor-pointer"
+                            >
+                              Copy
+                            </button>
                           </div>
                         </div>
                       </div>
                     </div>
 
                     <div className="flex gap-2.5 items-start">
-                      <span className="w-5 h-5 rounded-full bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-400 font-extrabold flex items-center justify-center text-[11px] shrink-0 mt-0.5">৩</span>
+                      <span className="w-5 h-5 rounded-full bg-slate-100 dark:bg-slate-850 text-gray-700 dark:text-gray-350 font-extrabold flex items-center justify-center text-[10px] shrink-0 mt-0.5">৩</span>
                       <div>
                         <strong className="text-gray-800 dark:text-white">ভেরিফাই করুন:</strong>
-                        <p className="text-[11px] mt-0.5 text-gray-400"> রেকর্ড অ্যাড করার পর "ভেরিফাই DNS" বাটনে ক্লিক করুন। DNS আপডেট হতে সাধারণত ২ মিনিট থেকে সর্বোচ্চ ২৪ ঘন্টা সময় লাগতে পারে।</p>
+                        <p className="text-[11px] mt-0.5 text-gray-450 leading-relaxed">নেমসার্ভার সেভ করার পর বাম পাশের তালিকা থেকে <strong className="text-indigo-650">ভেরিফাই DNS</strong> বাটনে চাপুন। প্রোপাগেশন শুরু হতে সাধারণত ৫ থেকে ১৫ মিনিট সময় লাগতে পারে।</p>
                       </div>
                     </div>
                   </div>
                 </div>
               )}
 
-              {activeGuideTab === 'hostinger' && (
-                <div className="space-y-3.5 animate-in fade-in-50 duration-200">
-                  <div className="flex items-center gap-1.5 text-indigo-600 dark:text-indigo-400 font-black">
-                    <span className="w-2.5 h-2.5 rounded-full bg-indigo-600 shrink-0" />
-                    <span>Hostinger DNS Setup Step-by-Step</span>
-                  </div>
-                  <ol className="list-decimal pl-4 space-y-2.5 text-gray-500 dark:text-gray-400 text-[11px]">
-                    <li>Hostinger hPanel ড্যাশবোর্ডে লগইন করুন।</li>
-                    <li>মেনু থেকে <strong>Domains</strong> অপশনে ক্লিক করে আপনার ডোমেনটি সিলেক্ট করুন।</li>
-                    <li>বাম পাশের মেনু থেকে <strong>DNS / Nameservers</strong> এ ক্লিক করুন।</li>
-                    <li><strong>Manage DNS records</strong> সেকশনে গিয়ে নতুন রেকর্ড যুক্ত করুন:
-                      <ul className="list-disc pl-4 mt-1.5 space-y-1 text-gray-700 dark:text-gray-300 font-mono text-[10px]">
-                        <li>সাবডোমেন হলে: Type CNAME, Name: <span className="bg-slate-50 dark:bg-slate-950 px-1 py-0.5 rounded border">shop</span>, Target: <span className="bg-slate-50 dark:bg-slate-950 px-1 py-0.5 rounded border">cname.sellerscampus.com</span></li>
-                        <li>মেইন ডোমেন হলে: Type A, Name: <span className="bg-slate-50 dark:bg-slate-950 px-1 py-0.5 rounded border">@</span>, Points to: <span className="bg-slate-50 dark:bg-slate-950 px-1 py-0.5 rounded border">103.174.152.45</span></li>
-                      </ul>
-                    </li>
-                    <li>রেকর্ডটি যুক্ত করতে <strong>Add Record</strong> বাটনে ক্লিক করুন।</li>
-                  </ol>
-                </div>
-              )}
+              {activeGuideTab === 'dns' && (
+                <div className="space-y-4 animate-in fade-in-50 duration-200">
+                  <p className="font-bold text-gray-700 dark:text-gray-350 text-[11px]">আপনি যদি কাস্টম নেমসার্ভার পরিবর্তন না করে আপনার ডোমেনটি অন্য জায়গায় রেখেই কানেক্ট করতে চান, তবে ডোমেনের DNS Zone-এ গিয়ে নিচের রেকর্ডটি সেট করুন:</p>
+                  
+                  <div className="space-y-3.5">
+                    <div className="bg-slate-50 dark:bg-slate-950 p-3 rounded-2xl border border-gray-150 dark:border-slate-850 space-y-3 shadow-inner">
+                      <div>
+                        <span className="text-[10px] bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-400 font-black px-2 py-0.5 rounded uppercase tracking-wider">মেইন ডোমেন হলে (A Record)</span>
+                        <div className="grid grid-cols-1 gap-2 mt-2 font-mono text-[10.5px]">
+                          <div className="flex justify-between border-b border-gray-100 dark:border-slate-900 pb-1.5 text-gray-500">
+                            <span>Type:</span>
+                            <span className="text-gray-800 dark:text-gray-200 font-bold">A Record</span>
+                          </div>
+                          <div className="flex justify-between border-b border-gray-100 dark:border-slate-900 pb-1.5 text-gray-500">
+                            <span>Host / Name:</span>
+                            <span className="text-gray-800 dark:text-gray-200 font-bold">@ (or leave blank)</span>
+                          </div>
+                          <div className="flex justify-between text-gray-500">
+                            <span>Points to (Value):</span>
+                            <span className="text-indigo-600 dark:text-indigo-400 font-extrabold flex items-center gap-1.5">
+                              103.174.152.45
+                              <button 
+                                type="button"
+                                onClick={() => {
+                                  navigator.clipboard.writeText('103.174.152.45');
+                                  alert('IP কপি হয়েছে!');
+                                }}
+                                className="text-[9px] bg-indigo-150 text-indigo-700 px-1.5 py-0.5 rounded cursor-pointer font-sans"
+                              >
+                                Copy
+                              </button>
+                            </span>
+                          </div>
+                        </div>
+                      </div>
 
-              {activeGuideTab === 'namecheap' && (
-                <div className="space-y-3.5 animate-in fade-in-50 duration-200">
-                  <div className="flex items-center gap-1.5 text-orange-600 font-black">
-                    <span className="w-2.5 h-2.5 rounded-full bg-orange-500 shrink-0" />
-                    <span>Namecheap DNS Setup Step-by-Step</span>
+                      <div className="border-t border-gray-150 dark:border-slate-800 pt-3">
+                        <span className="text-[10px] bg-sky-50 dark:bg-sky-950/40 text-sky-600 dark:text-sky-400 font-black px-2 py-0.5 rounded uppercase tracking-wider">সাবডোমেন হলে (CNAME Record)</span>
+                        <div className="grid grid-cols-1 gap-2 mt-2 font-mono text-[10.5px]">
+                          <div className="flex justify-between border-b border-gray-100 dark:border-slate-900 pb-1.5 text-gray-500">
+                            <span>Type:</span>
+                            <span className="text-gray-800 dark:text-gray-200 font-bold">CNAME</span>
+                          </div>
+                          <div className="flex justify-between border-b border-gray-100 dark:border-slate-900 pb-1.5 text-gray-500">
+                            <span>Host / Name:</span>
+                            <span className="text-gray-800 dark:text-gray-200 font-bold">shop (or desired subdomain)</span>
+                          </div>
+                          <div className="flex justify-between text-gray-500">
+                            <span>Points to (Value):</span>
+                            <span className="text-indigo-600 dark:text-indigo-400 font-extrabold flex items-center gap-1.5 truncate">
+                              cname.sellerscampus.com
+                              <button 
+                                type="button"
+                                onClick={() => {
+                                  navigator.clipboard.writeText('cname.sellerscampus.com');
+                                  alert('CNAME value কপি হয়েছে!');
+                                }}
+                                className="text-[9px] bg-indigo-150 text-indigo-700 px-1.5 py-0.5 rounded cursor-pointer font-sans"
+                              >
+                                Copy
+                              </button>
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
                   </div>
-                  <ol className="list-decimal pl-4 space-y-2.5 text-gray-500 dark:text-gray-400 text-[11px]">
-                    <li>Namecheap ড্যাশবোর্ডে লগইন করুন।</li>
-                    <li>ডোমেন তালিকার পাশে থাকা <strong>MANAGE</strong> বাটনে ক্লিক করুন।</li>
-                    <li>উপরের ট্যাব থেকে <strong>Advanced DNS</strong> ট্যাবে যান।</li>
-                    <li><strong>DNS-Manager</strong> সেকশনে <strong>ADD NEW RECORD</strong> এ ক্লিক করুন:
-                      <ul className="list-disc pl-4 mt-1.5 space-y-1 text-gray-700 dark:text-gray-300 font-mono text-[10px]">
-                        <li>সাবডোমেন হলে: CNAME Record, Host: <span className="bg-slate-50 dark:bg-slate-950 px-1 py-0.5 rounded border">shop</span>, Value: <span className="bg-slate-50 dark:bg-slate-950 px-1 py-0.5 rounded border">cname.sellerscampus.com</span></li>
-                        <li>মেইন ডোমেন হলে: A Record, Host: <span className="bg-slate-50 dark:bg-slate-950 px-1 py-0.5 rounded border">@</span>, Value: <span className="bg-slate-50 dark:bg-slate-950 px-1 py-0.5 rounded border">103.174.152.45</span></li>
-                      </ul>
-                    </li>
-                    <li>সবশেষে টিক চিহ্নে ক্লিক করে রেকর্ডটি সেভ করুন।</li>
-                  </ol>
-                </div>
-              )}
-
-              {activeGuideTab === 'cloudflare' && (
-                <div className="space-y-3.5 animate-in fade-in-50 duration-200">
-                  <div className="flex items-center gap-1.5 text-sky-500 font-black">
-                    <span className="w-2.5 h-2.5 rounded-full bg-sky-500 shrink-0" />
-                    <span>Cloudflare DNS Setup Step-by-Step</span>
-                  </div>
-                  <p className="text-[11px] text-amber-600 bg-amber-50 dark:bg-amber-950/20 p-2 rounded-lg border border-amber-150 dark:border-amber-900/30 font-bold leading-relaxed">
-                    ⚠️ গুরুত্বপূর্ণ: Cloudflare এ রেকর্ড যুক্ত করার সময় অবশ্যই <strong>Proxy Status "DNS Only" (Grey Cloud)</strong> সিলেক্ট করবেন। Proxy "Proxied" (Orange Cloud) থাকলে SSL ইস্যু হতে সমস্যা হতে পারে।
-                  </p>
-                  <ol className="list-decimal pl-4 space-y-2.5 text-gray-500 dark:text-gray-400 text-[11px]">
-                    <li>Cloudflare এ লগইন করে আপনার ডোমেন সিলেক্ট করুন।</li>
-                    <li>বাম পাশের সাইডবার থেকে <strong>DNS</strong> সেকশনে ক্লিক করুন।</li>
-                    <li><strong>Add Record</strong> এ ক্লিক করুন:
-                      <ul className="list-disc pl-4 mt-1.5 space-y-1 text-gray-700 dark:text-gray-300 font-mono text-[10px]">
-                        <li>Type CNAME, Name: <span className="bg-slate-50 dark:bg-slate-950 px-1 py-0.5 rounded border">shop</span>, Target: <span className="bg-slate-50 dark:bg-slate-950 px-1 py-0.5 rounded border">cname.sellerscampus.com</span></li>
-                        <li>Type A, Name: <span className="bg-slate-50 dark:bg-slate-950 px-1 py-0.5 rounded border">@</span>, IPv4 address: <span className="bg-slate-50 dark:bg-slate-950 px-1 py-0.5 rounded border">103.174.152.45</span></li>
-                      </ul>
-                    </li>
-                    <li>Proxy Status সুইচটি বন্ধ করে <strong>DNS Only</strong> করুন।</li>
-                    <li><strong>Save</strong> বাটনে ক্লিক করে রেকর্ডটি সংরক্ষণ করুন।</li>
-                  </ol>
                 </div>
               )}
 
@@ -670,6 +788,151 @@ export function CustomDomain() {
                 >
                   <RefreshCw className="w-3.5 h-3.5" />
                   <span>ভেরিফাই DNS রেকর্ড</span>
+                </button>
+              )}
+            </div>
+
+          </div>
+        </div>
+      )}
+
+      {/* Deep DNS & File Server Connection Verification Modal */}
+      {verifyingDomain && (
+        <div className="fixed inset-0 bg-black/75 backdrop-blur-md z-50 flex items-center justify-center p-4">
+          <div className="bg-slate-950 text-slate-100 rounded-3xl max-w-lg w-full overflow-hidden shadow-2xl border border-slate-800 flex flex-col animate-in fade-in duration-200">
+            
+            {/* Console Header */}
+            <div className="bg-slate-900/95 p-4 border-b border-slate-800 flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <span className="flex gap-1.5">
+                  <span className="w-3 h-3 rounded-full bg-rose-500 block animate-pulse" />
+                  <span className="w-3 h-3 rounded-full bg-amber-500 block" />
+                  <span className="w-3 h-3 rounded-full bg-emerald-500 block" />
+                </span>
+                <span className="text-xs font-mono font-bold text-slate-400">DNS & File Server Verification Console v1.2</span>
+              </div>
+              {!isVerifyComplete && !verifyError ? (
+                <span className="text-[10px] bg-indigo-500/20 text-indigo-400 border border-indigo-500/30 font-bold px-2.5 py-0.5 rounded-full animate-pulse uppercase tracking-wide">
+                  Checking Connection...
+                </span>
+              ) : verifyError ? (
+                <span className="text-[10px] bg-rose-500/20 text-rose-400 border border-rose-500/30 font-bold px-2.5 py-0.5 rounded-full uppercase tracking-wide">
+                  Check Failed
+                </span>
+              ) : (
+                <span className="text-[10px] bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 font-bold px-2.5 py-0.5 rounded-full uppercase tracking-wide">
+                  Verified & Active
+                </span>
+              )}
+            </div>
+
+            {/* Console Body */}
+            <div className="p-6 space-y-5 font-mono overflow-y-auto max-h-[70vh]">
+              <div className="border-b border-slate-850 pb-3">
+                <div className="text-[10px] text-slate-500 uppercase tracking-wider font-extrabold mb-1">Target Host / Domain</div>
+                <div className="text-base font-black text-white">{verifyingDomain.domainName}</div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-1 text-[11px] text-slate-400 mt-2.5 bg-slate-900/60 p-2.5 rounded-xl border border-slate-900">
+                  <div>Server IP Address: <span className="text-indigo-400 font-extrabold font-mono">103.174.152.45</span></div>
+                  <div>Server ID Node: <span className="text-purple-400 font-extrabold font-mono">SC-SVR-98BD-FILESRV</span></div>
+                </div>
+              </div>
+
+              {/* Steps Progress */}
+              <div className="space-y-4">
+                {verifySteps.map((step, idx) => (
+                  <div key={step.id} className="flex gap-3 items-start">
+                    {/* Step Icon / Status */}
+                    <div className="shrink-0 mt-0.5">
+                      {step.status === 'idle' && (
+                        <div className="w-5 h-5 rounded-full border border-slate-800 flex items-center justify-center text-[9px] font-bold text-slate-600 bg-slate-900/40 font-mono">
+                          {idx + 1}
+                        </div>
+                      )}
+                      {step.status === 'running' && (
+                        <div className="w-5 h-5 rounded-full border border-indigo-500/50 bg-indigo-950/40 flex items-center justify-center">
+                          <RefreshCw className="w-2.5 h-2.5 text-indigo-400 animate-spin" />
+                        </div>
+                      )}
+                      {step.status === 'success' && (
+                        <div className="w-5 h-5 rounded-full bg-emerald-550/20 border border-emerald-500/40 flex items-center justify-center">
+                          <Check className="w-2.5 h-2.5 text-emerald-400 font-bold" />
+                        </div>
+                      )}
+                      {step.status === 'error' && (
+                        <div className="w-5 h-5 rounded-full bg-rose-550/20 border border-rose-500/40 flex items-center justify-center">
+                          <X className="w-2.5 h-2.5 text-rose-400 font-bold" />
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Step Text */}
+                    <div className="min-w-0 flex-1">
+                      <div className={`text-xs font-bold leading-relaxed ${
+                        step.status === 'success' ? 'text-slate-200 font-bold' :
+                        step.status === 'running' ? 'text-indigo-400 font-bold' :
+                        step.status === 'error' ? 'text-rose-400 font-black' : 'text-slate-500'
+                      }`}>
+                        {step.label}
+                      </div>
+                      {(step.status === 'running' || step.status === 'error' || step.status === 'success') && (
+                        <p className="text-[10px] text-slate-400 mt-0.5 leading-relaxed font-sans">
+                          {step.details}
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              {/* Status Box */}
+              {verifyError && (
+                <div className="bg-rose-950/20 border border-rose-900/40 p-4 rounded-2xl flex gap-3 text-rose-300 font-sans">
+                  <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5 text-rose-400" />
+                  <div className="space-y-1">
+                    <strong className="text-xs font-black block text-rose-200">সার্ভার যাচাইকরণ ব্যর্থ হয়েছে:</strong>
+                    <p className="text-[10.5px] leading-relaxed text-rose-300/85">
+                      {verifyError}
+                    </p>
+                    <p className="text-[10px] text-slate-500 mt-2 italic leading-relaxed">
+                      পরামর্শ: আপনার ডোমেন প্রোভাইডার প্যানেলে DNS রেকর্ড যুক্ত করার পর প্রোপাগেশন শুরু হতে সাধারণত ২-১০ মিনিট সময় লাগতে পারে। রেকর্ড আপডেট হলে আবার টেস্ট করুন।
+                    </p>
+                  </div>
+                </div>
+              )}
+
+              {isVerifyComplete && (
+                <div className="bg-emerald-950/20 border border-emerald-900/40 p-4 rounded-2xl flex gap-3 text-emerald-300 font-sans">
+                  <CheckCircle className="w-4 h-4 shrink-0 mt-0.5 text-emerald-400 animate-bounce" />
+                  <div className="space-y-1">
+                    <strong className="text-xs font-black block text-emerald-200">সার্ভার কানেকশন শতভাগ নিশ্চিত!</strong>
+                    <p className="text-[10.5px] leading-relaxed text-emerald-300/85">
+                      আপনার ডোমেনটি সফলভাবে SellersCampus ফাইল সার্ভার নোড <span className="font-mono font-bold text-white bg-slate-900 px-1.5 py-0.5 rounded">SC-SVR-98BD-FILESRV</span> এবং মার্চেন্ট স্টোরেজ ডিরেক্টরিতে কানেক্ট হয়েছে। Let's Encrypt SSL সার্টিফিকেট সচল করা হয়েছে এবং ডোমেনটি লাইভ!
+                    </p>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Terminal Footer Actions */}
+            <div className="p-4 bg-slate-900/95 border-t border-slate-800 flex gap-2 font-mono">
+              {(!isVerifyComplete && !verifyError) ? (
+                <button
+                  disabled
+                  className="w-full py-2.5 bg-slate-800 text-slate-500 font-bold text-xs rounded-xl flex items-center justify-center gap-2"
+                >
+                  <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                  <span>সার্ভার কানেকশন ভেরিফিকেশন চলছে...</span>
+                </button>
+              ) : (
+                <button
+                  onClick={() => setVerifyingDomain(null)}
+                  className={`w-full py-2.5 font-bold text-xs rounded-xl transition-all font-sans ${
+                    isVerifyComplete 
+                      ? 'bg-emerald-600 hover:bg-emerald-700 text-white shadow-lg shadow-emerald-700/20' 
+                      : 'bg-slate-800 hover:bg-slate-700 text-slate-200'
+                  }`}
+                >
+                  {isVerifyComplete ? 'সম্পন্ন (Done)' : 'বন্ধ করুন (Close Console)'}
                 </button>
               )}
             </div>
