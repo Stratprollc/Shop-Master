@@ -156,6 +156,7 @@ import { CustomerPortal } from './components/CustomerPortal';
 import { SellerOrdersView } from './components/SellerOrdersView';
 import { PageManagement } from './components/PageManagement';
 import { MessagingGateway } from './components/MessagingGateway';
+import { CustomDomain } from './components/CustomDomain';
 import MainAdmin from './components/MainAdmin';
 import BusinessBio from './components/BusinessBio';
 import { 
@@ -166,7 +167,8 @@ import {
   AdminMerchantConsole,
   AdminMyHisab,
   AdminControl,
-  AdminContactUs
+  AdminContactUs,
+  AdminGoogleAnalytics
 } from './components/AdminPages';
 import OnlineShop from './components/OnlineShop';
 import { LiveTVPortal } from './components/LiveTVPortal';
@@ -4433,7 +4435,7 @@ const SidebarNavItem = ({ item, idx, activeTab, setActiveTab, setIsSidebarOpen, 
   };
   
   const isPremiumUnlocked = checkPremiumStatus();
-  const PREMIUM_ONLY_IDS = ['jarvis', 'payment_method', 'loan_management', 'live_tv', 'business_bio', 'business_mail', 'accounting', 'daily_closing', 'warranty', 'note', 'online_shop', 'messaging_gateway'];
+  const PREMIUM_ONLY_IDS = ['jarvis', 'payment_method', 'loan_management', 'live_tv', 'business_bio', 'business_mail', 'accounting', 'daily_closing', 'warranty', 'note', 'online_shop', 'messaging_gateway', 'custom_domain'];
 
   return (
     <div className="flex flex-col w-full relative">
@@ -5815,7 +5817,7 @@ export default function App() {
   };
   
   const isPremiumUnlocked = checkPremiumStatus();
-  const PREMIUM_ONLY_IDS = ['jarvis', 'payment_method', 'loan_management', 'live_tv', 'business_bio', 'business_mail', 'accounting', 'daily_closing', 'warranty', 'note', 'online_shop', 'messaging_gateway'];
+  const PREMIUM_ONLY_IDS = ['jarvis', 'payment_method', 'loan_management', 'live_tv', 'business_bio', 'business_mail', 'accounting', 'daily_closing', 'warranty', 'note', 'online_shop', 'messaging_gateway', 'custom_domain'];
 
   useEffect(() => {
     if (user && shopSettings && user.role !== 'master_admin' && user.email?.toLowerCase().trim() !== 'stratproamz@gmail.com') {
@@ -8671,6 +8673,7 @@ export default function App() {
           { id: 'release_logs', icon: Activity, label: 'Release Logs', roles: ['admin'] },
           { id: 'settings', icon: Settings, label: st('settings'), roles: ['admin'] },
           { id: 'messaging_gateway', icon: MessageSquare, label: 'Messaging Gateway', roles: ['admin', 'master_admin', 'dealer', 'salesman', 'staff', 'dsr', 'sales_partner', 'manager', 'assistant_manager', 'employee'] },
+          { id: 'custom_domain', icon: Globe, label: 'Custom Domain', roles: ['admin', 'manager', 'assistant_manager', 'employee'] },
         ]
       }
     ]},
@@ -8692,6 +8695,7 @@ export default function App() {
           { id: 'admin_my_hisab', icon: CalculatorIcon, label: 'My HISAB', roles: ['admin'], emailScope: 'stratproamz@gmail.com', bg: 'bg-indigo-50', color: 'text-indigo-600' },
           { id: 'admin_control', icon: Sliders, label: 'Control', roles: ['admin'], emailScope: 'stratproamz@gmail.com', bg: 'bg-indigo-50', color: 'text-indigo-600' },
           { id: 'admin_contact_us', icon: Phone, label: 'Contact us', roles: ['admin'], emailScope: 'stratproamz@gmail.com', bg: 'bg-indigo-50', color: 'text-indigo-600' },
+          { id: 'admin_google_analytics', icon: Globe, label: 'Google Analytics', roles: ['admin'], emailScope: 'stratproamz@gmail.com', bg: 'bg-indigo-50', color: 'text-indigo-600' },
         ]
       }
     ]}
@@ -9539,6 +9543,11 @@ export default function App() {
                 <AdminContactUs />
               </AdminSecurityWrapper>
             )}
+            {activeTab === 'admin_google_analytics' && (
+              <AdminSecurityWrapper user={user}>
+                <AdminGoogleAnalytics />
+              </AdminSecurityWrapper>
+            )}
             {activeTab === 'community_hub' && <CommunityHubPage user={user} shopSettings={shopSettings} />}
             {activeTab === 'live_tv' && <LiveTVPortal currentStream={currentStream} setCurrentStream={setCurrentStream} />}
             {activeTab !== 'live_tv' && currentStream && (
@@ -10323,6 +10332,10 @@ export default function App() {
                 customers={customers}
                 currentUserEmail={user?.email || ''}
               />
+            )}
+
+            {activeTab === 'custom_domain' && (
+              <CustomDomain />
             )}
 
 

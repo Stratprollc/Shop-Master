@@ -1332,6 +1332,26 @@ async function startServer() {
             { id: "wa_msg_5", sender: "system", text: "ঢাকার বাইরে ডেলিভারি চার্জ ১২০ টাকা আপু। ক্যাশ অন ডেলিভারি পাবেন।", created_at: new Date(Date.now() - 14000000).toISOString() }
           ]
         }
+      ],
+      googleAnalytics: {
+        measurementId: "G-V2D6W7BPAX",
+        active: true,
+        customScripts: "<!-- Global site tag (gtag.js) - Google Analytics -->\n<script async src=\"https://www.googletagmanager.com/gtag/js?id=G-V2D6W7BPAX\"></script>\n<script>\n  window.dataLayer = window.dataLayer || [];\n  function gtag(){dataLayer.push(arguments);}\n  gtag('js', new Date());\n  gtag('config', 'G-V2D6W7BPAX');\n</script>",
+        simulatedUsers: 15,
+        multiplier: 1.5
+      },
+      customDomains: [
+        {
+          id: "dom_1",
+          domainName: "shop.mybrand.com",
+          type: "subdomain",
+          status: "active",
+          sslStatus: "active",
+          createdAt: new Date(Date.now() - 7 * 24 * 3600 * 1000).toISOString(),
+          dnsIpValue: "103.174.152.45",
+          dnsCnameValue: "cname.sellerscampus.com",
+          dnsVerified: true
+        }
       ]
     };
 
@@ -1344,6 +1364,8 @@ async function startServer() {
       if (!parsed.laravelEvents) { parsed.laravelEvents = defaultData.laravelEvents; changed = true; }
       if (!parsed.fbChats) { parsed.fbChats = defaultData.fbChats; changed = true; }
       if (!parsed.waChats) { parsed.waChats = defaultData.waChats; changed = true; }
+      if (!parsed.googleAnalytics) { parsed.googleAnalytics = defaultData.googleAnalytics; changed = true; }
+      if (!parsed.customDomains) { parsed.customDomains = defaultData.customDomains; changed = true; }
       if (changed) {
         try {
           fs.writeFileSync(INTEGRATIONS_FILE, JSON.stringify(parsed, null, 2), 'utf-8');
@@ -1928,6 +1950,114 @@ async function startServer() {
     } catch (err: any) {
       console.error('Error simulating WhatsApp inbound message:', err);
       res.status(500).json({ success: false, error: err.message || 'Failed to simulate WhatsApp message' });
+    }
+  });
+
+  // Google Analytics & Real-Time Traffic configuration
+  app.get('/api/integrations/google-analytics', (req: express.Request, res: express.Response) => {
+    try {
+      const data = getIntegrationsData();
+      res.json({ success: true, googleAnalytics: data.googleAnalytics || { measurementId: "G-V2D6W7BPAX", active: true, customScripts: "", simulatedUsers: 15, multiplier: 1.5 } });
+    } catch (err: any) {
+      console.error('Error fetching Google Analytics configuration:', err);
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  app.post('/api/integrations/google-analytics', (req: express.Request, res: express.Response) => {
+    try {
+      const { measurementId, active, customScripts, simulatedUsers, multiplier } = req.body;
+      const data = getIntegrationsData();
+      if (!data.googleAnalytics) data.googleAnalytics = {};
+      if (measurementId !== undefined) data.googleAnalytics.measurementId = measurementId;
+      if (active !== undefined) data.googleAnalytics.active = active;
+      if (customScripts !== undefined) data.googleAnalytics.customScripts = customScripts;
+      if (simulatedUsers !== undefined) data.googleAnalytics.simulatedUsers = Number(simulatedUsers);
+      if (multiplier !== undefined) data.googleAnalytics.multiplier = Number(multiplier);
+      saveIntegrationsData(data);
+      res.json({ success: true, googleAnalytics: data.googleAnalytics });
+    } catch (err: any) {
+      console.error('Error updating Google Analytics configuration:', err);
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  // Custom Domains API
+  app.get('/api/integrations/custom-domains', (req: express.Request, res: express.Response) => {
+    try {
+      const data = getIntegrationsData();
+      res.json({ success: true, customDomains: data.customDomains || [] });
+    } catch (err: any) {
+      console.error('Error fetching custom domains:', err);
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  app.post('/api/integrations/custom-domains', (req: express.Request, res: express.Response) => {
+    try {
+      const { domainName, type } = req.body;
+      if (!domainName) {
+        return res.status(400).json({ success: false, error: 'Domain name is required' });
+      }
+      
+      const data = getIntegrationsData();
+      if (!data.customDomains) data.customDomains = [];
+      
+      const newDomain = {
+        id: 'dom_' + Date.now(),
+        domainName: domainName.toLowerCase().trim(),
+        type: type || 'subdomain',
+        status: 'pending_dns',
+        sslStatus: 'none',
+        createdAt: new Date().toISOString(),
+        dnsIpValue: "103.174.152.45",
+        dnsCnameValue: "cname.sellerscampus.com",
+        dnsVerified: false
+      };
+      
+      data.customDomains.push(newDomain);
+      saveIntegrationsData(data);
+      res.json({ success: true, domain: newDomain });
+    } catch (err: any) {
+      console.error('Error adding custom domain:', err);
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  app.post('/api/integrations/custom-domains/delete', (req: express.Request, res: express.Response) => {
+    try {
+      const { id } = req.body;
+      const data = getIntegrationsData();
+      if (!data.customDomains) data.customDomains = [];
+      
+      data.customDomains = data.customDomains.filter((d: any) => d.id !== id);
+      saveIntegrationsData(data);
+      res.json({ success: true });
+    } catch (err: any) {
+      console.error('Error deleting custom domain:', err);
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  app.post('/api/integrations/custom-domains/verify', (req: express.Request, res: express.Response) => {
+    try {
+      const { id } = req.body;
+      const data = getIntegrationsData();
+      if (!data.customDomains) data.customDomains = [];
+      
+      const domain = data.customDomains.find((d: any) => d.id === id);
+      if (domain) {
+        domain.dnsVerified = true;
+        domain.status = 'active';
+        domain.sslStatus = 'active';
+        saveIntegrationsData(data);
+        res.json({ success: true, domain });
+      } else {
+        res.status(444).json({ success: false, error: 'Domain not found' });
+      }
+    } catch (err: any) {
+      console.error('Error verifying custom domain:', err);
+      res.status(500).json({ success: false, error: err.message });
     }
   });
 
