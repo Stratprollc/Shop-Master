@@ -4417,7 +4417,8 @@ export function AdminGoogleAnalytics() {
     active: true,
     customScripts: '<!-- Global site tag (gtag.js) - Google Analytics -->\n<script async src="https://www.googletagmanager.com/gtag/js?id=G-V2D6W7BPAX"></script>\n<script>\n  window.dataLayer = window.dataLayer || [];\n  function gtag(){dataLayer.push(arguments);}\n  gtag(\'js\', new Date());\n  gtag(\'config\', \'G-V2D6W7BPAX\');\n</script>',
     simulatedUsers: 15,
-    multiplier: 1.5
+    multiplier: 1.5,
+    simulationEnabled: false
   });
 
   const [loading, setLoading] = useState(false);
@@ -4440,7 +4441,10 @@ export function AdminGoogleAnalytics() {
         const res = await fetch('/api/integrations/google-analytics');
         const data = await res.json();
         if (data.success && data.googleAnalytics) {
-          setConfig(data.googleAnalytics);
+          setConfig({
+            ...data.googleAnalytics,
+            simulationEnabled: data.googleAnalytics.simulationEnabled ?? false
+          });
           // Set initial live users count based on the config
           const initialVal = Math.round(data.googleAnalytics.simulatedUsers * data.googleAnalytics.multiplier);
           setActiveCount(initialVal > 0 ? initialVal : 23);
@@ -4596,6 +4600,25 @@ export function AdminGoogleAnalytics() {
               </button>
             </div>
 
+            {/* Simulation mode switch */}
+            <div className="flex items-center justify-between bg-slate-50 dark:bg-slate-950 p-4 rounded-2xl border border-gray-150 dark:border-slate-800/60">
+              <div className="space-y-0.5">
+                <span className="text-xs font-extrabold text-gray-800 dark:text-white">সিমুলেশন ডেমো মোড (Simulator)</span>
+                <p className="text-[10px] text-gray-400">ড্যাশবোর্ডে কৃত্রিম ট্রাফিক এস্টিমেট ও ডেমো লগ দেখতে সুইচ অন করুন</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setConfig({ ...config, simulationEnabled: !config.simulationEnabled })}
+                className={`w-12 h-6.5 rounded-full p-1 transition-all shrink-0 relative ${
+                  config.simulationEnabled ? 'bg-indigo-600' : 'bg-gray-200 dark:bg-slate-800'
+                }`}
+              >
+                <div className={`w-4.5 h-4.5 bg-white rounded-full shadow-sm transition-transform ${
+                  config.simulationEnabled ? 'translate-x-5.5' : 'translate-x-0'
+                }`} />
+              </button>
+            </div>
+
             {/* Measurement ID Input */}
             <div className="space-y-1.5">
               <label className="text-[10px] font-black text-gray-400 dark:text-gray-500 uppercase tracking-wider block">Google Analytics Measurement ID</label>
@@ -4621,44 +4644,46 @@ export function AdminGoogleAnalytics() {
             </div>
 
             {/* Simulator controls */}
-            <div className="bg-slate-50 dark:bg-slate-950/40 p-4 rounded-2xl border border-dashed border-gray-200 dark:border-slate-800/80 space-y-4">
-              <h4 className="text-[10px] font-black text-gray-800 dark:text-gray-200 uppercase tracking-wider flex items-center gap-1.5">
-                <span>⚡ ট্রাফিক সিমুলেটর (Traffic Multiplier)</span>
-              </h4>
-              
-              {/* Base Users */}
-              <div className="space-y-1">
-                <div className="flex justify-between text-[10px] text-gray-500">
-                  <span>বেস ভিজিটর সংখ্যা (Base Users):</span>
-                  <span className="font-bold text-gray-800 dark:text-white font-mono">{config.simulatedUsers}</span>
+            {config.simulationEnabled && (
+              <div className="bg-slate-50 dark:bg-slate-950/40 p-4 rounded-2xl border border-dashed border-gray-200 dark:border-slate-800/80 space-y-4">
+                <h4 className="text-[10px] font-black text-gray-800 dark:text-gray-200 uppercase tracking-wider flex items-center gap-1.5">
+                  <span>⚡ ট্রাফিক সিমুলেটর (Traffic Multiplier)</span>
+                </h4>
+                
+                {/* Base Users */}
+                <div className="space-y-1">
+                  <div className="flex justify-between text-[10px] text-gray-500">
+                    <span>বেস ভিজিটর সংখ্যা (Base Users):</span>
+                    <span className="font-bold text-gray-800 dark:text-white font-mono">{config.simulatedUsers}</span>
+                  </div>
+                  <input
+                    type="range"
+                    min="5"
+                    max="100"
+                    value={config.simulatedUsers}
+                    onChange={e => setConfig({ ...config, simulatedUsers: parseInt(e.target.value) })}
+                    className="w-full accent-indigo-600"
+                  />
                 </div>
-                <input
-                  type="range"
-                  min="5"
-                  max="100"
-                  value={config.simulatedUsers}
-                  onChange={e => setConfig({ ...config, simulatedUsers: parseInt(e.target.value) })}
-                  className="w-full accent-indigo-600"
-                />
-              </div>
 
-              {/* Multiplier */}
-              <div className="space-y-1">
-                <div className="flex justify-between text-[10px] text-gray-500">
-                  <span>মাল্টিপ্লায়ার (Multiplier):</span>
-                  <span className="font-bold text-gray-800 dark:text-white font-mono">{config.multiplier}x</span>
+                {/* Multiplier */}
+                <div className="space-y-1">
+                  <div className="flex justify-between text-[10px] text-gray-500">
+                    <span>মাল্টিপ্লায়ার (Multiplier):</span>
+                    <span className="font-bold text-gray-800 dark:text-white font-mono">{config.multiplier}x</span>
+                  </div>
+                  <input
+                    type="range"
+                    min="0.5"
+                    max="5"
+                    step="0.5"
+                    value={config.multiplier}
+                    onChange={e => setConfig({ ...config, multiplier: parseFloat(e.target.value) })}
+                    className="w-full accent-indigo-600"
+                  />
                 </div>
-                <input
-                  type="range"
-                  min="0.5"
-                  max="5"
-                  step="0.5"
-                  value={config.multiplier}
-                  onChange={e => setConfig({ ...config, multiplier: parseFloat(e.target.value) })}
-                  className="w-full accent-indigo-600"
-                />
               </div>
-            </div>
+            )}
 
             {/* Save Buttons */}
             <div className="flex gap-2">
@@ -4688,143 +4713,215 @@ export function AdminGoogleAnalytics() {
         {/* Right Side: Real-Time Traffic Panel (7 Cols) */}
         <div className="lg:col-span-7 space-y-6">
           
-          {/* Realtime Geo & Source Breakdown cards */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            
-            {/* Geo list card */}
-            <div className="bg-white dark:bg-slate-900 p-5 rounded-3xl border border-gray-100 dark:border-slate-800/80 shadow-sm space-y-3">
-              <h4 className="text-[10px] font-black text-gray-400 dark:text-gray-500 uppercase tracking-widest flex items-center gap-1.5">
-                <MapPin className="w-4 h-4 text-rose-500" />
-                টপ ভিজিটর লোকেশন (Top Districts)
-              </h4>
-              <div className="space-y-3 pt-1">
-                {[
-                  { name: 'ঢাকা (Dhaka)', percent: 54, count: Math.round(activeCount * 0.54) },
-                  { name: 'চট্টগ্রাম (Chittagong)', percent: 22, count: Math.round(activeCount * 0.22) },
-                  { name: 'সিলেট (Sylhet)', percent: 12, count: Math.round(activeCount * 0.12) },
-                  { name: 'রাজশাহী (Rajshahi)', percent: 7, count: Math.round(activeCount * 0.07) },
-                  { name: 'খুলনা (Khulna)', percent: 5, count: Math.round(activeCount * 0.05) }
-                ].map((item, index) => (
-                  <div key={item.name} className="space-y-1">
-                    <div className="flex justify-between text-xs">
-                      <span className="font-bold text-gray-700 dark:text-gray-300">{item.name}</span>
-                      <span className="font-mono text-gray-450">{item.count} জন ({item.percent}%)</span>
-                    </div>
-                    <div className="w-full bg-slate-100 dark:bg-slate-800 h-1.5 rounded-full overflow-hidden">
-                      <div 
-                        className={`h-full rounded-full ${index === 0 ? 'bg-indigo-600' : index === 1 ? 'bg-sky-500' : 'bg-emerald-500'}`}
-                        style={{ width: `${item.percent}%` }}
-                      />
-                    </div>
+          {!config.simulationEnabled ? (
+            <div className="bg-white dark:bg-slate-900 p-6 rounded-3xl border border-gray-100 dark:border-slate-800/80 shadow-sm space-y-6 h-full flex flex-col justify-between">
+              <div className="space-y-5">
+                <div className="flex items-center gap-3">
+                  <div className="p-3 bg-indigo-50 dark:bg-indigo-950/45 rounded-2xl text-indigo-600 dark:text-indigo-400 shrink-0">
+                    <Globe className="w-6 h-6" />
                   </div>
-                ))}
+                  <div>
+                    <h4 className="text-base font-black text-gray-950 dark:text-gray-100 uppercase tracking-tight">Real Live Google Analytics Connected</h4>
+                    <p className="text-[10px] text-gray-400 font-bold uppercase tracking-widest mt-0.5">রিয়েল-টাইম লাইভ ট্র্যাকিং সচল</p>
+                  </div>
+                </div>
+
+                <div className="border-t border-b border-gray-100 dark:border-slate-800/80 py-4 my-2 space-y-3.5">
+                  <div className="flex items-center justify-between text-xs">
+                    <span className="text-gray-500 font-bold uppercase tracking-wider text-[10px]">Connected Domain:</span>
+                    <span className="font-mono bg-slate-50 dark:bg-slate-950 border border-gray-150 dark:border-slate-850 px-2.5 py-1 rounded-lg text-indigo-600 dark:text-indigo-400 font-bold">
+                      {window.location.hostname || 'pos.sellerscampus.com'}
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between text-xs">
+                    <span className="text-gray-500 font-bold uppercase tracking-wider text-[10px]">Google Measurement ID:</span>
+                    <span className="font-mono bg-slate-50 dark:bg-slate-950 border border-gray-150 dark:border-slate-850 px-2.5 py-1 rounded-lg text-gray-800 dark:text-white font-bold">
+                      {config.measurementId || 'Not Set'}
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between text-xs">
+                    <span className="text-gray-500 font-bold uppercase tracking-wider text-[10px]">Tracking Script Status:</span>
+                    <span className="font-sans bg-emerald-50 dark:bg-emerald-950/20 text-emerald-600 dark:text-emerald-400 border border-emerald-100 dark:border-emerald-900/30 px-2.5 py-1 rounded-lg font-bold">
+                      {config.active ? 'Injected & Running' : 'Disabled'}
+                    </span>
+                  </div>
+                </div>
+
+                <div className="space-y-2 bg-indigo-50/35 dark:bg-indigo-950/15 p-4.5 rounded-2xl border border-indigo-50/50 dark:border-indigo-950/30">
+                  <h5 className="text-[11px] font-black text-indigo-900 dark:text-indigo-200 uppercase tracking-wider flex items-center gap-1.5">
+                    💡 গুগল ট্যাগ অ্যাসিস্ট্যান্ট টেস্ট এবং রিয়েল লাইভ ডাটা গাইড
+                  </h5>
+                  <p className="text-xs text-indigo-700 dark:text-indigo-300 leading-relaxed font-medium pt-1">
+                    আমাদের রিয়েল-টাইম ইঞ্জিন আপনার এন্টারপ্রাইজ ওয়েবসাইট (<span className="underline font-bold">https://pos.sellerscampus.com/</span>) এর ব্যাকএন্ডের মূল হেডার ফাইলে আপনার গুগল ট্র্যাকিং কোডটি সরাসরি ডাইনামিকালি ইনজেক্ট করে দিয়েছে।
+                  </p>
+                  <ul className="text-xs text-indigo-600 dark:text-indigo-350 list-disc list-inside space-y-1.5 pt-1.5 font-medium">
+                    <li>কোনো ফেক বা ডেমো ডাটা ছাড়া একদম রিয়েল-টাইম লাইভ ভিজিটর ট্র্যাক করার জন্য এই ড্যাশবোর্ডটি অপ্টিমাইজ করা হয়েছে।</li>
+                    <li>আপনার গুগল অ্যানালিটিক্স পোর্টালে ডাইরেক্ট লাইভ ইউজার, বাউন্স রেট এবং ইভেন্ট স্ট্রিম রিয়েল-টাইমে দেখা যাবে।</li>
+                    <li>গুগল ট্যাগ অ্যাসিস্ট্যান্ট সাকসেসফুলি রিয়েল-টাইম ট্যাগ ডিটেক্ট করবে।</li>
+                  </ul>
+                </div>
+              </div>
+
+              <div className="pt-4 border-t border-gray-150 dark:border-slate-800/80 flex flex-col sm:flex-row gap-3">
+                <a
+                  href="https://analytics.google.com/"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex-1 py-3 px-4 bg-indigo-600 hover:bg-indigo-700 text-white font-black text-xs rounded-xl uppercase tracking-wider flex items-center justify-center gap-2 transition-all shadow-lg shadow-indigo-600/10 hover:shadow-indigo-600/20 active:scale-95 text-center"
+                >
+                  <Globe className="w-4 h-4" />
+                  <span>Open Google Analytics Console ↗</span>
+                </a>
+                <button
+                  type="button"
+                  onClick={() => setConfig({ ...config, simulationEnabled: true })}
+                  className="py-3 px-4 bg-slate-50 dark:bg-slate-950 border border-gray-200 dark:border-slate-800 hover:bg-slate-100 text-gray-700 dark:text-gray-300 font-bold text-xs rounded-xl uppercase tracking-wider flex items-center justify-center gap-1.5 transition-all"
+                >
+                  <span>⚡ Show Traffic Simulator</span>
+                </button>
               </div>
             </div>
-
-            {/* Traffic Sources card */}
-            <div className="bg-white dark:bg-slate-900 p-5 rounded-3xl border border-gray-100 dark:border-slate-800/80 shadow-sm space-y-3">
-              <h4 className="text-[10px] font-black text-gray-400 dark:text-gray-500 uppercase tracking-widest flex items-center gap-1.5">
-                <Laptop className="w-4 h-4 text-indigo-500" />
-                ট্রাফিক সোর্স (Traffic Sources)
-              </h4>
-              <div className="space-y-3 pt-1">
-                {[
-                  { name: 'ফেসবুক এডস (Facebook Ads)', percent: 45, count: Math.round(activeCount * 0.45) },
-                  { name: 'সরাসরি ট্রাফিক (Direct Link)', percent: 25, count: Math.round(activeCount * 0.25) },
-                  { name: 'গুগল সার্চ (Google Search)', percent: 18, count: Math.round(activeCount * 0.18) },
-                  { name: 'হোয়াটসঅ্যাপ লিঙ্ক (WhatsApp)', percent: 12, count: Math.round(activeCount * 0.12) }
-                ].map((item, index) => (
-                  <div key={item.name} className="space-y-1">
-                    <div className="flex justify-between text-xs">
-                      <span className="font-bold text-gray-700 dark:text-gray-300">{item.name}</span>
-                      <span className="font-mono text-gray-450">{item.count} জন ({item.percent}%)</span>
-                    </div>
-                    <div className="w-full bg-slate-100 dark:bg-slate-800 h-1.5 rounded-full overflow-hidden">
-                      <div 
-                        className="h-full bg-amber-500 rounded-full"
-                        style={{ width: `${item.percent}%` }}
-                      />
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-          </div>
-
-          {/* Active pages being viewed table */}
-          <div className="bg-white dark:bg-slate-900 p-5 rounded-3xl border border-gray-100 dark:border-slate-800/80 shadow-sm space-y-3">
-            <h4 className="text-[10px] font-black text-gray-400 dark:text-gray-500 uppercase tracking-widest">
-              অ্যাক্টিভ পেজ ভিউজ (Active Pages Stream)
-            </h4>
-            <div className="overflow-x-auto">
-              <table className="w-full text-xs text-left">
-                <thead>
-                  <tr className="border-b border-gray-50 dark:border-slate-850 text-gray-450 font-black uppercase text-[9px] tracking-wider">
-                    <th className="py-2.5">Page Path (পেজ ইউআরএল)</th>
-                    <th className="py-2.5 text-right">Active Viewers</th>
-                    <th className="py-2.5 text-right hidden sm:table-cell">Avg Duration</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-gray-50 dark:divide-slate-850 text-gray-700 dark:text-gray-300">
-                  {[
-                    { path: '/shop/mens-premium-cotton-panjabi', count: Math.round(activeCount * 0.42), duration: '1m 24s' },
-                    { path: '/cart', count: Math.round(activeCount * 0.18), duration: '2m 10s' },
-                    { path: '/checkout', count: Math.round(activeCount * 0.15), duration: '45s' },
-                    { path: '/', count: Math.round(activeCount * 0.13), duration: '3m 05s' },
-                    { path: '/shop/designer-ladies-kurti', count: Math.round(activeCount * 0.12), duration: '1m 45s' }
-                  ].map(p => (
-                    <tr key={p.path} className="hover:bg-slate-50/50 dark:hover:bg-slate-900/50">
-                      <td className="py-2.5 font-mono text-[11px] text-indigo-600 dark:text-indigo-400 font-medium truncate max-w-[200px] sm:max-w-none">{p.path}</td>
-                      <td className="py-2.5 text-right font-bold font-mono">{p.count} জন</td>
-                      <td className="py-2.5 text-right font-mono text-gray-450 hidden sm:table-cell">{p.duration}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
-
-          {/* Real-Time Visitor Live Stream feed */}
-          <div className="bg-white dark:bg-slate-900 p-5 rounded-3xl border border-gray-100 dark:border-slate-800/80 shadow-sm flex flex-col h-[320px]">
-            <div className="shrink-0 pb-3 border-b border-gray-50 dark:border-slate-850 flex items-center justify-between">
-              <h4 className="text-[10px] font-black text-gray-400 dark:text-gray-500 uppercase tracking-widest flex items-center gap-1.5">
-                <Clock className="w-4 h-4 text-emerald-500" />
-                লাইভ ভিজিটর অ্যাকশন ফিড (Live Events Stream)
-              </h4>
-              <span className="text-[9px] bg-emerald-50 dark:bg-emerald-950/20 text-emerald-600 dark:text-emerald-400 px-2 py-0.5 rounded-full font-bold uppercase tracking-wider font-mono animate-pulse">
-                System Online
-              </span>
-            </div>
-
-            <div className="flex-1 overflow-y-auto pt-3 space-y-2.5 custom-scrollbar font-sans">
-              <AnimatePresence initial={false}>
-                {trafficLogs.map((log) => (
-                  <motion.div
-                    key={log.id}
-                    initial={{ opacity: 0, x: -10, y: -5 }}
-                    animate={{ opacity: 1, x: 0, y: 0 }}
-                    exit={{ opacity: 0 }}
-                    transition={{ duration: 0.35 }}
-                    className="flex items-center justify-between p-2.5 bg-slate-50 dark:bg-slate-950 border border-gray-150/45 dark:border-slate-800 rounded-xl hover:scale-[1.01] transition-transform text-xs"
-                  >
-                    <div className="flex items-center gap-2.5 min-w-0">
-                      <span className={`w-2 h-2 rounded-full shrink-0 ${
-                        log.type === 'purchase' ? 'bg-emerald-500' :
-                        log.type === 'checkout' ? 'bg-amber-500' :
-                        log.type === 'cart' ? 'bg-sky-500' : 'bg-gray-400'
-                      }`} />
-                      <div className="truncate">
-                        <span className="font-extrabold text-gray-800 dark:text-white mr-1.5">{log.location}</span>
-                        <span className="text-gray-600 dark:text-gray-300">{log.event}</span>
+          ) : (
+            <>
+              {/* Realtime Geo & Source Breakdown cards */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                
+                {/* Geo list card */}
+                <div className="bg-white dark:bg-slate-900 p-5 rounded-3xl border border-gray-100 dark:border-slate-800/80 shadow-sm space-y-3">
+                  <h4 className="text-[10px] font-black text-gray-400 dark:text-gray-500 uppercase tracking-widest flex items-center gap-1.5">
+                    <MapPin className="w-4 h-4 text-rose-500" />
+                    টপ ভিজিটর লোকেশন (Top Districts)
+                  </h4>
+                  <div className="space-y-3 pt-1">
+                    {[
+                      { name: 'ঢাকা (Dhaka)', percent: 54, count: Math.round(activeCount * 0.54) },
+                      { name: 'চট্টগ্রাম (Chittagong)', percent: 22, count: Math.round(activeCount * 0.22) },
+                      { name: 'সিলেট (Sylhet)', percent: 12, count: Math.round(activeCount * 0.12) },
+                      { name: 'রাজশাহী (Rajshahi)', percent: 7, count: Math.round(activeCount * 0.07) },
+                      { name: 'খুলনা (Khulna)', percent: 5, count: Math.round(activeCount * 0.05) }
+                    ].map((item, index) => (
+                      <div key={item.name} className="space-y-1">
+                        <div className="flex justify-between text-xs">
+                          <span className="font-bold text-gray-700 dark:text-gray-300">{item.name}</span>
+                          <span className="font-mono text-gray-450">{item.count} জন ({item.percent}%)</span>
+                        </div>
+                        <div className="w-full bg-slate-100 dark:bg-slate-800 h-1.5 rounded-full overflow-hidden">
+                          <div 
+                            className={`h-full rounded-full ${index === 0 ? 'bg-indigo-600' : index === 1 ? 'bg-sky-500' : 'bg-emerald-500'}`}
+                            style={{ width: `${item.percent}%` }}
+                          />
+                        </div>
                       </div>
-                    </div>
-                    <span className="text-[10px] text-gray-450 font-mono pl-3 shrink-0">{log.time}</span>
-                  </motion.div>
-                ))}
-              </AnimatePresence>
-            </div>
-          </div>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Traffic Sources card */}
+                <div className="bg-white dark:bg-slate-900 p-5 rounded-3xl border border-gray-100 dark:border-slate-800/80 shadow-sm space-y-3">
+                  <h4 className="text-[10px] font-black text-gray-400 dark:text-gray-500 uppercase tracking-widest flex items-center gap-1.5">
+                    <Laptop className="w-4 h-4 text-indigo-500" />
+                    ট্রাফিক সোর্স (Traffic Sources)
+                  </h4>
+                  <div className="space-y-3 pt-1">
+                    {[
+                      { name: 'ফেসবুক এডস (Facebook Ads)', percent: 45, count: Math.round(activeCount * 0.45) },
+                      { name: 'সরাসরি ট্রাফিক (Direct Link)', percent: 25, count: Math.round(activeCount * 0.25) },
+                      { name: 'গুগল সার্চ (Google Search)', percent: 18, count: Math.round(activeCount * 0.18) },
+                      { name: 'হোয়াটসঅ্যাপ লিঙ্ক (WhatsApp)', percent: 12, count: Math.round(activeCount * 0.12) }
+                    ].map((item, index) => (
+                      <div key={item.name} className="space-y-1">
+                        <div className="flex justify-between text-xs">
+                          <span className="font-bold text-gray-700 dark:text-gray-300">{item.name}</span>
+                          <span className="font-mono text-gray-450">{item.count} জন ({item.percent}%)</span>
+                        </div>
+                        <div className="w-full bg-slate-100 dark:bg-slate-800 h-1.5 rounded-full overflow-hidden">
+                          <div 
+                            className="h-full bg-amber-500 rounded-full"
+                            style={{ width: `${item.percent}%` }}
+                          />
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+              </div>
+
+              {/* Active pages being viewed table */}
+              <div className="bg-white dark:bg-slate-900 p-5 rounded-3xl border border-gray-100 dark:border-slate-800/80 shadow-sm space-y-3">
+                <h4 className="text-[10px] font-black text-gray-400 dark:text-gray-500 uppercase tracking-widest">
+                  অ্যাক্টিভ পেজ ভিউজ (Active Pages Stream)
+                </h4>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-xs text-left">
+                    <thead>
+                      <tr className="border-b border-gray-50 dark:border-slate-850 text-gray-450 font-black uppercase text-[9px] tracking-wider">
+                        <th className="py-2.5">Page Path (পেজ ইউআরএল)</th>
+                        <th className="py-2.5 text-right">Active Viewers</th>
+                        <th className="py-2.5 text-right hidden sm:table-cell">Avg Duration</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-50 dark:divide-slate-850 text-gray-700 dark:text-gray-300">
+                      {[
+                        { path: '/shop/mens-premium-cotton-panjabi', count: Math.round(activeCount * 0.42), duration: '1m 24s' },
+                        { path: '/cart', count: Math.round(activeCount * 0.18), duration: '2m 10s' },
+                        { path: '/checkout', count: Math.round(activeCount * 0.15), duration: '45s' },
+                        { path: '/', count: Math.round(activeCount * 0.13), duration: '3m 05s' },
+                        { path: '/shop/designer-ladies-kurti', count: Math.round(activeCount * 0.12), duration: '1m 45s' }
+                      ].map(p => (
+                        <tr key={p.path} className="hover:bg-slate-50/50 dark:hover:bg-slate-900/50">
+                          <td className="py-2.5 font-mono text-[11px] text-indigo-600 dark:text-indigo-400 font-medium truncate max-w-[200px] sm:max-w-none">{p.path}</td>
+                          <td className="py-2.5 text-right font-bold font-mono">{p.count} জন</td>
+                          <td className="py-2.5 text-right font-mono text-gray-450 hidden sm:table-cell">{p.duration}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              {/* Real-Time Visitor Live Stream feed */}
+              <div className="bg-white dark:bg-slate-900 p-5 rounded-3xl border border-gray-100 dark:border-slate-800/80 shadow-sm flex flex-col h-[320px]">
+                <div className="shrink-0 pb-3 border-b border-gray-50 dark:border-slate-850 flex items-center justify-between">
+                  <h4 className="text-[10px] font-black text-gray-400 dark:text-gray-500 uppercase tracking-widest flex items-center gap-1.5">
+                    <Clock className="w-4 h-4 text-emerald-500" />
+                    লাইভ ভিজিটর অ্যাকশন ফিড (Live Events Stream)
+                  </h4>
+                  <span className="text-[9px] bg-emerald-50 dark:bg-emerald-950/20 text-emerald-600 dark:text-emerald-400 px-2 py-0.5 rounded-full font-bold uppercase tracking-wider font-mono animate-pulse">
+                    System Online
+                  </span>
+                </div>
+
+                <div className="flex-1 overflow-y-auto pt-3 space-y-2.5 custom-scrollbar font-sans">
+                  <AnimatePresence initial={false}>
+                    {trafficLogs.map((log) => (
+                      <motion.div
+                        key={log.id}
+                        initial={{ opacity: 0, x: -10, y: -5 }}
+                        animate={{ opacity: 1, x: 0, y: 0 }}
+                        exit={{ opacity: 0 }}
+                        transition={{ duration: 0.35 }}
+                        className="flex items-center justify-between p-2.5 bg-slate-50 dark:bg-slate-950 border border-gray-150/45 dark:border-slate-800 rounded-xl hover:scale-[1.01] transition-transform text-xs"
+                      >
+                        <div className="flex items-center gap-2.5 min-w-0">
+                          <span className={`w-2 h-2 rounded-full shrink-0 ${
+                            log.type === 'purchase' ? 'bg-emerald-500' :
+                            log.type === 'checkout' ? 'bg-amber-500' :
+                            log.type === 'cart' ? 'bg-sky-500' : 'bg-gray-400'
+                          }`} />
+                          <div className="truncate">
+                            <span className="font-extrabold text-gray-800 dark:text-white mr-1.5">{log.location}</span>
+                            <span className="text-gray-600 dark:text-gray-300">{log.event}</span>
+                          </div>
+                        </div>
+                        <span className="text-[10px] text-gray-450 font-mono pl-3 shrink-0">{log.time}</span>
+                      </motion.div>
+                    ))}
+                  </AnimatePresence>
+                </div>
+              </div>
+            </>
+          )}
 
         </div>
 

@@ -1338,7 +1338,8 @@ async function startServer() {
         active: true,
         customScripts: "<!-- Global site tag (gtag.js) - Google Analytics -->\n<script async src=\"https://www.googletagmanager.com/gtag/js?id=G-V2D6W7BPAX\"></script>\n<script>\n  window.dataLayer = window.dataLayer || [];\n  function gtag(){dataLayer.push(arguments);}\n  gtag('js', new Date());\n  gtag('config', 'G-V2D6W7BPAX');\n</script>",
         simulatedUsers: 15,
-        multiplier: 1.5
+        multiplier: 1.5,
+        simulationEnabled: false
       },
       customDomains: [
         {
@@ -1966,7 +1967,7 @@ async function startServer() {
 
   app.post('/api/integrations/google-analytics', (req: express.Request, res: express.Response) => {
     try {
-      const { measurementId, active, customScripts, simulatedUsers, multiplier } = req.body;
+      const { measurementId, active, customScripts, simulatedUsers, multiplier, simulationEnabled } = req.body;
       const data = getIntegrationsData();
       if (!data.googleAnalytics) data.googleAnalytics = {};
       if (measurementId !== undefined) data.googleAnalytics.measurementId = measurementId;
@@ -1974,6 +1975,7 @@ async function startServer() {
       if (customScripts !== undefined) data.googleAnalytics.customScripts = customScripts;
       if (simulatedUsers !== undefined) data.googleAnalytics.simulatedUsers = Number(simulatedUsers);
       if (multiplier !== undefined) data.googleAnalytics.multiplier = Number(multiplier);
+      if (simulationEnabled !== undefined) data.googleAnalytics.simulationEnabled = Boolean(simulationEnabled);
       saveIntegrationsData(data);
       res.json({ success: true, googleAnalytics: data.googleAnalytics });
     } catch (err: any) {
@@ -2337,13 +2339,38 @@ async function startServer() {
   // For production (Hostinger)
   else {
     const distPath = path.join(process.cwd(), 'dist');
-    app.use(express.static(distPath));
+    // Disable serving index.html as the default index file so root path "/" falls through to our custom dynamic router below
+    app.use(express.static(distPath, { index: false }));
     
     // Support SPA routing (redirect all non-file requests to index.html with existence guarantee)
     app.use((req, res) => {
       const indexPath = path.join(distPath, 'index.html');
       if (fs.existsSync(indexPath)) {
-        res.sendFile(indexPath);
+        let html = fs.readFileSync(indexPath, 'utf-8');
+        try {
+          const data = getIntegrationsData();
+          const ga = data.googleAnalytics;
+          if (ga && ga.active) {
+            let scriptsToInject = '';
+            if (ga.customScripts && ga.customScripts.trim()) {
+              scriptsToInject += '\n' + ga.customScripts.trim();
+            } else if (ga.measurementId && ga.measurementId.trim()) {
+              const mId = ga.measurementId.trim();
+              scriptsToInject += `\n<!-- Global site tag (gtag.js) - Google Analytics -->\n<script async src="https://www.googletagmanager.com/gtag/js?id=${mId}"></script>\n<script>\n  window.dataLayer = window.dataLayer || [];\n  function gtag(){dataLayer.push(arguments);}\n  gtag('js', new Date());\n  gtag('config', '${mId}');\n</script>`;
+            }
+            if (scriptsToInject) {
+              // Inject immediately after <head>
+              if (html.includes('<head>')) {
+                html = html.replace('<head>', '<head>' + scriptsToInject);
+              } else {
+                html = html.replace('</head>', scriptsToInject + '</head>');
+              }
+            }
+          }
+        } catch (e) {
+          console.error('Failed to inject Google Analytics script:', e);
+        }
+        res.send(html);
       } else {
         res.status(404).send('Application is building or index.html is temporarily unavailable. Please refresh in a few seconds.');
       }
