@@ -4716,6 +4716,16 @@ export default function App() {
     try {
       if (activeTab) {
         localStorage.setItem('shopmaster_active_tab', activeTab);
+        
+        // Track this real visitor pageview!
+        fetch('/api/analytics/track', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            path: `/${activeTab}`,
+            title: activeTab.toUpperCase().replace('_', ' ')
+          })
+        }).catch(err => console.warn('Failed to track pageview:', err));
       }
     } catch (e) {}
   }, [activeTab]);
