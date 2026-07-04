@@ -4509,17 +4509,69 @@ export function AdminSidebarPages({ shopSettings = {}, user = {}, setNotificatio
                 const isExpanded = expandedSections[section.id];
                 const displayLabel = section.label_bn && section.label_bn !== section.label ? `${section.label} (${section.label_bn})` : section.label;
                 
+                // Beautiful dynamic color schemes for each section to easily differentiate them
+                const schemes = [
+                  { // Indigo
+                    border: 'border-indigo-100 dark:border-indigo-950/40 bg-indigo-50/5 dark:bg-indigo-950/5',
+                    hover: 'hover:border-indigo-300 dark:hover:border-indigo-800 hover:bg-indigo-50/20 dark:hover:bg-indigo-950/10 hover:shadow-md hover:shadow-indigo-500/5',
+                    accentLine: 'bg-indigo-500 dark:bg-indigo-400',
+                    titleColor: 'text-indigo-900 dark:text-indigo-300'
+                  },
+                  { // Emerald/Green
+                    border: 'border-emerald-100 dark:border-emerald-950/40 bg-emerald-50/5 dark:bg-emerald-950/5',
+                    hover: 'hover:border-emerald-300 dark:hover:border-emerald-800 hover:bg-emerald-50/20 dark:hover:bg-emerald-950/10 hover:shadow-md hover:shadow-emerald-500/5',
+                    accentLine: 'bg-emerald-500 dark:bg-emerald-400',
+                    titleColor: 'text-emerald-900 dark:text-emerald-300'
+                  },
+                  { // Sky/Blue
+                    border: 'border-sky-100 dark:border-sky-950/40 bg-sky-50/5 dark:bg-sky-950/5',
+                    hover: 'hover:border-sky-300 dark:hover:border-sky-800 hover:bg-sky-50/20 dark:hover:bg-sky-950/10 hover:shadow-md hover:shadow-sky-500/5',
+                    accentLine: 'bg-sky-500 dark:bg-sky-400',
+                    titleColor: 'text-sky-900 dark:text-sky-300'
+                  },
+                  { // Purple
+                    border: 'border-purple-100 dark:border-purple-950/40 bg-purple-50/5 dark:bg-purple-950/5',
+                    hover: 'hover:border-purple-300 dark:hover:border-purple-800 hover:bg-purple-50/20 dark:hover:bg-purple-950/10 hover:shadow-md hover:shadow-purple-500/5',
+                    accentLine: 'bg-purple-500 dark:bg-purple-400',
+                    titleColor: 'text-purple-900 dark:text-purple-300'
+                  },
+                  { // Amber/Orange
+                    border: 'border-amber-100 dark:border-amber-950/40 bg-amber-50/5 dark:bg-amber-950/5',
+                    hover: 'hover:border-amber-300 dark:hover:border-amber-800 hover:bg-amber-50/20 dark:hover:bg-amber-950/10 hover:shadow-md hover:shadow-amber-500/5',
+                    accentLine: 'bg-amber-500 dark:bg-amber-400',
+                    titleColor: 'text-amber-900 dark:text-amber-300'
+                  },
+                  { // Rose/Pink
+                    border: 'border-rose-100 dark:border-rose-950/40 bg-rose-50/5 dark:bg-rose-950/5',
+                    hover: 'hover:border-rose-300 dark:hover:border-rose-800 hover:bg-rose-50/20 dark:hover:bg-rose-950/10 hover:shadow-md hover:shadow-rose-500/5',
+                    accentLine: 'bg-rose-500 dark:bg-rose-400',
+                    titleColor: 'text-rose-900 dark:text-rose-300'
+                  },
+                  { // Teal
+                    border: 'border-teal-100 dark:border-teal-950/40 bg-teal-50/5 dark:bg-teal-950/5',
+                    hover: 'hover:border-teal-300 dark:hover:border-teal-800 hover:bg-teal-50/20 dark:hover:bg-teal-950/10 hover:shadow-md hover:shadow-teal-500/5',
+                    accentLine: 'bg-teal-500 dark:bg-teal-400',
+                    titleColor: 'text-teal-900 dark:text-teal-300'
+                  }
+                ];
+
+                const scheme = schemes[secIdx % schemes.length];
+                const bgBorderClasses = section.isDeleted 
+                  ? 'border-red-100 dark:border-red-950 bg-red-50/10 dark:bg-red-950/10 opacity-60' 
+                  : section.isLocked 
+                    ? 'border-amber-100 dark:border-amber-950 bg-amber-50/10 dark:bg-amber-950/10' 
+                    : `${scheme.border} ${scheme.hover}`;
+
                 return (
                   <div 
                     key={section.id} 
-                    className={`rounded-2xl border transition-all ${
-                      section.isDeleted 
-                        ? 'border-red-100 bg-red-50/20 opacity-60' 
-                        : section.isLocked 
-                          ? 'border-amber-100 bg-amber-50/10' 
-                          : 'border-slate-100 dark:border-slate-800/60 bg-slate-50/30'
-                    }`}
+                    className={`rounded-2xl border transition-all duration-300 relative overflow-hidden pl-3.5 ${bgBorderClasses}`}
                   >
+                    {/* Left Accent Color bar */}
+                    {!section.isDeleted && (
+                      <div className={`absolute left-0 top-0 bottom-0 w-1.5 ${section.isLocked ? 'bg-amber-500' : scheme.accentLine}`} />
+                    )}
+
                     {/* Section Header Row */}
                     <div className="flex items-center justify-between p-4 flex-wrap gap-2">
                       <div className="flex items-center gap-2">
@@ -4533,7 +4585,7 @@ export function AdminSidebarPages({ shopSettings = {}, user = {}, setNotificatio
                         
                         <div>
                           <div className="flex items-center gap-2">
-                            <span className="text-xs font-black text-gray-800 dark:text-gray-200">{displayLabel}</span>
+                            <span className={`text-xs font-black uppercase tracking-wider ${section.isDeleted ? 'text-red-800 dark:text-red-400' : section.isLocked ? 'text-amber-800 dark:text-amber-400' : scheme.titleColor}`}>{displayLabel}</span>
                             <span className="text-[9px] font-mono font-bold text-gray-400">ID: {section.id}</span>
                             {section.isLocked && <span className="px-1.5 py-0.5 bg-amber-100 dark:bg-amber-950/40 text-amber-600 dark:text-amber-400 text-[8px] font-black rounded uppercase">LOCKED</span>}
                             {section.isDeleted && <span className="px-1.5 py-0.5 bg-red-100 text-red-600 text-[8px] font-black rounded uppercase">DELETED</span>}
