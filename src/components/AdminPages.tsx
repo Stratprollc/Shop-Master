@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect, useMemo } from 'react';
+import { db, doc, updateDoc } from '../firebase';
 import { 
   Home, 
   PenTool, 
@@ -3917,86 +3918,1170 @@ Guidelines for professional whiteboard layouts:
 }
 
 // 3. SIDEBAR & PAGES CONFIGURATION
-export function AdminSidebarPages() {
-  const [sections, setSections] = useState([
-    { name: 'Core POS & Sales', items: 3, active: true },
-    { name: 'Accounting & Closing', items: 2, active: true },
-    { name: 'HRM & Attendance', items: 6, active: true },
-    { name: 'Marketing Content Suite', items: 6, active: false },
-    { name: 'Management Portal', items: 13, active: true },
-    { name: 'Admin Command (Secured)', items: 7, active: true }
-  ]);
+// 3. SIDEBAR & PAGES CONFIGURATION
+export function AdminSidebarPages({ shopSettings = {}, user = {}, setNotification }: any) {
+  const LOCAL_DEFAULT_SECTIONS = [
+    {
+      id: 'core',
+      label: 'Core',
+      label_bn: 'মূল ফিচার',
+      isLocked: false,
+      isDeleted: false,
+      visibleToRoles: ['admin', 'manager', 'assistant_manager', 'sales_manager', 'sales_team'],
+      items: [
+        { id: 'dashboard', label: 'Dashboard', label_bn: 'ড্যাশবোর্ড', iconName: 'LayoutDashboard', roles: ['admin', 'manager', 'assistant_manager', 'sales_manager', 'sales_team'] },
+        { id: 'pos', label: 'POS Sales', label_bn: 'পিওএস সেলস', iconName: 'ShoppingBag', roles: ['admin', 'manager', 'assistant_manager', 'sales_manager', 'sales_team'] },
+        { id: 'table_room', label: 'Table/Room', label_bn: 'টেবিল/রুম', iconName: 'DoorOpen', roles: ['admin', 'manager', 'assistant_manager', 'sales_manager', 'sales_team'] },
+        { id: 'kitchen_display', label: 'Kitchen Display (KDS)', label_bn: 'কিচেন ডিসপ্লে', iconName: 'ChefHat', roles: ['admin', 'manager', 'assistant_manager', 'sales_manager', 'sales_team'] },
+        { id: 'draft_invoice', label: 'Draft Invoice', label_bn: 'ড্রাফট ইনভয়েস', iconName: 'FileText', roles: ['admin', 'manager', 'assistant_manager', 'sales_manager', 'sales_team'] },
+        { id: 'mobile_electronics', label: 'Mobile & Electronics', label_bn: 'মোবাইল ও ইলেকট্রনিক্স', iconName: 'Smartphone', roles: ['admin', 'manager', 'assistant_manager', 'sales_manager', 'sales_team'] },
+        { id: 'pharmacy_module', label: 'Pharmacy & Medicine', label_bn: 'ফার্মেসি ও মেডিসিন', iconName: 'Pill', roles: ['admin', 'manager', 'assistant_manager', 'sales_manager', 'sales_team'] },
+        { id: 'dealership_module', label: 'Dealership & Bulk Dispatch', label_bn: 'ডিলারশিপ ও বাল্ক ডেসপাচ', iconName: 'Truck', roles: ['admin', 'manager', 'assistant_manager', 'sales_manager', 'sales_team'] },
+        { id: 'how_to_use', label: 'How To Use', label_bn: 'ব্যবহার নির্দেশিকা', iconName: 'BookOpen', roles: ['admin', 'manager', 'assistant_manager', 'sales_manager', 'sales_team', 'warehouse'] }
+      ]
+    },
+    {
+      id: 'inventory_section',
+      label: 'Inventory',
+      label_bn: 'ইনভেন্টরি',
+      isLocked: false,
+      isDeleted: false,
+      visibleToRoles: ['admin', 'manager', 'assistant_manager', 'sales_manager', 'sales_team', 'warehouse'],
+      items: [
+        {
+          id: 'inventory_dashboard',
+          label: 'Inventory Dashboard',
+          label_bn: 'ইনভেন্টরি ড্যাশবোর্ড',
+          iconName: 'LayoutDashboard',
+          roles: ['admin', 'manager', 'assistant_manager', 'sales_manager', 'sales_team', 'warehouse'],
+          subItems: [
+            { id: 'inventory', label: 'Inventory', label_bn: 'ইনভেন্টরি তালিকা', iconName: 'Package', roles: ['admin', 'manager', 'assistant_manager', 'sales_manager', 'sales_team'] },
+            { id: 'warehouse', label: 'Warehouse', label_bn: 'গুদাম', iconName: 'Warehouse', roles: ['admin', 'manager', 'warehouse'] },
+            { id: 'supplier', label: 'Supplier', label_bn: 'সরবরাহকারী', iconName: 'Users', roles: ['admin', 'manager', 'assistant_manager', 'sales_manager', 'sales_team'] },
+            { id: 'barcode', label: 'Barcode', label_bn: 'বারকোড', iconName: 'Barcode', roles: ['admin', 'manager', 'assistant_manager', 'sales_manager', 'sales_team'] },
+            { id: 'damage_expire', label: 'Damage/Expire', label_bn: 'ক্ষতিগ্রস্ত/মেয়াদোত্তীর্ণ', iconName: 'Trash2', roles: ['admin', 'manager', 'assistant_manager', 'sales_manager', 'sales_team'] },
+            { id: 'stock_transfer', label: 'Stock Transfer', label_bn: 'স্টক ট্রান্সফার', iconName: 'ArrowLeftRight', roles: ['admin', 'manager', 'assistant_manager', 'sales_manager', 'sales_team', 'warehouse'] }
+          ]
+        }
+      ]
+    },
+    {
+      id: 'sales_crm_section',
+      label: 'Sales & CRM',
+      label_bn: 'সেলস ও সিআরএম',
+      isLocked: false,
+      isDeleted: false,
+      visibleToRoles: ['admin', 'manager', 'assistant_manager', 'sales_manager', 'sales_team'],
+      items: [
+        {
+          id: 'sales_crm_dashboard',
+          label: 'Sales & CRM Dashboard',
+          label_bn: 'সেলস ড্যাশবোর্ড',
+          iconName: 'LayoutDashboard',
+          roles: ['admin', 'manager', 'assistant_manager', 'sales_manager', 'sales_team'],
+          subItems: [
+            { id: 'sales', label: 'Sales Records', label_bn: 'বিক্রয় রেকর্ড', iconName: 'History', roles: ['admin', 'manager', 'assistant_manager', 'sales_manager', 'sales_team'] },
+            { id: 'customers', label: 'Customers', label_bn: 'গ্রাহক তালিকা', iconName: 'Users', roles: ['admin', 'manager', 'assistant_manager', 'sales_manager', 'sales_team'] },
+            { id: 'branch_crm', label: 'Branch Sales & CRM', label_bn: 'শাখা সিআরএম', iconName: 'Building2', roles: ['admin', 'manager', 'assistant_manager', 'sales_manager', 'sales_team'] },
+            { id: 'customer_orders', label: 'Customer Orders', label_bn: 'গ্রাহক অর্ডার', iconName: 'ShoppingBag', roles: ['admin', 'manager', 'assistant_manager', 'sales_manager', 'sales_team'] },
+            { id: 'online_shop', label: 'Online Shop', label_bn: 'অনলাইন শপ', iconName: 'Globe', roles: ['admin', 'manager', 'assistant_manager', 'sales_manager', 'sales_team'] },
+            { id: 'courier', label: 'Courier', label_bn: 'কুরিয়ার সার্ভিস', iconName: 'Truck', roles: ['admin', 'manager', 'assistant_manager', 'sales_manager', 'sales_team'] },
+            { id: 'warranty', label: 'Warranty', label_bn: 'ওয়ারেন্টি', iconName: 'ShieldCheck', roles: ['admin', 'manager', 'assistant_manager', 'sales_manager', 'sales_team'] },
+            { id: 'service_offer', label: 'Service', label_bn: 'সার্ভিস ও সেবা', iconName: 'Zap', roles: ['admin', 'manager', 'assistant_manager', 'sales_manager', 'sales_team'] },
+            { id: 'note', label: 'Note', label_bn: 'নোট ও মেমো', iconName: 'StickyNote', roles: ['admin', 'manager', 'assistant_manager', 'sales_manager', 'sales_team'] },
+            { id: 'recycle_bin', label: 'Recycle Bin', label_bn: 'রিসাইকেল বিন', iconName: 'Trash2', roles: ['admin', 'manager', 'assistant_manager', 'sales_manager', 'sales_team'] }
+          ]
+        }
+      ]
+    },
+    {
+      id: 'accounting_section',
+      label: 'Accounting',
+      label_bn: 'হিসাব-নিকাশ',
+      isLocked: false,
+      isDeleted: false,
+      visibleToRoles: ['admin', 'manager', 'assistant_manager', 'sales_manager', 'sales_team'],
+      items: [
+        {
+          id: 'accounting_dashboard',
+          label: 'Accounting Dashboard',
+          label_bn: 'হিসাব ড্যাশবোর্ড',
+          iconName: 'LayoutDashboard',
+          roles: ['admin', 'manager', 'assistant_manager', 'sales_manager', 'sales_team'],
+          subItems: [
+            { id: 'accounting', label: 'Hishab Nikash', label_bn: 'হিসাব নিকাশ', iconName: 'CalculatorIcon', roles: ['admin', 'manager', 'assistant_manager', 'sales_manager', 'sales_team'] },
+            { id: 'daily_closing', label: 'Daily Closing', label_bn: 'দৈনিক ক্লোজিং', iconName: 'Clock', roles: ['admin', 'manager', 'assistant_manager', 'sales_manager', 'sales_team'] }
+          ]
+        }
+      ]
+    },
+    {
+      id: 'hrm_section',
+      label: 'HRM',
+      label_bn: 'এইচআরএম',
+      isLocked: false,
+      isDeleted: false,
+      visibleToRoles: ['admin', 'manager', 'assistant_manager'],
+      items: [
+        {
+          id: 'hrm_dashboard',
+          label: 'HRM Dashboard',
+          label_bn: 'এইচআরএম ড্যাশবোর্ড',
+          iconName: 'LayoutDashboard',
+          roles: ['admin', 'manager', 'assistant_manager'],
+          subItems: [
+            { id: 'staff_directory', label: 'Staff Directory', label_bn: 'স্টাফ ডিরেক্টরি', iconName: 'Users', roles: ['admin', 'manager', 'assistant_manager'] },
+            { id: 'attendance_tracker', label: 'Attendance & Shifts', label_bn: 'উপস্থিতি ও শিফট', iconName: 'CheckSquare', roles: ['admin', 'manager', 'assistant_manager'] },
+            { id: 'payroll_disbursal', label: 'Payroll & Salaries', label_bn: 'বেতন ও স্যালারি', iconName: 'Banknote', roles: ['admin', 'manager', 'assistant_manager'] },
+            { id: 'leave_planner', label: 'Leave & Holidays', label_bn: 'ছুটি ও হলিডে', iconName: 'Calendar', roles: ['admin', 'manager', 'assistant_manager'] },
+            { id: 'system_login', label: 'System Login', label_bn: 'সিস্টেম লগইন', iconName: 'ShieldCheck', roles: ['admin', 'manager', 'assistant_manager'] },
+            { id: 'employment_contracts', label: 'Contracts & Releases', label_bn: 'চুক্তিপত্র ও রিলিজ', iconName: 'FileText', roles: ['admin', 'manager', 'assistant_manager'] }
+          ]
+        }
+      ]
+    },
+    {
+      id: 'marketing_content_section',
+      label: 'Marketing Content',
+      label_bn: 'মার্কেটিং কনটেন্ট',
+      isLocked: false,
+      isDeleted: false,
+      visibleToRoles: ['admin', 'manager', 'assistant_manager', 'sales_manager', 'sales_team'],
+      items: [
+        {
+          id: 'marketing_content',
+          label: 'Marketing Content',
+          label_bn: 'মার্কেটিং কনটেন্ট',
+          iconName: 'LayoutDashboard',
+          roles: ['admin', 'manager', 'assistant_manager', 'sales_manager', 'sales_team'],
+          subItems: [
+            { id: 'content_plan', label: 'Content Plan', label_bn: 'কনটেন্ট প্ল্যান', iconName: 'FileText', roles: ['admin', 'manager', 'assistant_manager', 'sales_manager', 'sales_team'] },
+            { id: 'hook_generator', label: 'Hook Generator', label_bn: 'হুক জেনারেটর', iconName: 'Link', roles: ['admin', 'manager', 'assistant_manager', 'sales_manager', 'sales_team'] },
+            { id: 'visual_hook_pro', label: 'Visual Hook Pro', label_bn: 'ভিজ্যুয়াল হুক প্রো', iconName: 'ImageIcon', roles: ['admin', 'manager', 'assistant_manager', 'sales_manager', 'sales_team'] },
+            { id: 'content_writer_pro', label: 'Content Writer Pro', label_bn: 'কনটেন্ট রাইটার প্রো', iconName: 'FileEdit', roles: ['admin', 'manager', 'assistant_manager', 'sales_manager', 'sales_team'] },
+            { id: 'story_maker', label: 'Story Maker (OVC)', label_bn: 'স্টোরি মেকার ওভিসি', iconName: 'Video', roles: ['admin', 'manager', 'assistant_manager', 'sales_manager', 'sales_team'] },
+            { id: 'brand_memory', label: 'Brand Memory', label_bn: 'ব্র্যান্ড মেমোরি', iconName: 'Brain', roles: ['admin', 'manager', 'assistant_manager', 'sales_manager', 'sales_team'] }
+          ]
+        }
+      ]
+    },
+    {
+      id: 'management_section',
+      label: 'Management',
+      label_bn: 'ব্যবস্থাপনা',
+      isLocked: false,
+      isDeleted: false,
+      visibleToRoles: ['admin'],
+      items: [
+        {
+          id: 'management_dashboard',
+          label: 'Management Dashboard',
+          label_bn: 'ম্যানেজমেন্ট ড্যাশবোর্ড',
+          iconName: 'LayoutDashboard',
+          roles: ['admin'],
+          subItems: [
+            { id: 'membership', label: 'Membership', label_bn: 'মেম্বারশিপ', iconName: 'Award', roles: ['admin', 'manager'] },
+            { id: 'jarvis', label: 'Jarvis AI', label_bn: 'জারভিস এআই', iconName: 'Bot', roles: ['admin'] },
+            { id: 'payment_method', label: 'Payment Method', label_bn: 'পেমেন্ট মেথড', iconName: 'CreditCard', roles: ['admin'] },
+            { id: 'loan_management', label: 'Loan Management', label_bn: 'ঋণ ব্যবস্থাপনা', iconName: 'Banknote', roles: ['admin'] },
+            { id: 'community_hub', label: 'Community Hub', label_bn: 'কমিউনিটি হাব', iconName: 'Users', roles: ['admin'] },
+            { id: 'live_tv', label: 'Live TV', label_bn: 'লাইভ টিভি', iconName: 'Tv', roles: ['admin'] },
+            { id: 'business_bio', label: 'Business Bio', label_bn: 'বিজনেস বায়ো', iconName: 'User', roles: ['admin'] },
+            { id: 'contact_us', label: 'Contact Us', label_bn: 'যোগাযোগ করুন', iconName: 'Phone', roles: ['admin'] },
+            { id: 'business_mail', label: 'Business Mail', label_bn: 'বিজনেস মেইল', iconName: 'Mail', roles: ['admin'] },
+            { id: 'meet_scheduler', label: 'Meet Scheduler', label_bn: 'মিটিং সিডিউলার', iconName: 'Calendar', roles: ['admin'] },
+            { id: 'release_logs', label: 'Release Logs', label_bn: 'রিলিজ লগ', iconName: 'Activity', roles: ['admin'] },
+            { id: 'settings', label: 'Settings', label_bn: 'সেটিংস', iconName: 'Settings', roles: ['admin'] },
+            { id: 'messaging_gateway', label: 'Messaging Gateway', label_bn: 'মেসেজিং গেটওয়ে', iconName: 'MessageSquare', roles: ['admin', 'master_admin', 'dealer', 'salesman', 'staff', 'dsr', 'sales_partner', 'manager', 'assistant_manager', 'employee'] },
+            { id: 'custom_domain', label: 'Custom Domain', label_bn: 'কাস্টম ডোমেইন', iconName: 'Globe', roles: ['admin', 'manager', 'assistant_manager', 'employee'] }
+          ]
+        }
+      ]
+    },
+    {
+      id: 'admin_dashboard_section',
+      label: 'Admin Panel',
+      label_bn: 'অ্যাডমিন প্যানেল',
+      isLocked: false,
+      isDeleted: false,
+      visibleToRoles: ['admin'],
+      items: [
+        {
+          id: 'admin_dashboard',
+          label: 'Admin Panel',
+          label_bn: 'অ্যাডমিন ড্যাশবোর্ড',
+          iconName: 'Shield',
+          roles: ['admin'],
+          emailScope: 'stratproamz@gmail.com',
+          bg: 'bg-indigo-50',
+          color: 'text-indigo-600',
+          border: 'border-indigo-100',
+          subItems: [
+            { id: 'admin_homepage', label: 'Homepage', label_bn: 'হোমপেজ', iconName: 'Home', roles: ['admin'], emailScope: 'stratproamz@gmail.com', bg: 'bg-indigo-50', color: 'text-indigo-600' },
+            { id: 'admin_excalidraw', label: 'ExcaLidraw', label_bn: 'ড্রয়িং বোর্ড', iconName: 'PenTool', roles: ['admin'], emailScope: 'stratproamz@gmail.com', bg: 'bg-indigo-50', color: 'text-indigo-600' },
+            { id: 'admin_sidebar_pages', label: 'SideBar & Pages', label_bn: 'সাইডবার ও পেজ', iconName: 'Layers', roles: ['admin'], emailScope: 'stratproamz@gmail.com', bg: 'bg-indigo-50', color: 'text-indigo-600' },
+            { id: 'admin_merchant_console', label: 'Merchant Console', label_bn: 'কনসোল', iconName: 'Terminal', roles: ['admin'], emailScope: 'stratproamz@gmail.com', bg: 'bg-indigo-50', color: 'text-indigo-600' },
+            { id: 'admin_my_hisab', label: 'My HISAB', label_bn: 'হিসাব', iconName: 'CalculatorIcon', roles: ['admin'], emailScope: 'stratproamz@gmail.com', bg: 'bg-indigo-50', color: 'text-indigo-600' },
+            { id: 'admin_control', label: 'Control', label_bn: 'নিয়ন্ত্রণ', iconName: 'Sliders', roles: ['admin'], emailScope: 'stratproamz@gmail.com', bg: 'bg-indigo-50', color: 'text-indigo-600' },
+            { id: 'admin_contact_us', label: 'Contact us', label_bn: 'যোগাযোগ', iconName: 'Phone', roles: ['admin'], emailScope: 'stratproamz@gmail.com', bg: 'bg-indigo-50', color: 'text-indigo-600' },
+            { id: 'admin_google_analytics', label: 'Google Analytics', label_bn: 'গুগল অ্যানালিটিক্স', iconName: 'Globe', roles: ['admin'], emailScope: 'stratproamz@gmail.com', bg: 'bg-indigo-50', color: 'text-indigo-600' }
+          ]
+        }
+      ]
+    }
+  ];
 
-  const toggleSection = (index: number) => {
+  const ALL_ROLES = ['admin', 'manager', 'assistant_manager', 'sales_manager', 'sales_team', 'warehouse'];
+
+  const POPULAR_ICONS = ['LayoutDashboard', 'ShoppingBag', 'DoorOpen', 'ChefHat', 'FileText', 'Smartphone', 'Pill', 'Truck', 'BookOpen', 'Package', 'Warehouse', 'Users', 'Barcode', 'Trash2', 'ArrowLeftRight', 'History', 'Building2', 'Globe', 'ShieldCheck', 'Zap', 'StickyNote', 'Calculator', 'Clock', 'CheckSquare', 'Banknote', 'Calendar', 'Link', 'Image', 'FileEdit', 'Video', 'Brain', 'Award', 'Bot', 'CreditCard', 'Tv', 'User', 'Phone', 'Mail', 'Activity', 'Settings', 'MessageSquare', 'Shield', 'Home', 'PenTool', 'Layers', 'Terminal'];
+
+  const [sections, setSections] = useState<any[]>([]);
+  const [customLockMessage, setCustomLockMessage] = useState('');
+  const [isSaving, setIsSaving] = useState(false);
+  const [expandedSections, setExpandedSections] = useState<Record<string, boolean>>({});
+  
+  // Modals / Editors state
+  const [editingSection, setEditingSection] = useState<any | null>(null);
+  const [editingPage, setEditingPage] = useState<{ page: any; sectionId: string; parentPageId?: string } | null>(null);
+  const [addingSection, setAddingSection] = useState(false);
+  const [addingPage, setAddingPage] = useState<{ sectionId: string; parentPageId?: string } | null>(null);
+
+  // Load from shopSettings
+  useEffect(() => {
+    if (shopSettings?.sidebarConfig?.sections) {
+      setSections(JSON.parse(JSON.stringify(shopSettings.sidebarConfig.sections)));
+    } else {
+      setSections(JSON.parse(JSON.stringify(LOCAL_DEFAULT_SECTIONS)));
+    }
+
+    if (shopSettings?.customLockMessage) {
+      setCustomLockMessage(shopSettings.customLockMessage);
+    } else {
+      setCustomLockMessage('');
+    }
+  }, [shopSettings?.sidebarConfig, shopSettings?.customLockMessage]);
+
+  const toggleExpand = (sectionId: string) => {
+    setExpandedSections(prev => ({ ...prev, [sectionId]: !prev[sectionId] }));
+  };
+
+  // Section level operations
+  const handleSectionLockToggle = (sectionId: string) => {
+    setSections(prev => prev.map(s => s.id === sectionId ? { ...s, isLocked: !s.isLocked } : s));
+  };
+
+  const handleSectionDeleteToggle = (sectionId: string) => {
+    setSections(prev => prev.map(s => s.id === sectionId ? { ...s, isDeleted: !s.isDeleted } : s));
+  };
+
+  const handleSaveSectionEdit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingSection) return;
+
+    setSections(prev => prev.map(s => s.id === editingSection.id ? { 
+      ...s, 
+      label: editingSection.label,
+      label_bn: editingSection.label_bn,
+      visibleToRoles: editingSection.visibleToRoles
+    } : s));
+    
+    setEditingSection(null);
+    if (setNotification) setNotification({ type: 'success', message: 'সেকশন তথ্য সাময়িকভাবে আপডেট হয়েছে! পরিবর্তনগুলো সেভ করতে নিচে "Layout সেভ করুন" চাপুন।' });
+  };
+
+  const handleCreateSection = (e: React.FormEvent) => {
+    e.preventDefault();
+    const id = (e.currentTarget.elements.namedItem('secId') as HTMLInputElement).value.trim().toLowerCase();
+    const label = (e.currentTarget.elements.namedItem('secLabel') as HTMLInputElement).value.trim();
+    const label_bn = (e.currentTarget.elements.namedItem('secLabelBn') as HTMLInputElement).value.trim();
+
+    if (!id || !label) return;
+
+    if (sections.some(s => s.id === id)) {
+      alert('This Section ID already exists!');
+      return;
+    }
+
+    const newSec = {
+      id,
+      label,
+      label_bn: label_bn || label,
+      isLocked: false,
+      isDeleted: false,
+      visibleToRoles: ['admin'],
+      items: []
+    };
+
+    setSections(prev => [...prev, newSec]);
+    setAddingSection(false);
+    if (setNotification) setNotification({ type: 'success', message: 'নতুন সেকশন যোগ হয়েছে!' });
+  };
+
+  // Page/Item level operations
+  const handlePageLockToggle = (sectionId: string, pageId: string) => {
+    setSections(prev => prev.map(s => {
+      if (s.id !== sectionId) return s;
+      return {
+        ...s,
+        items: (s.items || []).map((item: any) => {
+          if (item.id === pageId) return { ...item, isLocked: !item.isLocked };
+          if (item.subItems) {
+            return {
+              ...item,
+              subItems: item.subItems.map((sub: any) => sub.id === pageId ? { ...sub, isLocked: !sub.isLocked } : sub)
+            };
+          }
+          return item;
+        })
+      };
+    }));
+  };
+
+  const handlePageDeleteToggle = (sectionId: string, pageId: string) => {
+    setSections(prev => prev.map(s => {
+      if (s.id !== sectionId) return s;
+      return {
+        ...s,
+        items: (s.items || []).map((item: any) => {
+          if (item.id === pageId) return { ...item, isDeleted: !item.isDeleted };
+          if (item.subItems) {
+            return {
+              ...item,
+              subItems: item.subItems.map((sub: any) => sub.id === pageId ? { ...sub, isDeleted: !sub.isDeleted } : sub)
+            };
+          }
+          return item;
+        })
+      };
+    }));
+  };
+
+  const handleSavePageEdit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingPage) return;
+
+    const { page, sectionId, parentPageId } = editingPage;
+    const targetSectionId = editingPage.targetSectionId || sectionId;
+    const targetParentPageId = editingPage.targetParentPageId || (parentPageId || 'none');
+
+    let pageToSave = {
+      ...page,
+      label: page.label,
+      label_bn: page.label_bn,
+      iconName: page.iconName,
+      allowedRoles: page.allowedRoles,
+      allowedUsers: page.allowedUsers
+    };
+
+    setSections(prev => {
+      // 1. Remove from previous section/parent location
+      const cleaned = prev.map(s => {
+        if (s.id !== sectionId) return s;
+
+        let updatedItems = [];
+        if (!parentPageId) {
+          // It was a top-level page
+          updatedItems = (s.items || []).filter((item: any) => item.id !== page.id);
+        } else {
+          // It was a sub-page
+          updatedItems = (s.items || []).map((item: any) => {
+            if (item.id === parentPageId && item.subItems) {
+              return {
+                ...item,
+                subItems: item.subItems.filter((sub: any) => sub.id !== page.id)
+              };
+            }
+            return item;
+          });
+        }
+        return { ...s, items: updatedItems };
+      });
+
+      // 2. Add to new target section/parent location
+      const added = cleaned.map(s => {
+        if (s.id !== targetSectionId) return s;
+
+        let updatedItems = [...(s.items || [])];
+        if (targetParentPageId === 'none') {
+          // Add as top-level page
+          updatedItems.push(pageToSave);
+        } else {
+          // Add as subItem under targetParentPageId
+          updatedItems = updatedItems.map((item: any) => {
+            if (item.id === targetParentPageId) {
+              const currentSubs = item.subItems || [];
+              return {
+                ...item,
+                subItems: [...currentSubs, pageToSave]
+              };
+            }
+            return item;
+          });
+        }
+        return { ...s, items: updatedItems };
+      });
+
+      return added;
+    });
+
+    setEditingPage(null);
+    if (setNotification) setNotification({ type: 'success', message: 'পেজের তথ্য ও সেকশন পরিবর্তন সাময়িকভাবে আপডেট হয়েছে! পরিবর্তনগুলো সেভ করতে নিচে "Layout সেভ করুন" চাপুন।' });
+  };
+
+  const handleCreatePage = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!addingPage) return;
+
+    const { sectionId, parentPageId } = addingPage;
+    const form = e.currentTarget;
+    const id = (form.elements.namedItem('pageId') as HTMLInputElement).value.trim().toLowerCase();
+    const label = (form.elements.namedItem('pageLabel') as HTMLInputElement).value.trim();
+    const label_bn = (form.elements.namedItem('pageLabelBn') as HTMLInputElement).value.trim();
+    const iconName = (form.elements.namedItem('pageIcon') as HTMLSelectElement).value;
+
+    if (!id || !label) return;
+
+    const newPage = {
+      id,
+      label,
+      label_bn: label_bn || label,
+      iconName,
+      isLocked: false,
+      isDeleted: false,
+      allowedRoles: ['admin', 'manager', 'assistant_manager', 'sales_manager', 'sales_team'],
+      allowedUsers: []
+    };
+
+    setSections(prev => prev.map(s => {
+      if (s.id !== sectionId) return s;
+
+      if (!parentPageId) {
+        // Add as top-level page
+        return { ...s, items: [...(s.items || []), newPage] };
+      } else {
+        // Add as subItem
+        return {
+          ...s,
+          items: s.items.map((item: any) => {
+            if (item.id === parentPageId) {
+              const currentSubs = item.subItems || [];
+              return { ...item, subItems: [...currentSubs, newPage] };
+            }
+            return item;
+          })
+        };
+      }
+    }));
+
+    setAddingPage(null);
+    if (setNotification) setNotification({ type: 'success', message: 'নতুন পেজ যোগ হয়েছে!' });
+  };
+
+  // Reordering helpers (simple up/down)
+  const moveSection = (index: number, direction: 'up' | 'down') => {
+    const nextIdx = direction === 'up' ? index - 1 : index + 1;
+    if (nextIdx < 0 || nextIdx >= sections.length) return;
+
     const updated = [...sections];
-    updated[index].active = !updated[index].active;
+    const temp = updated[index];
+    updated[index] = updated[nextIdx];
+    updated[nextIdx] = temp;
     setSections(updated);
+  };
+
+  const movePage = (sectionId: string, pageIndex: number, direction: 'up' | 'down') => {
+    setSections(prev => prev.map(s => {
+      if (s.id !== sectionId) return s;
+      const nextIdx = direction === 'up' ? pageIndex - 1 : pageIndex + 1;
+      if (nextIdx < 0 || nextIdx >= s.items.length) return s;
+
+      const updatedItems = [...s.items];
+      const temp = updatedItems[pageIndex];
+      updatedItems[pageIndex] = updatedItems[nextIdx];
+      updatedItems[nextIdx] = temp;
+      return { ...s, items: updatedItems };
+    }));
+  };
+
+  const moveSubPage = (sectionId: string, parentPageId: string, subPageIndex: number, direction: 'up' | 'down') => {
+    setSections(prev => prev.map(s => {
+      if (s.id !== sectionId) return s;
+      
+      const updatedItems = s.items.map((item: any) => {
+        if (item.id === parentPageId && item.subItems) {
+          const nextIdx = direction === 'up' ? subPageIndex - 1 : subPageIndex + 1;
+          if (nextIdx < 0 || nextIdx >= item.subItems.length) return item;
+
+          const updatedSubs = [...item.subItems];
+          const temp = updatedSubs[subPageIndex];
+          updatedSubs[subPageIndex] = updatedSubs[nextIdx];
+          updatedSubs[nextIdx] = temp;
+          return { ...item, subItems: updatedSubs };
+        }
+        return item;
+      });
+
+      return { ...s, items: updatedItems };
+    }));
+  };
+
+  // Factory defaults
+  const handleFactoryReset = () => {
+    if (window.confirm('আপনি কি সত্যিই সম্পূর্ণ সাইডবার লেআউট রিসেট করে ফ্যাক্টরি ডিফল্টে ফিরে যেতে চান?')) {
+      setSections(JSON.parse(JSON.stringify(LOCAL_DEFAULT_SECTIONS)));
+      setCustomLockMessage('');
+      if (setNotification) setNotification({ type: 'info', message: 'ফ্যাক্টরি ডিফল্ট লেআউট লোড হয়েছে। সংরক্ষণ করতে নিচে "Layout সেভ করুন" চাপুন।' });
+    }
+  };
+
+  // Save to Firebase settings document
+  const handleSaveChanges = async () => {
+    setIsSaving(true);
+    try {
+      const shopId = shopSettings?.id || user?.shopId;
+      if (!shopId) throw new Error('Shop ID missing.');
+
+      await updateDoc(doc(db, 'settings', shopId), {
+        sidebarConfig: { sections },
+        customLockMessage
+      });
+
+      if (setNotification) {
+        setNotification({ type: 'success', message: 'সাইডবার লেআউট ও পারমিশন সফলভাবে ক্লাউড ডাটাবেজে সংরক্ষিত হয়েছে!' });
+      }
+    } catch (err: any) {
+      console.error("Save config error", err);
+      if (setNotification) {
+        setNotification({ type: 'error', message: 'সংরক্ষণ ব্যর্থ হয়েছে: ' + err.message });
+      }
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   return (
     <motion.div 
       initial={{ opacity: 0, y: 15 }}
       animate={{ opacity: 1, y: 0 }}
-      className="space-y-6 max-w-7xl mx-auto p-4 md:p-6"
+      className="space-y-6 max-w-7xl mx-auto p-4 md:p-6 pb-24"
     >
-      <div className="bg-white dark:bg-slate-900 p-6 rounded-3xl border border-gray-100 dark:border-slate-800/80 shadow-sm">
-        <h2 className="text-xl font-black text-gray-900 dark:text-gray-100 tracking-tight uppercase mb-1">SideBar & Pages Manager</h2>
-        <p className="text-xs text-gray-400 font-bold uppercase tracking-widest">Simulate layout structures, toggle visibility, and configure user routes.</p>
+      {/* Top Banner Header */}
+      <div className="bg-gradient-to-r from-slate-900 via-indigo-950 to-indigo-900 text-white p-6 rounded-3xl border border-indigo-950/40 shadow-xl flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+        <div>
+          <span className="px-3 py-1 bg-indigo-500/20 text-indigo-300 rounded-full text-[10px] font-black tracking-widest uppercase mb-2 inline-block">MAP CONTROL PANEL</span>
+          <h2 className="text-2xl font-black tracking-tight uppercase flex items-center gap-2">
+            <Layers className="w-6 h-6 text-indigo-400" />
+            সাইডবার ও পেজ ম্যানেজার (Master Map)
+          </h2>
+          <p className="text-xs text-indigo-200 mt-1 font-medium max-w-xl">
+            রিয়েল-টাইমে সেকশন এবং পেজগুলোর স্ট্যাটাস, বাংলা লেবেল, লক অবরুদ্ধকরণ, এবং ইউজার রোল ও নির্দিষ্ট ইমেইল ভিত্তিক অ্যাক্সেস কন্ট্রোল করুন।
+          </p>
+        </div>
+        <button
+          onClick={handleFactoryReset}
+          className="px-4 py-2 bg-rose-500 hover:bg-rose-600 text-white rounded-xl text-xs font-black uppercase tracking-wider transition-all shadow-md shadow-rose-950/20 cursor-pointer shrink-0"
+        >
+          ফ্যাক্টরি রিসেট (Reset Defaults)
+        </button>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 items-start">
+        {/* Left Interactive Tree (2 columns scale) */}
         <div className="lg:col-span-2 space-y-4">
           <div className="bg-white dark:bg-slate-900 p-6 rounded-3xl border border-gray-100 dark:border-slate-800/80 shadow-sm space-y-4">
-            <h3 className="text-sm font-black text-gray-900 dark:text-gray-100 uppercase tracking-wider flex items-center gap-2">
-              <Layers className="w-4 h-4 text-indigo-500" />
-              Interactive Sidebar Visualizer
-            </h3>
-            
-            <div className="space-y-3">
-              {sections.map((section, idx) => (
-                <div key={section.name} className="flex items-center justify-between p-4 rounded-2xl border border-gray-50 dark:border-slate-800/50 hover:border-gray-100 transition-all">
-                  <div className="flex items-center gap-3">
-                    <div className={`w-3 h-3 rounded-full ${section.active ? 'bg-emerald-500 animate-pulse' : 'bg-gray-300'}`}></div>
-                    <div>
-                      <h4 className="text-xs font-bold text-gray-900 dark:text-gray-100">{section.name}</h4>
-                      <p className="text-[10px] text-gray-400 font-mono">{section.items} sub-navigation paths registered</p>
-                    </div>
-                  </div>
-                  <button 
-                    onClick={() => toggleSection(idx)}
-                    className={`px-3 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${
-                      section.active 
-                        ? 'bg-indigo-50 text-indigo-600 dark:bg-indigo-950/40 dark:text-indigo-400 hover:bg-indigo-100' 
-                        : 'bg-gray-100 text-gray-400 hover:bg-gray-200'
+            <div className="flex justify-between items-center pb-2 border-b border-gray-100 dark:border-slate-800">
+              <h3 className="text-sm font-black text-gray-900 dark:text-gray-100 uppercase tracking-wider flex items-center gap-2">
+                <Sliders className="w-4 h-4 text-indigo-500" />
+                Interactive Navigation Tree
+              </h3>
+              <button
+                onClick={() => setAddingSection(true)}
+                className="px-3 py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-600 dark:bg-indigo-950/40 dark:text-indigo-400 rounded-xl text-xs font-black uppercase tracking-wider transition-all flex items-center gap-1 cursor-pointer"
+              >
+                <Plus className="w-3.5 h-3.5" />
+                নতুন সেকশন যোগ করুন
+              </button>
+            </div>
+
+            {/* Tree Sections List */}
+            <div className="space-y-4">
+              {sections.map((section, secIdx) => {
+                const isExpanded = expandedSections[section.id];
+                const displayLabel = section.label_bn && section.label_bn !== section.label ? `${section.label} (${section.label_bn})` : section.label;
+                
+                return (
+                  <div 
+                    key={section.id} 
+                    className={`rounded-2xl border transition-all ${
+                      section.isDeleted 
+                        ? 'border-red-100 bg-red-50/20 opacity-60' 
+                        : section.isLocked 
+                          ? 'border-amber-100 bg-amber-50/10' 
+                          : 'border-slate-100 dark:border-slate-800/60 bg-slate-50/30'
                     }`}
                   >
-                    {section.active ? 'Enabled' : 'Disabled'}
-                  </button>
-                </div>
-              ))}
+                    {/* Section Header Row */}
+                    <div className="flex items-center justify-between p-4 flex-wrap gap-2">
+                      <div className="flex items-center gap-2">
+                        {/* Expansion Trigger Button */}
+                        <button 
+                          onClick={() => toggleExpand(section.id)}
+                          className="p-1 hover:bg-gray-100 dark:hover:bg-slate-800 rounded-lg text-gray-400 cursor-pointer"
+                        >
+                          {isExpanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+                        </button>
+                        
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <span className="text-xs font-black text-gray-800 dark:text-gray-200">{displayLabel}</span>
+                            <span className="text-[9px] font-mono font-bold text-gray-400">ID: {section.id}</span>
+                            {section.isLocked && <span className="px-1.5 py-0.5 bg-amber-100 dark:bg-amber-950/40 text-amber-600 dark:text-amber-400 text-[8px] font-black rounded uppercase">LOCKED</span>}
+                            {section.isDeleted && <span className="px-1.5 py-0.5 bg-red-100 text-red-600 text-[8px] font-black rounded uppercase">DELETED</span>}
+                          </div>
+                          <div className="flex gap-1 mt-1 flex-wrap">
+                            {(section.visibleToRoles || []).map((role: string) => (
+                              <span key={role} className="px-1.5 py-0.5 bg-gray-100 dark:bg-slate-800 text-gray-500 text-[8px] font-bold rounded uppercase">{role}</span>
+                            ))}
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Section Action Controls */}
+                      <div className="flex items-center gap-1.5">
+                        {/* Reordering Controls */}
+                        <button 
+                          disabled={secIdx === 0}
+                          onClick={() => moveSection(secIdx, 'up')}
+                          className="p-1 text-gray-400 hover:text-indigo-600 hover:bg-gray-50 disabled:opacity-30 rounded cursor-pointer"
+                          title="Move Section Up"
+                        >
+                          <ChevronUp className="w-4 h-4" />
+                        </button>
+                        <button 
+                          disabled={secIdx === sections.length - 1}
+                          onClick={() => moveSection(secIdx, 'down')}
+                          className="p-1 text-gray-400 hover:text-indigo-600 hover:bg-gray-50 disabled:opacity-30 rounded cursor-pointer"
+                          title="Move Section Down"
+                        >
+                          <ChevronDown className="w-4 h-4" />
+                        </button>
+
+                        <div className="w-px h-4 bg-gray-200 dark:bg-slate-800 mx-1"></div>
+
+                        {/* Lock / Unlock Toggle */}
+                        <button 
+                          onClick={() => handleSectionLockToggle(section.id)}
+                          className={`p-1.5 rounded-xl cursor-pointer ${section.isLocked ? 'text-amber-500 bg-amber-50 hover:bg-amber-100' : 'text-gray-400 hover:text-amber-500 hover:bg-gray-50'}`}
+                          title={section.isLocked ? "Unlock Section" : "Lock Section"}
+                        >
+                          {section.isLocked ? <Lock className="w-4 h-4" /> : <Unlock className="w-4 h-4" />}
+                        </button>
+
+                        {/* Delete / Restore Toggle */}
+                        <button 
+                          onClick={() => handleSectionDeleteToggle(section.id)}
+                          className={`p-1.5 rounded-xl cursor-pointer ${section.isDeleted ? 'text-green-500 bg-green-50' : 'text-gray-400 hover:text-rose-500 hover:bg-gray-50'}`}
+                          title={section.isDeleted ? "Restore Section" : "Soft Delete Section"}
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+
+                        {/* Edit Section Button */}
+                        <button 
+                          onClick={() => setEditingSection(section)}
+                          className="p-1.5 text-gray-400 hover:text-indigo-600 hover:bg-gray-50 rounded-xl cursor-pointer"
+                          title="Edit Section Details"
+                        >
+                          <Settings className="w-4 h-4" />
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Section Pages/Items (Expanded) */}
+                    {isExpanded && (
+                      <div className="border-t border-slate-100 dark:border-slate-800/40 p-4 space-y-3 bg-white dark:bg-slate-900 rounded-b-2xl">
+                        <div className="flex justify-between items-center pb-1">
+                          <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Registered Pages / Routes</span>
+                          <button
+                            onClick={() => setAddingPage({ sectionId: section.id })}
+                            className="px-2 py-1 bg-slate-50 hover:bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300 rounded-lg text-[9px] font-black uppercase tracking-wider flex items-center gap-1 cursor-pointer"
+                          >
+                            <Plus className="w-3 h-3" />
+                            নতুন পেজ যোগ করুন
+                          </button>
+                        </div>
+
+                        {!(section.items && section.items.length) ? (
+                          <p className="text-[10px] text-gray-400 font-bold uppercase tracking-widest text-center py-4">No pages mapped inside this section.</p>
+                        ) : (
+                          <div className="space-y-2">
+                            {section.items.map((item: any, itemIdx: number) => {
+                              const displayItemLabel = item.label_bn && item.label_bn !== item.label ? `${item.label} (${item.label_bn})` : item.label;
+                              return (
+                                <div key={item.id} className="space-y-1">
+                                  {/* Page Row */}
+                                  <div className={`flex items-center justify-between p-2.5 rounded-xl border ${item.isDeleted ? 'bg-red-50/10 border-red-100/50 opacity-60' : item.isLocked ? 'bg-amber-50/10 border-amber-100/50' : 'bg-slate-50/20 border-slate-100 dark:border-slate-850'}`}>
+                                    <div className="flex items-center gap-2">
+                                      <div className="w-6 h-6 bg-indigo-50 dark:bg-indigo-950/30 rounded-lg flex items-center justify-center text-indigo-500">
+                                        <Layers className="w-3.5 h-3.5" />
+                                      </div>
+                                      <div>
+                                        <div className="flex items-center gap-1.5">
+                                          <span className="text-[11px] font-black text-gray-700 dark:text-gray-300">{displayItemLabel}</span>
+                                          <span className="text-[8px] font-mono text-gray-400">ID: {item.id}</span>
+                                          {item.isLocked && <span className="px-1 bg-amber-100 text-amber-700 text-[7px] font-black rounded">LOCKED</span>}
+                                          {item.isDeleted && <span className="px-1 bg-red-100 text-red-700 text-[7px] font-black rounded">DELETED</span>}
+                                        </div>
+                                        {item.allowedUsers && item.allowedUsers.length > 0 && (
+                                          <p className="text-[8px] text-indigo-500 font-mono mt-0.5">Restrict Emails: {item.allowedUsers.join(', ')}</p>
+                                        )}
+                                      </div>
+                                    </div>
+
+                                    {/* Page Actions */}
+                                    <div className="flex items-center gap-1">
+                                      {/* Reordering */}
+                                      <button 
+                                        disabled={itemIdx === 0}
+                                        onClick={() => movePage(section.id, itemIdx, 'up')}
+                                        className="p-1 text-gray-400 hover:text-indigo-600 disabled:opacity-20 cursor-pointer"
+                                        title="Move Page Up"
+                                      >
+                                        <ChevronUp className="w-3 h-3" />
+                                      </button>
+                                      <button 
+                                        disabled={itemIdx === section.items.length - 1}
+                                        onClick={() => movePage(section.id, itemIdx, 'down')}
+                                        className="p-1 text-gray-400 hover:text-indigo-600 disabled:opacity-20 cursor-pointer"
+                                        title="Move Page Down"
+                                      >
+                                        <ChevronDown className="w-3 h-3" />
+                                      </button>
+
+                                      <div className="w-px h-3 bg-gray-200 dark:bg-slate-800 mx-0.5"></div>
+
+                                      {/* Lock */}
+                                      <button 
+                                        onClick={() => handlePageLockToggle(section.id, item.id)}
+                                        className={`p-1 rounded-lg cursor-pointer ${item.isLocked ? 'text-amber-500 bg-amber-50' : 'text-gray-400 hover:text-amber-500'}`}
+                                      >
+                                        {item.isLocked ? <Lock className="w-3.5 h-3.5" /> : <Unlock className="w-3.5 h-3.5" />}
+                                      </button>
+
+                                      {/* Delete */}
+                                      <button 
+                                        onClick={() => handlePageDeleteToggle(section.id, item.id)}
+                                        className={`p-1 rounded-lg cursor-pointer ${item.isDeleted ? 'text-green-500 bg-green-50' : 'text-gray-400 hover:text-rose-500'}`}
+                                      >
+                                        <Trash2 className="w-3.5 h-3.5" />
+                                      </button>
+
+                                      {/* Edit Details */}
+                                      <button 
+                                        onClick={() => setEditingPage({ page: { ...item }, sectionId: section.id })}
+                                        className="p-1 text-gray-400 hover:text-indigo-600 rounded-lg cursor-pointer"
+                                      >
+                                        <Settings className="w-3.5 h-3.5" />
+                                      </button>
+
+                                      {/* Add Sub-Page Button (if container tab dashboard) */}
+                                      {item.id.endsWith('_dashboard') && (
+                                        <button 
+                                          onClick={() => setAddingPage({ sectionId: section.id, parentPageId: item.id })}
+                                          className="p-1 text-gray-400 hover:text-emerald-600 rounded-lg cursor-pointer"
+                                          title="Add Sub-Page"
+                                        >
+                                          <Plus className="w-3.5 h-3.5" />
+                                        </button>
+                                      )}
+                                    </div>
+                                  </div>
+
+                                  {/* Sub-Items (nested list) */}
+                                  {item.subItems && item.subItems.length > 0 && (
+                                    <div className="pl-6 pt-1 space-y-1.5 border-l-2 border-indigo-50 dark:border-indigo-950/40 ml-4">
+                                      {item.subItems.map((sub: any, subIdx: number) => {
+                                        const displaySubLabel = sub.label_bn && sub.label_bn !== sub.label ? `${sub.label} (${sub.label_bn})` : sub.label;
+                                        return (
+                                          <div key={sub.id} className={`flex items-center justify-between p-2 rounded-lg border ${sub.isDeleted ? 'bg-red-50/10 border-red-100/50 opacity-60' : sub.isLocked ? 'bg-amber-50/10 border-amber-100/50' : 'bg-white dark:bg-slate-900 border-slate-100 dark:border-slate-850'}`}>
+                                            <div className="flex items-center gap-1.5">
+                                              <span className="text-[10px] font-bold text-gray-600 dark:text-gray-400">{displaySubLabel}</span>
+                                              <span className="text-[7px] font-mono text-gray-400">({sub.id})</span>
+                                              {sub.isLocked && <span className="px-1 bg-amber-50 text-amber-600 text-[6px] font-black rounded uppercase">LOCKED</span>}
+                                              {sub.isDeleted && <span className="px-1 bg-red-50 text-red-600 text-[6px] font-black rounded uppercase">DELETED</span>}
+                                            </div>
+
+                                            <div className="flex items-center gap-1">
+                                              {/* Reordering */}
+                                              <button 
+                                                disabled={subIdx === 0}
+                                                onClick={() => moveSubPage(section.id, item.id, subIdx, 'up')}
+                                                className="p-0.5 text-gray-400 hover:text-indigo-600 disabled:opacity-20 cursor-pointer"
+                                                title="Move Sub-Page Up"
+                                              >
+                                                <ChevronUp className="w-3.5 h-3.5" />
+                                              </button>
+                                              <button 
+                                                disabled={subIdx === item.subItems.length - 1}
+                                                onClick={() => moveSubPage(section.id, item.id, subIdx, 'down')}
+                                                className="p-0.5 text-gray-400 hover:text-indigo-600 disabled:opacity-20 cursor-pointer"
+                                                title="Move Sub-Page Down"
+                                              >
+                                                <ChevronDown className="w-3.5 h-3.5" />
+                                              </button>
+
+                                              <div className="w-px h-3 bg-gray-200 dark:bg-slate-800 mx-0.5"></div>
+
+                                              <button 
+                                                onClick={() => handlePageLockToggle(section.id, sub.id)}
+                                                className={`p-0.5 rounded cursor-pointer ${sub.isLocked ? 'text-amber-500 bg-amber-50' : 'text-gray-400 hover:text-amber-500'}`}
+                                              >
+                                                {sub.isLocked ? <Lock className="w-3 h-3" /> : <Unlock className="w-3 h-3" />}
+                                              </button>
+
+                                              <button 
+                                                onClick={() => handlePageDeleteToggle(section.id, sub.id)}
+                                                className={`p-0.5 rounded cursor-pointer ${sub.isDeleted ? 'text-green-500 bg-green-50' : 'text-gray-400 hover:text-rose-500'}`}
+                                              >
+                                                <Trash2 className="w-3 h-3" />
+                                              </button>
+
+                                              <button 
+                                                onClick={() => setEditingPage({ page: { ...sub }, sectionId: section.id, parentPageId: item.id })}
+                                                className="p-0.5 text-gray-400 hover:text-indigo-600 cursor-pointer"
+                                              >
+                                                <Settings className="w-3 h-3" />
+                                              </button>
+                                            </div>
+                                          </div>
+                                        );
+                                      })}
+                                    </div>
+                                  )}
+                                </div>
+                              );
+                            })}
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
             </div>
           </div>
         </div>
 
-        <div className="bg-white dark:bg-slate-900 p-6 rounded-3xl border border-gray-100 dark:border-slate-800/80 shadow-sm space-y-4">
-          <h3 className="text-sm font-black text-gray-900 dark:text-gray-100 uppercase tracking-wider flex items-center gap-2">
-            <Info className="w-4 h-4 text-indigo-500" />
-            Control Context
-          </h3>
-          <p className="text-xs text-gray-500 dark:text-gray-400 leading-relaxed font-semibold">
-            By toggling sections, you can instantly test navigation profiles and check permissions. In-code conditional rules filter and hide inactive blocks gracefully.
-          </p>
-          <div className="pt-4 border-t border-gray-100 dark:border-slate-800/80 space-y-2">
-            <div className="flex justify-between text-[11px] font-mono">
-              <span className="text-gray-400">Total Modules:</span>
-              <span className="font-bold">6 Groupings</span>
-            </div>
-            <div className="flex justify-between text-[11px] font-mono">
-              <span className="text-gray-400">Security Rule:</span>
-              <span className="font-bold text-rose-500">stratproamz Exclusive</span>
-            </div>
+        {/* Right Configuration panel (Lock message and Modals) */}
+        <div className="space-y-4">
+          {/* Custom Lock Screen Prompt Message configuration */}
+          <div className="bg-white dark:bg-slate-900 p-6 rounded-3xl border border-gray-100 dark:border-slate-800/80 shadow-sm space-y-4">
+            <h3 className="text-sm font-black text-gray-900 dark:text-gray-100 uppercase tracking-wider flex items-center gap-2">
+              <Lock className="w-4 h-4 text-rose-500" />
+              Locked Warning Prompt
+            </h3>
+            <p className="text-[11px] text-gray-400 font-bold uppercase tracking-wider leading-relaxed">
+              বাংলা বা ইংরেজি নোটিশ পরিবর্তন করুন যা লক করা পেইজে ভেসে উঠবে:
+            </p>
+            <textarea
+              value={customLockMessage}
+              onChange={e => setCustomLockMessage(e.target.value)}
+              placeholder="যেমন: দুঃখিত, এই সেকশনটি বর্তমানে অ্যাডমিন কর্তৃক লক করা রয়েছে!"
+              className="w-full h-24 p-3 border border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-950/50 rounded-2xl text-xs outline-none focus:border-indigo-500 transition-colors dark:text-gray-200"
+            />
           </div>
+
+          {/* Active Overlay Modals rendered inside this column block for clean ergonomics */}
+          <AnimatePresence mode="wait">
+            {/* 1. EDIT SECTION MODAL */}
+            {editingSection && (
+              <motion.div 
+                key="edit-section"
+                initial={{ opacity: 0, scale: 0.95 }}
+                animate={{ opacity: 1, scale: 1 }}
+                exit={{ opacity: 0, scale: 0.95 }}
+                className="bg-white dark:bg-slate-900 p-6 rounded-3xl border border-gray-100 dark:border-slate-800/80 shadow-sm space-y-4"
+              >
+                <div className="flex justify-between items-center pb-2 border-b border-gray-100 dark:border-slate-800">
+                  <h4 className="text-xs font-black text-gray-900 dark:text-gray-100 uppercase tracking-widest">Edit Section Details</h4>
+                  <button onClick={() => setEditingSection(null)} className="text-xs text-gray-400 font-bold uppercase hover:text-rose-500 cursor-pointer">Close</button>
+                </div>
+                <form onSubmit={handleSaveSectionEdit} className="space-y-3 text-left">
+                  <div>
+                    <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">Section ID</label>
+                    <input type="text" value={editingSection.id} disabled className="w-full p-2.5 border border-slate-100 dark:border-slate-800 rounded-xl bg-slate-100 dark:bg-slate-950 cursor-not-allowed text-xs dark:text-gray-400" />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">English Label</label>
+                    <input type="text" value={editingSection.label} onChange={e => setEditingSection({ ...editingSection, label: e.target.value })} className="w-full p-2.5 border border-slate-100 dark:border-slate-800 rounded-xl bg-slate-50/50 dark:bg-slate-950/50 text-xs outline-none dark:text-gray-200" />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">Bengali Label (বাংলা নাম)</label>
+                    <input type="text" value={editingSection.label_bn || ''} onChange={e => setEditingSection({ ...editingSection, label_bn: e.target.value })} className="w-full p-2.5 border border-slate-100 dark:border-slate-800 rounded-xl bg-slate-50/50 dark:bg-slate-950/50 text-xs outline-none dark:text-gray-200" />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1.5">Role Visibility Permissions</label>
+                    <div className="grid grid-cols-2 gap-2 bg-slate-50/50 dark:bg-slate-950/50 p-3 rounded-2xl border border-slate-100 dark:border-slate-850">
+                      {ALL_ROLES.map(role => {
+                        const checked = (editingSection.visibleToRoles || []).includes(role);
+                        return (
+                          <label key={role} className="flex items-center gap-1.5 text-[10px] font-bold text-gray-600 dark:text-gray-300 cursor-pointer">
+                            <input 
+                              type="checkbox" 
+                              checked={checked} 
+                              onChange={() => {
+                                const newRoles = checked 
+                                  ? editingSection.visibleToRoles.filter((r: string) => r !== role)
+                                  : [...(editingSection.visibleToRoles || []), role];
+                                setEditingSection({ ...editingSection, visibleToRoles: newRoles });
+                              }}
+                              className="rounded border-gray-300 text-indigo-600" 
+                            />
+                            <span className="uppercase">{role}</span>
+                          </label>
+                        );
+                      })}
+                    </div>
+                  </div>
+                  <button type="submit" className="w-full py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-black uppercase tracking-wider transition-all cursor-pointer">
+                    Apply Section Updates
+                  </button>
+                </form>
+              </motion.div>
+            )}
+
+            {/* 2. EDIT PAGE MODAL */}
+            {editingPage && (
+              <motion.div 
+                key="edit-page"
+                initial={{ opacity: 0, scale: 0.95 }}
+                animate={{ opacity: 1, scale: 1 }}
+                exit={{ opacity: 0, scale: 0.95 }}
+                className="bg-white dark:bg-slate-900 p-6 rounded-3xl border border-gray-100 dark:border-slate-800/80 shadow-sm space-y-4"
+              >
+                <div className="flex justify-between items-center pb-2 border-b border-gray-100 dark:border-slate-800">
+                  <h4 className="text-xs font-black text-gray-900 dark:text-gray-100 uppercase tracking-widest">Edit Page Details</h4>
+                  <button onClick={() => setEditingPage(null)} className="text-xs text-gray-400 font-bold uppercase hover:text-rose-500 cursor-pointer">Close</button>
+                </div>
+                <form onSubmit={handleSavePageEdit} className="space-y-3 text-left">
+                  {/* Section Selection */}
+                  <div>
+                    <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">Move to Section (সেকশন পরিবর্তন করুন)</label>
+                    <select 
+                      value={editingPage.targetSectionId || editingPage.sectionId} 
+                      onChange={e => {
+                        const newSecId = e.target.value;
+                        setEditingPage({
+                          ...editingPage,
+                          targetSectionId: newSecId,
+                          targetParentPageId: 'none' // Reset target parent on section change
+                        });
+                      }}
+                      className="w-full p-2.5 border border-slate-100 dark:border-slate-800 rounded-xl bg-slate-50/50 dark:bg-slate-950/50 text-xs outline-none dark:text-gray-200"
+                    >
+                      {sections.map((s: any) => (
+                        <option key={s.id} value={s.id}>
+                          {s.label_bn && s.label_bn !== s.label ? `${s.label} (${s.label_bn})` : s.label}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  {/* Optional Parent Page Selection (Only if target section has any container dashboard pages) */}
+                  {(() => {
+                    const targetSec = sections.find((s: any) => s.id === (editingPage.targetSectionId || editingPage.sectionId));
+                    const potentialParents = targetSec ? (targetSec.items || []).filter((item: any) => item.id.endsWith('_dashboard')) : [];
+                    if (potentialParents.length === 0) return null;
+
+                    return (
+                      <div>
+                        <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">Parent Page / Container (প্যারেন্ট পেজ)</label>
+                        <select 
+                          value={editingPage.targetParentPageId || (editingPage.parentPageId || 'none')} 
+                          onChange={e => setEditingPage({ ...editingPage, targetParentPageId: e.target.value })}
+                          className="w-full p-2.5 border border-slate-100 dark:border-slate-800 rounded-xl bg-slate-50/50 dark:bg-slate-950/50 text-xs outline-none dark:text-gray-200"
+                        >
+                          <option value="none">None (Top-Level Page / মেইন পেজ)</option>
+                          {potentialParents.map((p: any) => (
+                            <option key={p.id} value={p.id}>
+                              {p.label_bn && p.label_bn !== p.label ? `${p.label} (${p.label_bn})` : p.label}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                    );
+                  })()}
+
+                  <div>
+                    <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">Page ID</label>
+                    <input type="text" value={editingPage.page.id} disabled className="w-full p-2.5 border border-slate-100 dark:border-slate-800 rounded-xl bg-slate-100 dark:bg-slate-950 cursor-not-allowed text-xs dark:text-gray-400" />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">English Label</label>
+                    <input type="text" value={editingPage.page.label} onChange={e => setEditingPage({ ...editingPage, page: { ...editingPage.page, label: e.target.value } })} className="w-full p-2.5 border border-slate-100 dark:border-slate-800 rounded-xl bg-slate-50/50 dark:bg-slate-950/50 text-xs outline-none dark:text-gray-200" />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">Bengali Label (বাংলা নাম)</label>
+                    <input type="text" value={editingPage.page.label_bn || ''} onChange={e => setEditingPage({ ...editingPage, page: { ...editingPage.page, label_bn: e.target.value } })} className="w-full p-2.5 border border-slate-100 dark:border-slate-800 rounded-xl bg-slate-50/50 dark:bg-slate-950/50 text-xs outline-none dark:text-gray-200" />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">Lucide Icon Name</label>
+                    <select 
+                      value={editingPage.page.iconName || 'FileText'} 
+                      onChange={e => setEditingPage({ ...editingPage, page: { ...editingPage.page, iconName: e.target.value } })}
+                      className="w-full p-2.5 border border-slate-100 dark:border-slate-800 rounded-xl bg-slate-50/50 dark:bg-slate-950/50 text-xs outline-none dark:text-gray-200"
+                    >
+                      {POPULAR_ICONS.map(ic => (
+                        <option key={ic} value={ic}>{ic}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">Restrict to Specific Emails (Comma separated)</label>
+                    <input 
+                      type="text" 
+                      value={(editingPage.page.allowedUsers || []).join(', ')} 
+                      onChange={e => {
+                        const emails = e.target.value.split(',').map(em => em.trim()).filter(em => em.length > 0);
+                        setEditingPage({ ...editingPage, page: { ...editingPage.page, allowedUsers: emails } });
+                      }}
+                      placeholder="example@gmail.com, admin@shop.com"
+                      className="w-full p-2.5 border border-slate-100 dark:border-slate-800 rounded-xl bg-slate-50/50 dark:bg-slate-950/50 text-xs outline-none dark:text-gray-200" 
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1.5">Role Visibility Permissions</label>
+                    <div className="grid grid-cols-2 gap-2 bg-slate-50/50 dark:bg-slate-950/50 p-3 rounded-2xl border border-slate-100 dark:border-slate-850">
+                      {ALL_ROLES.map(role => {
+                        const checked = (editingPage.page.allowedRoles || []).includes(role);
+                        return (
+                          <label key={role} className="flex items-center gap-1.5 text-[10px] font-bold text-gray-600 dark:text-gray-300 cursor-pointer">
+                            <input 
+                              type="checkbox" 
+                              checked={checked} 
+                              onChange={() => {
+                                const newRoles = checked 
+                                  ? editingPage.page.allowedRoles.filter((r: string) => r !== role)
+                                  : [...(editingPage.page.allowedRoles || []), role];
+                                setEditingPage({ ...editingPage, page: { ...editingPage.page, allowedRoles: newRoles } });
+                              }}
+                              className="rounded border-gray-300 text-indigo-600" 
+                            />
+                            <span className="uppercase">{role}</span>
+                          </label>
+                        );
+                      })}
+                    </div>
+                  </div>
+                  <button type="submit" className="w-full py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-black uppercase tracking-wider transition-all cursor-pointer">
+                    Apply Page Updates
+                  </button>
+                </form>
+              </motion.div>
+            )}
+
+            {/* 3. ADD SECTION MODAL */}
+            {addingSection && (
+              <motion.div 
+                key="add-section"
+                initial={{ opacity: 0, scale: 0.95 }}
+                animate={{ opacity: 1, scale: 1 }}
+                exit={{ opacity: 0, scale: 0.95 }}
+                className="bg-white dark:bg-slate-900 p-6 rounded-3xl border border-gray-100 dark:border-slate-800/80 shadow-sm space-y-4"
+              >
+                <div className="flex justify-between items-center pb-2 border-b border-gray-100 dark:border-slate-800">
+                  <h4 className="text-xs font-black text-gray-900 dark:text-gray-100 uppercase tracking-widest">Create New Section</h4>
+                  <button onClick={() => setAddingSection(false)} className="text-xs text-gray-400 font-bold uppercase hover:text-rose-500 cursor-pointer">Cancel</button>
+                </div>
+                <form onSubmit={handleCreateSection} className="space-y-3 text-left">
+                  <div>
+                    <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">Unique Section ID</label>
+                    <input type="text" name="secId" placeholder="custom_section" required className="w-full p-2.5 border border-slate-100 dark:border-slate-800 rounded-xl bg-slate-50/50 dark:bg-slate-950/50 text-xs outline-none dark:text-gray-200" />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">English Label</label>
+                    <input type="text" name="secLabel" placeholder="My Custom Module" required className="w-full p-2.5 border border-slate-100 dark:border-slate-800 rounded-xl bg-slate-50/50 dark:bg-slate-950/50 text-xs outline-none dark:text-gray-200" />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">Bengali Label (বাংলা নাম)</label>
+                    <input type="text" name="secLabelBn" placeholder="আমার মডিউল" className="w-full p-2.5 border border-slate-100 dark:border-slate-800 rounded-xl bg-slate-50/50 dark:bg-slate-950/50 text-xs outline-none dark:text-gray-200" />
+                  </div>
+                  <button type="submit" className="w-full py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-black uppercase tracking-wider transition-all cursor-pointer">
+                    Create Section
+                  </button>
+                </form>
+              </motion.div>
+            )}
+
+            {/* 4. ADD PAGE MODAL */}
+            {addingPage && (
+              <motion.div 
+                key="add-page"
+                initial={{ opacity: 0, scale: 0.95 }}
+                animate={{ opacity: 1, scale: 1 }}
+                exit={{ opacity: 0, scale: 0.95 }}
+                className="bg-white dark:bg-slate-900 p-6 rounded-3xl border border-gray-100 dark:border-slate-800/80 shadow-sm space-y-4"
+              >
+                <div className="flex justify-between items-center pb-2 border-b border-gray-100 dark:border-slate-800">
+                  <h4 className="text-xs font-black text-gray-900 dark:text-gray-100 uppercase tracking-widest">
+                    Create {addingPage.parentPageId ? 'Sub-Page' : 'Page'}
+                  </h4>
+                  <button onClick={() => setAddingPage(null)} className="text-xs text-gray-400 font-bold uppercase hover:text-rose-500 cursor-pointer">Cancel</button>
+                </div>
+                <form onSubmit={handleCreatePage} className="space-y-3 text-left">
+                  <div>
+                    <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">Unique Page ID (Route/ActiveTab)</label>
+                    <input type="text" name="pageId" placeholder="custom_route" required className="w-full p-2.5 border border-slate-100 dark:border-slate-800 rounded-xl bg-slate-50/50 dark:bg-slate-950/50 text-xs outline-none dark:text-gray-200" />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">English Label</label>
+                    <input type="text" name="pageLabel" placeholder="Custom Page" required className="w-full p-2.5 border border-slate-100 dark:border-slate-800 rounded-xl bg-slate-50/50 dark:bg-slate-950/50 text-xs outline-none dark:text-gray-200" />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">Bengali Label (বাংলা নাম)</label>
+                    <input type="text" name="pageLabelBn" placeholder="আমার কাস্টম পেইজ" className="w-full p-2.5 border border-slate-100 dark:border-slate-800 rounded-xl bg-slate-50/50 dark:bg-slate-950/50 text-xs outline-none dark:text-gray-200" />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">Lucide Icon Name</label>
+                    <select name="pageIcon" className="w-full p-2.5 border border-slate-100 dark:border-slate-800 rounded-xl bg-slate-50/50 dark:bg-slate-950/50 text-xs outline-none dark:text-gray-200">
+                      {POPULAR_ICONS.map(ic => (
+                        <option key={ic} value={ic}>{ic}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <button type="submit" className="w-full py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-black uppercase tracking-wider transition-all cursor-pointer">
+                    Create Page
+                  </button>
+                </form>
+              </motion.div>
+            )}
+          </AnimatePresence>
         </div>
+      </div>
+
+      {/* Floating Save Navigation Layout Bar */}
+      <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[80] w-[calc(100%-2rem)] max-w-lg bg-white/80 dark:bg-slate-900/80 backdrop-blur-md px-6 py-4 rounded-3xl border border-gray-100 dark:border-slate-800 shadow-[0_20px_50px_rgba(0,0,0,0.1)] flex items-center justify-between gap-4 animate-bounce">
+        <div>
+          <span className="text-[9px] font-black tracking-widest text-gray-400 uppercase block">PERSISTENT CLOUD SYNC</span>
+          <span className="text-xs font-bold text-gray-800 dark:text-gray-200">লেআউট পরিবর্তন ডাটাবেজে সেভ করুন</span>
+        </div>
+        <button
+          onClick={handleSaveChanges}
+          disabled={isSaving}
+          className="px-6 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-xs font-black uppercase tracking-widest shadow-lg shadow-indigo-500/20 transition-all flex items-center gap-2 cursor-pointer disabled:opacity-50"
+        >
+          {isSaving ? (
+            <>
+              <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+              সংরক্ষণ করা হচ্ছে...
+            </>
+          ) : (
+            <>
+              <Save className="w-3.5 h-3.5" />
+              সংরক্ষণ করুন (Save)
+            </>
+          )}
+        </button>
       </div>
     </motion.div>
   );
