@@ -171,6 +171,7 @@ import {
   AdminContactUs,
   AdminGoogleAnalytics
 } from './components/AdminPages';
+import DynamicCustomPage from './components/DynamicCustomPage';
 import OnlineShop from './components/OnlineShop';
 import { LiveTVPortal } from './components/LiveTVPortal';
 import { GlobalPipPlayer } from './components/GlobalPipPlayer';
@@ -10685,6 +10686,34 @@ export default function App() {
                 onRestore={handleRestoreRecycleItem} 
               />
             )}
+
+            {/* Custom dynamic pages created in Admin Pages Sidebar Setup */}
+            {(() => {
+              const HARDCODED_TABS = [
+                'dashboard', 'pos', 'table_room', 'kitchen_display', 'draft_invoice', 'mobile_electronics', 'pharmacy_module', 'dealership_module', 'how_to_use',
+                'inventory_dashboard', 'inventory', 'warehouse', 'supplier', 'barcode', 'damage_expire', 'stock_transfer',
+                'sales_crm_dashboard', 'sales', 'customers', 'branch_crm', 'customer_orders', 'online_shop', 'courier', 'warranty', 'service_offer', 'note', 'recycle_bin',
+                'accounting_dashboard', 'expenses', 'investments', 'salaries', 'dues', 'banking', 'lc_module', 'invoice_generator', 'vat_tax', 'audit_logs',
+                'marketing_content', 'content_plan', 'hook_generator', 'visual_hook_pro', 'content_writer_pro', 'story_maker', 'brand_memory',
+                'management_dashboard', 'business_metrics', 'live_monitor', 'branch_control', 'user_activity', 'profit_loss_pro',
+                'admin_homepage', 'admin_dashboard', 'admin_excalidraw', 'admin_sidebar_pages', 'admin_merchant_console', 'admin_my_hisab', 'admin_control', 'admin_contact_us', 'admin_google_analytics',
+                'community_hub', 'live_tv', 'contact_us', 'business_bio', 'business_mail', 'meet_scheduler', 'release_logs', 'online_shop', 'service_offer', 'main_admin',
+                'membership', 'pwa_install', 'custom_domain', 'settings',
+                'hrm_dashboard', 'staff_directory', 'attendance_tracker', 'payroll_disbursal', 'leave_planner', 'system_login', 'employment_contracts'
+              ];
+              const isCustom = !HARDCODED_TABS.includes(activeTab);
+              if (!isCustom) return null;
+              
+              return (
+                <DynamicCustomPage 
+                  activeTab={activeTab} 
+                  user={user} 
+                  shopSettings={shopSettings} 
+                  setNotification={setNotification}
+                  onRefreshSettings={() => {}}
+                />
+              );
+            })()}
                 </>
               )}
             </motion.div>
