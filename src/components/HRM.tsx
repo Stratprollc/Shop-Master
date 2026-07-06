@@ -31,7 +31,8 @@ import {
   TrendingUp,
   CirclePlus,
   Upload,
-  Camera
+  Camera,
+  History
 } from 'lucide-react';
 import { db, secondaryAuth, 
   collection, 
@@ -175,6 +176,9 @@ interface Employee {
   schedule?: string;
   status: 'active' | 'inactive';
   // Extended fields
+  tadAllowance?: number;
+  foodAllowance?: number;
+  hraAllowance?: number;
   photoUrl?: string;
   bloodGroup?: string;
   emergencyPhone?: string;
@@ -380,6 +384,7 @@ export function HRM({ activeTab, setActiveTab, employees, onAddEmployee, user, s
   const [printLayoutMode, setPrintLayoutMode] = useState<'digital' | 'preprinted'>('digital');
   const [bundleStaffId, setBundleStaffId] = useState('');
   const [bundleDuration, setBundleDuration] = useState<'3' | '6'>('3');
+  const [idCardValidityDate, setIdCardValidityDate] = useState('31ST DEC 2028');
 
   // Local Form state
   const [formData, setFormData] = useState<Partial<Employee>>({
@@ -437,7 +442,7 @@ export function HRM({ activeTab, setActiveTab, employees, onAddEmployee, user, s
     if (!selectedCertEmployee) return;
     setIsGeneratingAiText(true);
     try {
-      const prompt = `Act as an elite Corporate HR Director and write a highly professional, international-standard document body of type: "${certType}" for ${selectedCertEmployee.name} who holds the designation of "${selectedCertEmployee.designation}".
+      const prompt = `Act as an elite Corporate HR Director and write a highly professional, concise, international-standard document body of type: "${certType}" for ${selectedCertEmployee.name} who holds the designation of "${selectedCertEmployee.designation}".
 The organization name is "${settings.name || settings.shopName || hrmSettings.headerText || 'ShopSync Ltd.'}".
 The document language must be strictly "${certLanguage === 'bn' ? 'Bengali' : 'English'}".
 Include these specific details:
@@ -445,9 +450,9 @@ Include these specific details:
 - Monthly base salary: ${selectedCertEmployee.salary?.toLocaleString()} ${currencySymbol}
 ${certType === 'experience' ? `- Leaving Date: ${leavingDate}\n- Reason for Leaving: ${leavingReason}\n- Appraisal comments: "${certPraise}"` : ''}
 
-Guidelines:
-1. The tone must be incredibly elegant, formal, and authoritative, matching the absolute highest global business standards of Fortune 500 companies or prestigious international organizations.
-2. Start with an opening greeting and write 2 to 3 fluid, structured paragraphs.
+CRITICAL INSTRUCTIONS:
+1. Keep the text concise, sharp, and perfectly clear. Do NOT write unnecessary fluff or overly long paragraphs that could break the document layout. Limit to a maximum of 3-4 short, professional sentences.
+2. Maintain an elite, international corporate tone.
 3. Output ONLY the core text body. DO NOT output any headers, date lines, subject lines, signature lines, footer notes, enclosing brackets, or markdown layout titles, as they are already handled by our premium letterhead templates. Just provide the formal text content.`;
 
       const response = await fetch('/api/gemini/generate', {
@@ -811,6 +816,18 @@ Guidelines:
       };
       
       addRow('Base Salary Payment', 'Earning', pay.baseSalary || 0, false);
+      
+      if (pay.tadAllowance > 0) {
+        addRow('Travel & Daily Allowance (TAD)', 'Allowance', pay.tadAllowance, false);
+      }
+      
+      if (pay.foodAllowance > 0) {
+        addRow('Food Allowance', 'Allowance', pay.foodAllowance, false);
+      }
+      
+      if (pay.hraAllowance > 0) {
+        addRow('House Rent Allowance (HRA)', 'Allowance', pay.hraAllowance, false);
+      }
       
       if (pay.bonus > 0) {
         addRow('Festival & Performance Bonus', 'Allowance', pay.bonus, false);
@@ -1216,6 +1233,18 @@ Guidelines:
           
           drawMiniRow('Regular Base Working Allocation', 'Earning Base', payItem.baseSalary || emp.salary, false);
           
+          if (payItem.tadAllowance > 0) {
+            drawMiniRow('Travel & Daily Allowance (TAD)', 'Allowance Add', payItem.tadAllowance, false);
+          }
+          
+          if (payItem.foodAllowance > 0) {
+            drawMiniRow('Food Allowance', 'Allowance Add', payItem.foodAllowance, false);
+          }
+          
+          if (payItem.hraAllowance > 0) {
+            drawMiniRow('House Rent Allowance (HRA)', 'Allowance Add', payItem.hraAllowance, false);
+          }
+          
           if (payItem.bonus > 0) {
             drawMiniRow('Festive Holiday & Bonus Allocation', 'Allowance Add', payItem.bonus, false);
           }
@@ -1225,8 +1254,8 @@ Guidelines:
           }
           
           // Fill blank lines for structural symmetry
-          const itemsCount = 1 + (payItem.bonus > 0 ? 1 : 0) + (payItem.deduction > 0 ? 1 : 0);
-          const deficit = 3 - itemsCount;
+          const itemsCount = 1 + (payItem.tadAllowance > 0 ? 1 : 0) + (payItem.foodAllowance > 0 ? 1 : 0) + (payItem.hraAllowance > 0 ? 1 : 0) + (payItem.bonus > 0 ? 1 : 0) + (payItem.deduction > 0 ? 1 : 0);
+          const deficit = Math.max(0, 3 - itemsCount);
           for (let d = 0; d < deficit; d++) {
             pdf.setFont('helvetica', 'normal');
             pdf.setFontSize(8);
@@ -1458,6 +1487,8 @@ Guidelines:
           }
         }
         
+        const threeMonthsAgoMs = Date.now() - (90 * 24 * 60 * 60 * 1000);
+        
         // 2. Cleanup old hrm_records slips/certificates
         const recordsRef = collection(db, 'hrm_records');
         const recordsQuery = query(recordsRef, where('shopId', '==', user.shopId));
@@ -1465,8 +1496,11 @@ Guidelines:
         for (const d of recordsSnap.docs) {
           const data = d.data();
           const createdTime = data.createdAt ? new Date(data.createdAt).getTime() : (data.date ? new Date(data.date).getTime() : null);
-          if (createdTime && createdTime < oneYearAgoMs) {
-            await deleteDoc(doc(db, 'hrm_records', d.id));
+          if (createdTime) {
+            const isExperience = data.type === 'experience';
+            if (!isExperience && createdTime < threeMonthsAgoMs) {
+              await deleteDoc(doc(db, 'hrm_records', d.id));
+            }
           }
         }
         
@@ -1799,15 +1833,24 @@ Guidelines:
     if (!selectedEmp) return null;
 
     const base = Number(selectedEmp.salary) || 0;
+    const tad = Number(selectedEmp.tadAllowance) || 0;
+    const food = Number(selectedEmp.foodAllowance) || 0;
+    const hra = Number(selectedEmp.hraAllowance) || 0;
+    const grossBase = base + tad + food + hra;
+
     const otRateHourly = Math.round((base / 240) * 1.5); // calculated on 30 days standard 8 hour standard shift x 1.5 multiplier
     const overtimePayout = overtimeHours * otRateHourly;
     const deductionDaily = Math.round(base / 30);
     const regularDeductions = unpaidDays * deductionDaily;
     const advanceDeduction = advanceDaysDeducted * deductionDaily;
-    const finalAmount = base + overtimePayout + Number(bonusAmount) - regularDeductions - advanceDeduction;
+    const finalAmount = grossBase + overtimePayout + Number(bonusAmount) - regularDeductions - advanceDeduction;
 
     return {
       base,
+      tad,
+      food,
+      hra,
+      grossBase,
       otHours: overtimeHours,
       otRate: otRateHourly,
       otPayout: overtimePayout,
@@ -1847,6 +1890,10 @@ Guidelines:
       employeeName: computedSalaryDetails.empName,
       month: selectedMonth,
       baseSalary: computedSalaryDetails.base,
+      tadAllowance: computedSalaryDetails.tad,
+      foodAllowance: computedSalaryDetails.food,
+      hraAllowance: computedSalaryDetails.hra,
+      grossBase: computedSalaryDetails.grossBase,
       bonus: computedSalaryDetails.bonus,
       deduction: computedSalaryDetails.payoutDeductions + computedSalaryDetails.advanceDeduction,
       finalPay: computedSalaryDetails.netSalaryPayable,
@@ -1876,6 +1923,10 @@ Guidelines:
         details: {
           month: selectedMonth,
           base: computedSalaryDetails.base,
+          tadAllowance: computedSalaryDetails.tad,
+          foodAllowance: computedSalaryDetails.food,
+          hraAllowance: computedSalaryDetails.hra,
+          grossBase: computedSalaryDetails.grossBase,
           bonus: computedSalaryDetails.bonus,
           payoutDeductions: computedSalaryDetails.payoutDeductions + computedSalaryDetails.advanceDeduction,
           netSalaryPayable: computedSalaryDetails.netSalaryPayable,
@@ -2159,7 +2210,8 @@ Guidelines:
           { id: 'payroll_disbursal', label: isBn ? 'বেতন পরিশোধ' : 'Payroll Disbursal', icon: Banknote },
           { id: 'leave_planner', label: isBn ? 'ছুটি ও হলিডে' : 'Leaves & Holidays', icon: CalendarIcon },
           { id: 'system_login', label: isBn ? 'সিস্টেম লগইন' : 'System Login', icon: Lock },
-          { id: 'employment_contracts', label: isBn ? 'চুক্তিপত্র ও সার্টিফিকেট' : 'Contracts & Releases', icon: FileSignature }
+          { id: 'employment_contracts', label: isBn ? 'চুক্তিপত্র ও সার্টিফিকেট' : 'Contracts & Releases', icon: FileSignature },
+          { id: 'document_history', label: isBn ? 'ডকুমেন্ট হিস্ট্রি' : 'Document History', icon: History }
         ].map(tab => {
           const isActive = activeTab === tab.id;
           return (
@@ -2337,7 +2389,18 @@ Guidelines:
               />
             </div>
             
-            <div className="flex gap-2">
+            <div className="flex gap-2 items-center">
+              <div className="flex items-center gap-1 bg-slate-50 border border-gray-200 rounded-xl px-2">
+                <span className="text-[10px] font-bold text-slate-500 whitespace-nowrap pl-1 uppercase tracking-wider">{isBn ? 'কার্ড মেয়াদ:' : 'Card Expiry:'}</span>
+                <input
+                  type="text"
+                  value={idCardValidityDate}
+                  onChange={(e) => setIdCardValidityDate(e.target.value)}
+                  className="bg-transparent px-2 py-2 text-xs font-bold text-gray-700 outline-none w-[110px]"
+                  placeholder="31ST DEC 2028"
+                />
+              </div>
+
               <select
                 className="bg-white border border-gray-200 rounded-xl px-3 py-2 text-xs font-bold text-gray-600 outline-none"
                 value={designationFilter}
@@ -2677,17 +2740,19 @@ Guidelines:
                         <div style={{ padding: '0 20px', textAlign: 'center', position: 'relative', zIndex: 2 }}>
                           <h2 style={{ margin: '0 0 5px 0', fontSize: '26px', color: '#111', fontWeight: 800, letterSpacing: '-0.5px' }}>{emp.name}</h2>
                           <div style={{ 
-                              background: '#e63946', 
+                              background: 'linear-gradient(135deg, #e63946 0%, #b21f2d 100%)', 
                               color: 'white', 
-                              display: 'inline-block', 
-                              padding: '6px 30px', 
-                              fontWeight: 700, 
+                              display: 'inline-flex', 
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              padding: '8px 24px', 
+                              fontWeight: 800, 
                               fontSize: '14px',
                               letterSpacing: '1px',
                               textTransform: 'uppercase',
-                              marginTop: '5px',
-                              borderRadius: '4px',
-                              boxShadow: '0 2px 8px rgba(230, 57, 70, 0.3)'
+                              marginTop: '8px',
+                              borderRadius: '6px',
+                              boxShadow: '0 4px 12px rgba(230, 57, 70, 0.35)'
                           }}>
                               {emp.designation}
                           </div>
@@ -2710,9 +2775,8 @@ Guidelines:
                         </div>
 
                         <div style={{ position: 'absolute', bottom: '0', left: '0', right: '0', background: '#f8f9fa', borderTop: '1px solid #e2e8f0', padding: '15px 0', textAlign: 'center' }}>
-                          <div style={{ display: 'inline-flex', alignItems: 'center', gap: '8px' }}>
-                            <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#10b981' }}></span>
-                            <span style={{ fontWeight: 700, fontSize: '13px', color: '#64748b', letterSpacing: '0.5px' }}>CARD VALID TILL: 31ST DEC 2028</span>
+                          <div style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>
+                            <span style={{ fontWeight: 800, fontSize: '13px', color: '#64748b', letterSpacing: '1px' }}>VALID TILL: {idCardValidityDate.toUpperCase()}</span>
                           </div>
                         </div>
                       </div>
@@ -2836,17 +2900,19 @@ Guidelines:
                         <div style={{ padding: '0 20px', textAlign: 'center', position: 'relative', zIndex: 2 }}>
                           <h2 style={{ margin: '0 0 5px 0', fontSize: '24px', color: '#1e293b', fontWeight: 800, letterSpacing: '-0.5px' }}>{emp.name}</h2>
                           <div style={{ 
-                              background: '#1e3a8a', 
+                              background: 'linear-gradient(135deg, #0f172a 0%, #1e3a8a 100%)', 
                               color: 'white', 
-                              display: 'inline-block', 
-                              padding: '5px 25px', 
-                              fontWeight: 700, 
+                              display: 'inline-flex', 
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              padding: '6px 25px', 
+                              fontWeight: 800, 
                               fontSize: '13px',
                               letterSpacing: '1px',
                               textTransform: 'uppercase',
-                              marginTop: '5px',
+                              marginTop: '8px',
                               borderRadius: '9999px',
-                              boxShadow: '0 2px 8px rgba(30, 58, 138, 0.2)'
+                              boxShadow: '0 4px 12px rgba(30, 58, 138, 0.25)'
                           }}>
                               {emp.designation}
                           </div>
@@ -2869,9 +2935,8 @@ Guidelines:
                         </div>
 
                         <div style={{ position: 'absolute', bottom: '0', left: '0', right: '0', background: '#f1f5f9', borderTop: '1px solid #e2e8f0', padding: '15px 0', textAlign: 'center' }}>
-                          <div style={{ display: 'inline-flex', alignItems: 'center', gap: '8px' }}>
-                            <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#3b82f6' }}></span>
-                            <span style={{ fontWeight: 700, fontSize: '12px', color: '#475569', letterSpacing: '0.5px' }}>CARD VALID TILL: 31ST DEC 2028</span>
+                          <div style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>
+                            <span style={{ fontWeight: 800, fontSize: '12px', color: '#475569', letterSpacing: '1px' }}>VALID TILL: {idCardValidityDate.toUpperCase()}</span>
                           </div>
                         </div>
                       </div>
@@ -3187,10 +3252,34 @@ Guidelines:
                         <span>{computedSalaryDetails.empDesignation}</span>
                       </p>
                       <div className="flex justify-between font-semibold mt-1">
-                        <span>{isBn ? 'মূল বেতন:' : 'Base Salary:'}</span>
+                        <span>{isBn ? 'মূল বেতন (Basic):' : 'Basic Salary:'}</span>
                         <span className="font-mono text-slate-900 font-extrabold">{computedSalaryDetails.base.toLocaleString()}{currencySymbol}</span>
                       </div>
-                      <div className="flex justify-between font-semibold">
+                      {computedSalaryDetails.tad > 0 && (
+                        <div className="flex justify-between font-semibold">
+                          <span>{isBn ? 'যাতায়াত ভাতা (TAD):' : 'TAD (Travel):'}</span>
+                          <span className="font-mono text-slate-700 font-semibold">+{computedSalaryDetails.tad.toLocaleString()}{currencySymbol}</span>
+                        </div>
+                      )}
+                      {computedSalaryDetails.food > 0 && (
+                        <div className="flex justify-between font-semibold">
+                          <span>{isBn ? 'খাদ্য ভাতা (Food):' : 'Food Allowance:'}</span>
+                          <span className="font-mono text-slate-700 font-semibold">+{computedSalaryDetails.food.toLocaleString()}{currencySymbol}</span>
+                        </div>
+                      )}
+                      {computedSalaryDetails.hra > 0 && (
+                        <div className="flex justify-between font-semibold">
+                          <span>{isBn ? 'বাড়ি ভাড়া (HRA):' : 'House Rent (HRA):'}</span>
+                          <span className="font-mono text-slate-700 font-semibold">+{computedSalaryDetails.hra.toLocaleString()}{currencySymbol}</span>
+                        </div>
+                      )}
+                      {((computedSalaryDetails.tad > 0) || (computedSalaryDetails.food > 0) || (computedSalaryDetails.hra > 0)) && (
+                        <div className="flex justify-between font-bold border-t border-slate-200 mt-1 pt-1 text-slate-800">
+                          <span>{isBn ? 'মোট আয় (Gross):' : 'Gross Salary:'}</span>
+                          <span className="font-mono">{computedSalaryDetails.grossBase.toLocaleString()}{currencySymbol}</span>
+                        </div>
+                      )}
+                      <div className="flex justify-between font-semibold mt-2">
                         <span>{isBn ? 'ওভারটাইম ভাতা:' : 'Overtime Pay:'}</span>
                         <span className="font-mono text-emerald-600 font-semibold">+{computedSalaryDetails.otPayout.toLocaleString()}{currencySymbol} <span className="text-[9px] font-bold">({computedSalaryDetails.otHours}h)</span></span>
                       </div>
@@ -3388,6 +3477,24 @@ Guidelines:
                             <span>Base Salary:</span>
                             <span style={{ fontFamily: "'Courier New'", fontWeight: 'bold' }}>{pay.baseSalary?.toLocaleString()}৳</span>
                           </div>
+                          {pay.tadAllowance > 0 && (
+                            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
+                              <span>TAD (Travel):</span>
+                              <span style={{ fontFamily: "'Courier New'", fontWeight: 'bold' }}>+{pay.tadAllowance?.toLocaleString()}৳</span>
+                            </div>
+                          )}
+                          {pay.foodAllowance > 0 && (
+                            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
+                              <span>Food Allowance:</span>
+                              <span style={{ fontFamily: "'Courier New'", fontWeight: 'bold' }}>+{pay.foodAllowance?.toLocaleString()}৳</span>
+                            </div>
+                          )}
+                          {pay.hraAllowance > 0 && (
+                            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
+                              <span>HRA (House Rent):</span>
+                              <span style={{ fontFamily: "'Courier New'", fontWeight: 'bold' }}>+{pay.hraAllowance?.toLocaleString()}৳</span>
+                            </div>
+                          )}
                           <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
                             <span>Festival Bonus:</span>
                             <span style={{ fontFamily: "'Courier New'", fontWeight: 'bold' }}>+{pay.bonus?.toLocaleString()}৳</span>
@@ -4371,9 +4478,11 @@ Guidelines:
                   }}
                 >
                   
-                  {/* CSS Watermark Tech */}
+                  {/* Image Watermark Tech */}
                   {printLayoutMode === 'digital' && (hrmSettings.watermarkUrl || settings.logoBase64 || settings.logoUrl) && (
-                    <div 
+                    <img 
+                      src={hrmSettings.watermarkUrl || settings.logoBase64 || settings.logoUrl}
+                      crossOrigin="anonymous"
                       style={{
                         position: 'absolute',
                         left: '50%',
@@ -4382,13 +4491,11 @@ Guidelines:
                         opacity: hrmSettings.watermarkOpacity || 0.06,
                         width: `${hrmSettings.watermarkSize || 160}px`,
                         height: `${hrmSettings.watermarkSize || 160}px`,
-                        backgroundImage: `url(${hrmSettings.watermarkUrl || settings.logoBase64 || settings.logoUrl})`,
-                        backgroundSize: 'contain',
-                        backgroundPosition: 'center',
-                        backgroundRepeat: 'no-repeat',
+                        objectFit: 'contain',
                         pointerEvents: 'none',
                         zIndex: 0
                       }}
+                      alt="Watermark"
                     />
                   )}
 
@@ -4436,6 +4543,7 @@ Guidelines:
                       <div style={{ textAlign: 'center', marginBottom: '24px' }}>
                         <span 
                           style={{ 
+                            display: 'inline-block',
                             fontSize: '13px', 
                             fontWeight: '950', 
                             textTransform: 'uppercase', 
@@ -4463,7 +4571,7 @@ Guidelines:
                   ) : certType === 'experience' ? (
                     <div style={{ flex: 1, margin: '24px 0', textAlign: 'left', zIndex: 1 }} className="text-left font-serif py-4">
                       <div style={{ textAlign: 'center', marginBottom: '24px' }}>
-                        <span style={{ fontSize: '15px', fontWeight: '950', textTransform: 'uppercase', background: '#1e1b4b', color: 'white', padding: '6px 18px', borderRadius: '4px', letterSpacing: '1px' }}>
+                        <span style={{ display: 'inline-block', fontSize: '15px', fontWeight: '950', textTransform: 'uppercase', background: '#1e1b4b', color: 'white', padding: '6px 18px', borderRadius: '4px', letterSpacing: '1px' }}>
                           {certLanguage === 'bn' ? 'অভিজ্ঞতা ও অবমুক্তি সনদপত্র' : 'CERTIFICATE OF EXPERIENCE & RELEASE'}
                         </span>
                       </div>
@@ -4492,7 +4600,7 @@ Guidelines:
                   ) : certType === 'contract' ? (
                     <div style={{ flex: 1, margin: '16px 0', textAlign: 'left', zIndex: 1 }} className="text-left font-serif py-1">
                       <div style={{ textAlign: 'center', marginBottom: '16px' }}>
-                        <span style={{ fontSize: '14px', fontWeight: '950', textTransform: 'uppercase', background: '#0f172a', color: 'white', padding: '4px 16px', borderRadius: '4px' }}>
+                        <span style={{ display: 'inline-block', fontSize: '14px', fontWeight: '950', textTransform: 'uppercase', background: '#0f172a', color: 'white', padding: '4px 16px', borderRadius: '4px' }}>
                           {certLanguage === 'bn' ? 'গোপনীয়তা রক্ষা ও কর্মসংস্থান চুক্তিপত্র' : 'NON-DISCLOSURE & EMPLOYMENT AGREEMENT'}
                         </span>
                       </div>
@@ -4530,7 +4638,7 @@ Guidelines:
                   ) : certType === 'noc_visa' ? (
                     <div style={{ flex: 1, margin: '24px 0', textAlign: 'left', zIndex: 1 }} className="text-left font-serif py-4">
                       <div style={{ textAlign: 'center', marginBottom: '24px' }}>
-                        <span style={{ fontSize: '14px', fontWeight: '950', textTransform: 'uppercase', background: '#0284c7', color: 'white', padding: '6px 18px', borderRadius: '4px' }}>
+                        <span style={{ display: 'inline-block', fontSize: '14px', fontWeight: '950', textTransform: 'uppercase', background: '#0284c7', color: 'white', padding: '6px 18px', borderRadius: '4px' }}>
                           {certLanguage === 'bn' ? 'ভিসা আবেদনের জন্য অনাপত্তি পত্র (NOC)' : 'NO OBJECTION CERTIFICATE (VISA APPLICATION)'}
                         </span>
                       </div>
@@ -4552,7 +4660,7 @@ Guidelines:
                   ) : (
                     <div style={{ flex: 1, margin: '24px 0', textAlign: 'left', zIndex: 1 }} className="text-left font-serif py-4">
                       <div style={{ textAlign: 'center', marginBottom: '24px' }}>
-                        <span style={{ fontSize: '14px', fontWeight: '950', textTransform: 'uppercase', background: '#059669', color: 'white', padding: '6px 18px', borderRadius: '4px' }}>
+                        <span style={{ display: 'inline-block', fontSize: '14px', fontWeight: '950', textTransform: 'uppercase', background: '#059669', color: 'white', padding: '6px 18px', borderRadius: '4px' }}>
                           {certLanguage === 'bn' ? 'ব্যাংক লোন ও ক্রেডিট কার্ড প্রাপ্তির অনাপত্তি পত্র' : 'NO OBJECTION CERTIFICATE (FINANCIAL & BANKING)'}
                         </span>
                       </div>
@@ -4621,6 +4729,11 @@ Guidelines:
                     </div>
                   )}
 
+                  {/* 3 Months disclaimer notice */}
+                  <div style={{ fontSize: '8px', color: '#64748b', textAlign: 'center', marginTop: '15px' }}>
+                    {certLanguage === 'bn' ? '* এই ডিজিটাল ডকুমেন্টটি ৩ মাসের জন্য অনলাইনে যাচাইযোগ্য। এর পর, শুধুমাত্র অভিজ্ঞতা সনদপত্রের রেকর্ড আমাদের মূল ডাটাবেজে সংরক্ষণ করা হবে।' : '* This digital document is valid and verifiable online for 3 months. After this period, only the core experience record remains securely archived in our master database.'}
+                  </div>
+
                 </div>
               ) : (
                 <div className="text-center text-gray-400 font-bold text-xs py-20">
@@ -4633,7 +4746,57 @@ Guidelines:
         </div>
       )}
 
+      {/* 7. Document History Tab */}
+      {activeTab === 'document_history' && (
+        <div className="space-y-4 animate-in fade-in slide-in-from-bottom-2 duration-300">
+          <div className="flex justify-between items-center bg-white p-5 rounded-[2rem] border border-gray-150 shadow-sm">
+            <div>
+              <h2 className="text-xl font-extrabold text-slate-800 tracking-tight">{isBn ? 'ডকুমেন্ট হিস্ট্রি' : 'Document Verification History'}</h2>
+              <p className="text-sm font-semibold text-slate-500">{isBn ? 'সম্প্রতি জেনারেট করা সকল ডকুমেন্টের তালিকা' : 'List of all recently generated documents'}</p>
+            </div>
+            <div className="bg-amber-50 border border-amber-100 p-3 rounded-2xl flex items-center gap-2 max-w-sm">
+              <AlertCircle className="w-5 h-5 text-amber-500" />
+              <p className="text-[9.5px] font-bold text-amber-700 leading-snug">
+                {isBn 
+                  ? 'সতর্কতা: শুধুমাত্র অভিজ্ঞতা সনদপত্র ব্যতীত সকল ডকুমেন্ট ৩ মাস পর স্বয়ংক্রিয়ভাবে ডাটাবেজ থেকে মুছে ফেলা হয়।' 
+                  : 'Note: Except for Experience Certificates, all other generated documents are automatically purged from the database after 3 months.'}
+              </p>
+            </div>
+          </div>
 
+          <div className="bg-white rounded-[2.5rem] p-8 border border-gray-150 shadow-sm">
+            {hrmRecords.filter(r => ['experience', 'contract', 'noc_visa', 'noc_bank'].includes(r.type)).length === 0 ? (
+              <div className="text-center py-20">
+                <History className="w-12 h-12 text-slate-300 mx-auto mb-3" />
+                <h3 className="text-base font-bold text-slate-400">{isBn ? 'কোনো রেকর্ড পাওয়া যায়নি' : 'No records found'}</h3>
+              </div>
+            ) : (
+              <div className="grid gap-3">
+                {hrmRecords.filter(r => ['experience', 'contract', 'noc_visa', 'noc_bank'].includes(r.type)).sort((a,b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()).map(record => (
+                  <div key={record.id} className="flex justify-between items-center p-4 bg-slate-50 rounded-2xl border border-slate-100 hover:border-slate-300 transition-all cursor-default">
+                    <div className="flex gap-4 items-center">
+                      <div className="w-10 h-10 rounded-xl bg-indigo-100 flex items-center justify-center border border-indigo-200">
+                        <FileText className="w-4 h-4 text-indigo-600" />
+                      </div>
+                      <div>
+                        <h4 className="text-sm font-extrabold text-slate-800">{record.employeeName} <span className="text-[10px] text-slate-400 font-semibold px-2">({record.employeeDesignation})</span></h4>
+                        <div className="flex gap-2 items-center mt-1">
+                          <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-slate-200 text-slate-600 uppercase tracking-wider">{record.type.replace('_', ' ')}</span>
+                          <span className="text-[10px] font-bold text-slate-400">{new Date(record.createdAt).toLocaleDateString()}</span>
+                        </div>
+                      </div>
+                    </div>
+                    <div className="text-right">
+                      <p className="text-[9px] font-bold text-slate-400 uppercase tracking-wider">Verification ID</p>
+                      <p className="text-xs font-mono font-bold text-slate-700 bg-white px-2 py-1 rounded border border-slate-200 mt-1">{record.id}</p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Adding / Editing Modal form details (Accessible via onAdd / onUpdate) */}
       {isAddModalOpen && (
@@ -4641,15 +4804,15 @@ Guidelines:
           <motion.div 
             initial={{ opacity: 0, scale: 0.95 }}
             animate={{ opacity: 1, scale: 1 }}
-            className="bg-white rounded-3xl max-w-2xl w-full p-6 shadow-2xl space-y-4 border border-gray-150 relative my-10 max-h-[90vh] overflow-y-auto"
+            className="bg-white rounded-[2rem] max-w-2xl w-full p-8 shadow-2xl shadow-indigo-950/10 space-y-5 border border-slate-200/80 relative my-10 max-h-[90vh] overflow-y-auto"
           >
-            <div className="flex justify-between items-center border-b pb-3">
-              <h3 className="text-base font-black text-slate-900 uppercase tracking-widest flex items-center gap-1.5">
+            <div className="flex justify-between items-center border-b pb-3.5">
+              <h3 className="text-sm font-black text-slate-900 uppercase tracking-widest flex items-center gap-1.5">
                 💼 {editingEmployee ? (isBn ? 'স্টাফ প্রোফাইল এডিট' : 'Edit Staff Profile') : (isBn ? 'নতুন স্টাফ যুক্ত করুন' : 'Register New Employee')}
               </h3>
               <button
                 onClick={() => setIsAddModalOpen(false)}
-                className="p-1 px-2.5 rounded-full hover:bg-slate-50 border text-slate-500 hover:text-slate-900 font-extrabold"
+                className="p-1 px-2.5 rounded-full hover:bg-slate-50 border text-slate-500 hover:text-slate-900 font-extrabold transition-all"
               >
                 ✕
               </button>
@@ -4659,12 +4822,12 @@ Guidelines:
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 
                 <div>
-                  <label className="text-[10px] font-black uppercase text-gray-400 tracking-wider block mb-1">
+                  <label className="text-[10px] font-extrabold uppercase text-slate-400 tracking-wider block mb-1.5">
                     {isBn ? 'স্টাফের সম্পূর্ণ নাম' : 'Employee Full Name'} <span className="text-red-500">*</span>
                   </label>
                   <input
                     type="text"
-                    className="w-full bg-slate-50 border-2 border-transparent focus:border-indigo-500 focus:bg-white rounded-xl px-3 py-2 text-xs font-bold"
+                    className="w-full bg-slate-50 border border-slate-200 focus:border-indigo-600 focus:bg-white rounded-xl px-4 py-2.5 text-xs font-semibold text-slate-800 transition-all outline-none focus:ring-4 focus:ring-indigo-100/50"
                     placeholder={isBn ? 'উদা: আবুল কালাম' : 'e.g. Abul Kalam'}
                     value={formData.name || ''}
                     onChange={e => setFormData({ ...formData, name: e.target.value })}
@@ -4673,13 +4836,13 @@ Guidelines:
                 </div>
 
                 <div>
-                  <label className="text-[10px] font-black uppercase text-gray-400 tracking-wider block mb-1 font-sans">
+                  <label className="text-[10px] font-extrabold uppercase text-slate-400 tracking-wider block mb-1.5 font-sans">
                     {isBn ? 'পদবি (Designation/Position)' : 'Designation / Job Role'} <span className="text-red-500">*</span>
                   </label>
                   <select
                     name="role"
                     required
-                    className="w-full px-4 py-2 rounded-xl border border-gray-200 focus:ring-2 focus:ring-indigo-500 outline-none text-sm bg-white text-slate-800 font-bold"
+                    className="w-full px-4 py-2.5 rounded-xl border border-slate-200/80 focus:ring-4 focus:ring-indigo-100/50 focus:border-indigo-600 outline-none text-xs bg-white text-slate-800 font-bold transition-all"
                     value={formData.designation || ''}
                     onChange={e => setFormData({ ...formData, designation: e.target.value })}
                   >
@@ -4708,12 +4871,12 @@ Guidelines:
                 </div>
 
                 <div>
-                  <label className="text-[10px] font-black uppercase text-gray-400 tracking-wider block mb-1">
+                  <label className="text-[10px] font-extrabold uppercase text-slate-400 tracking-wider block mb-1.5">
                     {isBn ? 'শাখা বরাদ্দ করুন (Assign Branch)' : 'Assign Branch'} <span className="text-red-500">*</span>
                   </label>
                   <select
                     required
-                    className="w-full px-4 py-2 rounded-xl border border-gray-200 focus:ring-2 focus:ring-indigo-500 outline-none text-sm bg-white text-slate-800 font-bold"
+                    className="w-full px-4 py-2.5 rounded-xl border border-slate-200/80 focus:ring-4 focus:ring-indigo-100/50 focus:border-indigo-600 outline-none text-xs bg-white text-slate-800 font-bold transition-all"
                     value={formData.branchId || ''}
                     onChange={e => setFormData({ ...formData, branchId: e.target.value })}
                   >
@@ -4727,12 +4890,12 @@ Guidelines:
                 </div>
 
                 <div>
-                  <label className="text-[10px] font-black uppercase text-gray-400 tracking-wider block mb-1">
+                  <label className="text-[10px] font-extrabold uppercase text-slate-400 tracking-wider block mb-1.5">
                     {isBn ? 'মোবাইল নম্বর' : 'Phone Number'} <span className="text-red-500">*</span>
                   </label>
                   <input
                     type="tel"
-                    className="w-full bg-slate-50 border-2 border-transparent focus:border-indigo-500 focus:bg-white rounded-xl px-3 py-2 text-xs font-bold font-mono"
+                    className="w-full bg-slate-50 border border-slate-200 focus:border-indigo-600 focus:bg-white rounded-xl px-4 py-2.5 text-xs font-semibold font-mono text-slate-800 transition-all outline-none focus:ring-4 focus:ring-indigo-100/50"
                     placeholder="017xxxxxxxx"
                     value={formData.phone || ''}
                     onChange={e => setFormData({ ...formData, phone: e.target.value })}
@@ -4741,37 +4904,122 @@ Guidelines:
                 </div>
 
                 <div>
-                  <label className="text-[10px] font-black uppercase text-gray-400 tracking-wider block mb-1">
+                  <label className="text-[10px] font-extrabold uppercase text-slate-400 tracking-wider block mb-1.5">
                     {isBn ? 'ইমেইল এড্রেস (ঐচ্ছিক)' : 'Email Address (Optional)'}
                   </label>
                   <input
                     type="email"
-                    className="w-full bg-slate-50 border-2 border-transparent focus:border-indigo-500 focus:bg-white rounded-xl px-3 py-2 text-xs font-bold font-mono"
+                    className="w-full bg-slate-50 border border-slate-200 focus:border-indigo-600 focus:bg-white rounded-xl px-4 py-2.5 text-xs font-semibold font-mono text-slate-800 transition-all outline-none focus:ring-4 focus:ring-indigo-100/50"
                     placeholder="example@mail.com"
                     value={formData.email || ''}
                     onChange={e => setFormData({ ...formData, email: e.target.value })}
                   />
                 </div>
 
-                <div>
-                  <label className="text-[10px] font-black uppercase text-gray-400 tracking-wider block mb-1">
-                    {isBn ? 'মাসিক মূল বেতন' : 'Monthly Basic Salary (৳)'}
-                  </label>
-                  <input
-                    type="number"
-                    className="w-full bg-slate-50 border-2 border-transparent focus:border-indigo-500 focus:bg-white rounded-xl px-3 py-2 text-xs font-black font-mono"
-                    value={formData.salary || 12000}
-                    onChange={e => setFormData({ ...formData, salary: parseInt(e.target.value) || 0 })}
-                  />
+                <div className="col-span-1 sm:col-span-2 bg-indigo-50/40 p-5 rounded-2xl border border-indigo-100/60 space-y-4 mt-1">
+                  <div className="flex items-center gap-2.5 mb-1">
+                    <div className="w-7 h-7 rounded-lg bg-indigo-100 text-indigo-600 flex items-center justify-center font-bold text-sm">{currencySymbol}</div>
+                    <div>
+                      <h4 className="text-[11px] font-black uppercase text-indigo-900 tracking-wider font-sans">
+                        {isBn ? 'বেতন এবং ভাতা (Salary & Allowances)' : 'Salary & Allowances Breakdown'}
+                      </h4>
+                      <p className="text-[9px] text-indigo-400/80 font-bold uppercase tracking-wider">{isBn ? 'কর্মীর আয়ের বিবরণী' : 'Employee Compensation Details'}</p>
+                    </div>
+                  </div>
+                  
+                  <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
+                    <div>
+                      <label className="text-[10px] font-extrabold uppercase text-slate-500 tracking-wider block mb-1.5">
+                        {isBn ? 'মাসিক মূল বেতন' : 'Basic Salary'} <span className="text-red-500">*</span>
+                      </label>
+                      <div className="relative">
+                        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 font-bold text-xs">{currencySymbol}</span>
+                        <input
+                          type="number"
+                          className="w-full bg-white border border-slate-200 focus:border-indigo-500 focus:ring-4 focus:ring-indigo-100/50 rounded-xl pl-7 pr-3 py-2.5 text-xs font-black font-mono text-slate-800 transition-all outline-none"
+                          placeholder="0"
+                          value={formData.salary === undefined || formData.salary === null || isNaN(Number(formData.salary)) ? '' : formData.salary}
+                          onChange={e => {
+                            const val = e.target.value;
+                            setFormData({ ...formData, salary: val === '' ? '' : (parseInt(val, 10) || 0) });
+                          }}
+                        />
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="text-[10px] font-extrabold uppercase text-slate-500 tracking-wider block mb-1.5" title="Travel and Daily Allowance">
+                        {isBn ? 'যাতায়াত ভাতা (TAD)' : 'TAD (Travel)'}
+                      </label>
+                      <div className="relative">
+                        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 font-bold text-xs">{currencySymbol}</span>
+                        <input
+                          type="number"
+                          className="w-full bg-white border border-slate-200 focus:border-indigo-500 focus:ring-4 focus:ring-indigo-100/50 rounded-xl pl-7 pr-3 py-2.5 text-xs font-bold font-mono text-slate-800 transition-all outline-none"
+                          placeholder="0"
+                          value={formData.tadAllowance === undefined || formData.tadAllowance === null || isNaN(Number(formData.tadAllowance)) ? '' : formData.tadAllowance}
+                          onChange={e => {
+                            const val = e.target.value;
+                            setFormData({ ...formData, tadAllowance: val === '' ? '' : (parseInt(val, 10) || 0) });
+                          }}
+                        />
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="text-[10px] font-extrabold uppercase text-slate-500 tracking-wider block mb-1.5">
+                        {isBn ? 'খাদ্য ভাতা (Food)' : 'Food Allowance'}
+                      </label>
+                      <div className="relative">
+                        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 font-bold text-xs">{currencySymbol}</span>
+                        <input
+                          type="number"
+                          className="w-full bg-white border border-slate-200 focus:border-indigo-500 focus:ring-4 focus:ring-indigo-100/50 rounded-xl pl-7 pr-3 py-2.5 text-xs font-bold font-mono text-slate-800 transition-all outline-none"
+                          placeholder="0"
+                          value={formData.foodAllowance === undefined || formData.foodAllowance === null || isNaN(Number(formData.foodAllowance)) ? '' : formData.foodAllowance}
+                          onChange={e => {
+                            const val = e.target.value;
+                            setFormData({ ...formData, foodAllowance: val === '' ? '' : (parseInt(val, 10) || 0) });
+                          }}
+                        />
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="text-[10px] font-extrabold uppercase text-slate-500 tracking-wider block mb-1.5" title="House Rent Allowance">
+                        {isBn ? 'বাড়ি ভাড়া (HRA)' : 'HRA (House Rent)'}
+                      </label>
+                      <div className="relative">
+                        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 font-bold text-xs">{currencySymbol}</span>
+                        <input
+                          type="number"
+                          className="w-full bg-white border border-slate-200 focus:border-indigo-500 focus:ring-4 focus:ring-indigo-100/50 rounded-xl pl-7 pr-3 py-2.5 text-xs font-bold font-mono text-slate-800 transition-all outline-none"
+                          placeholder="0"
+                          value={formData.hraAllowance === undefined || formData.hraAllowance === null || isNaN(Number(formData.hraAllowance)) ? '' : formData.hraAllowance}
+                          onChange={e => {
+                            const val = e.target.value;
+                            setFormData({ ...formData, hraAllowance: val === '' ? '' : (parseInt(val, 10) || 0) });
+                          }}
+                        />
+                      </div>
+                    </div>
+                  </div>
+                  
+                  <div className="flex items-center justify-between border-t border-indigo-100/60 pt-3.5 mt-2">
+                    <span className="text-[10px] font-black text-indigo-500 uppercase tracking-widest">{isBn ? 'সর্বমোট মাসিক আয় (Gross)' : 'Total Gross Salary'}</span>
+                    <span className="text-base font-black text-indigo-700 font-mono bg-indigo-100/50 px-3 py-1 rounded-lg">
+                      {currencySymbol} {((Number(formData.salary) || 0) + (Number(formData.tadAllowance) || 0) + (Number(formData.foodAllowance) || 0) + (Number(formData.hraAllowance) || 0)).toLocaleString()}
+                    </span>
+                  </div>
                 </div>
 
                 <div>
-                  <label className="text-[10px] font-black uppercase text-gray-400 tracking-wider block mb-1">
+                  <label className="text-[10px] font-extrabold uppercase text-slate-400 tracking-wider block mb-1.5">
                     {isBn ? 'ডিউটি শিফট / সময়' : 'Duty Hours / Schedule'}
                   </label>
                   <input
                     type="text"
-                    className="w-full bg-slate-50 border-2 border-transparent focus:border-indigo-500 focus:bg-white rounded-xl px-3 py-2 text-xs font-bold font-mono"
+                    className="w-full bg-slate-50 border border-slate-200 focus:border-indigo-600 focus:bg-white rounded-xl px-4 py-2.5 text-xs font-semibold font-mono text-slate-800 transition-all outline-none focus:ring-4 focus:ring-indigo-100/50"
                     placeholder="09:00 AM - 06:00 PM"
                     value={formData.schedule || ''}
                     onChange={e => setFormData({ ...formData, schedule: e.target.value })}
@@ -4779,23 +5027,23 @@ Guidelines:
                 </div>
 
                 <div>
-                  <label className="text-[10px] font-black uppercase text-gray-400 tracking-wider block mb-1">
+                  <label className="text-[10px] font-extrabold uppercase text-slate-400 tracking-wider block mb-1.5">
                     {isBn ? 'যোগদানের তারিখ' : 'Joining Date'}
                   </label>
                   <input
                     type="date"
-                    className="w-full bg-slate-50 border-2 border-transparent focus:border-indigo-500 focus:bg-white rounded-xl px-3 py-2 text-xs font-bold font-mono"
+                    className="w-full bg-slate-50 border border-slate-200 focus:border-indigo-600 focus:bg-white rounded-xl px-4 py-2.5 text-xs font-bold font-mono text-slate-800 transition-all outline-none focus:ring-4 focus:ring-indigo-100/50"
                     value={formData.joiningDate || ''}
                     onChange={e => setFormData({ ...formData, joiningDate: e.target.value })}
                   />
                 </div>
 
                 <div>
-                  <label className="text-[10px] font-black uppercase text-gray-400 tracking-wider block mb-1">
+                  <label className="text-[10px] font-extrabold uppercase text-slate-400 tracking-wider block mb-1.5">
                     {isBn ? 'রক্তের গ্রুপ' : 'Blood Group'}
                   </label>
                   <select
-                    className="w-full bg-white border-2 border-slate-100 rounded-xl px-3 py-2 text-xs font-bold"
+                    className="w-full bg-white border border-slate-200 focus:ring-4 focus:ring-indigo-100/50 focus:border-indigo-600 outline-none rounded-xl px-4 py-2.5 text-xs font-bold transition-all text-slate-800"
                     value={formData.bloodGroup || 'O+'}
                     onChange={e => setFormData({ ...formData, bloodGroup: e.target.value })}
                   >
@@ -4811,20 +5059,20 @@ Guidelines:
                 </div>
 
                 <div>
-                  <label className="text-[10px] font-black uppercase text-gray-400 tracking-wider block mb-1 font-sans">
+                  <label className="text-[10px] font-extrabold uppercase text-slate-400 tracking-wider block mb-1.5 font-sans">
                     {isBn ? 'জরুরি যোগাযোগ নাম্বর' : 'Emergency Contact No'}
                   </label>
                   <input
                     type="tel"
-                    className="w-full bg-slate-50 border-2 border-transparent focus:border-indigo-500 focus:bg-white rounded-xl px-3 py-2 text-xs font-bold font-mono"
+                    className="w-full bg-slate-50 border border-slate-200 focus:border-indigo-600 focus:bg-white rounded-xl px-4 py-2.5 text-xs font-semibold font-mono text-slate-800 transition-all outline-none focus:ring-4 focus:ring-indigo-100/50"
                     placeholder="01xxxxxxxxx"
                     value={formData.emergencyPhone || ''}
                     onChange={e => setFormData({ ...formData, emergencyPhone: e.target.value })}
                   />
                 </div>
 
-                <div className="col-span-1 md:col-span-2 bg-slate-50 p-4 rounded-2xl border-2 border-dashed border-slate-200 hover:border-indigo-400 transition-colors duration-200">
-                  <label className="text-[10px] font-black uppercase text-gray-400 tracking-wider block mb-2 font-sans">
+                <div className="col-span-1 md:col-span-2 bg-slate-50 p-4 rounded-2xl border border-slate-200 hover:border-indigo-400 transition-all duration-200">
+                  <label className="text-[10px] font-extrabold uppercase text-slate-400 tracking-wider block mb-2 font-sans">
                     {isBn ? 'কর্মচারীর ছবি (ফটো আপলোড / ড্র্যাগ অ্যান্ড ড্রপ / ইউআরএল)' : 'Employee Photo (Upload / Drag & Drop / URL)'}
                   </label>
                   
@@ -4917,12 +5165,12 @@ Guidelines:
 
                     {/* Right side: URL input */}
                     <div className="flex-1 w-full flex flex-col justify-center">
-                      <label className="text-[10px] font-black uppercase text-gray-400 tracking-wider block mb-1 font-sans">
+                      <label className="text-[10px] font-extrabold uppercase text-slate-400 tracking-wider block mb-1.5 font-sans">
                         {isBn ? 'অথবা ছবির ইউআরএল দিন' : 'Or input Photo URL directly'}
                       </label>
                       <input
                         type="text"
-                        className="w-full bg-white border border-slate-200 focus:ring-2 focus:ring-indigo-500 outline-none rounded-xl px-3 py-2 text-xs font-bold font-mono text-slate-750"
+                        className="w-full bg-white border border-slate-200 focus:ring-4 focus:ring-indigo-100/50 focus:border-indigo-600 outline-none rounded-xl px-4 py-2.5 text-xs font-semibold font-mono text-slate-800"
                         placeholder="https://images.unsplash.com/..."
                         value={formData.photoUrl?.startsWith('data:image') ? '' : formData.photoUrl || ''}
                         onChange={e => setFormData({ ...formData, photoUrl: e.target.value })}
@@ -4935,11 +5183,11 @@ Guidelines:
                 </div>
 
                 <div>
-                  <label className="text-[10px] font-black uppercase text-gray-400 tracking-wider block mb-1">
+                  <label className="text-[10px] font-extrabold uppercase text-slate-400 tracking-wider block mb-1.5">
                     {isBn ? 'বেতন প্রদানের মাধ্যম' : 'Payment Disbursal Mode'}
                   </label>
                   <select
-                    className="w-full bg-white border-2 border-slate-100 rounded-xl px-3 py-2 text-xs font-bold text-slate-800"
+                    className="w-full bg-white border border-slate-200 focus:ring-4 focus:ring-indigo-100/50 focus:border-indigo-600 outline-none rounded-xl px-4 py-2.5 text-xs font-bold text-slate-800 transition-all"
                     value={formData.paymentMode || 'cash'}
                     onChange={e => setFormData({ ...formData, paymentMode: e.target.value as any })}
                   >
@@ -4950,7 +5198,7 @@ Guidelines:
                 </div>
 
                 {formData.paymentMode === 'bank' && (
-                  <div className="col-span-1 sm:col-span-2 bg-slate-50/75 p-4 rounded-2xl border border-slate-100 space-y-3">
+                  <div className="col-span-1 sm:col-span-2 bg-slate-50/75 p-4 rounded-2xl border border-slate-200 space-y-3">
                     <p className="text-[11px] font-black uppercase text-indigo-900 tracking-wider flex items-center gap-1.5 font-sans">
                       🏦 {isBn ? 'ব্যাংক একাউন্টের তথ্য' : 'Bank Account Information'}
                     </p>
@@ -4962,7 +5210,7 @@ Guidelines:
                         <input
                           type="text"
                           required
-                          className="w-full bg-white border border-slate-200 focus:border-indigo-500 rounded-xl px-3 py-2 text-xs font-bold text-slate-800"
+                          className="w-full bg-slate-50 border border-slate-200 focus:border-indigo-600 focus:bg-white rounded-xl px-4 py-2.5 text-xs font-semibold text-slate-800 transition-all outline-none focus:ring-4 focus:ring-indigo-100/50"
                           placeholder={isBn ? 'উদা: ডাচ-বাংলা ব্যাংক' : 'e.g. Dutch-Bangla Bank'}
                           value={formData.bankName || ''}
                           onChange={e => setFormData({ ...formData, bankName: e.target.value })}
@@ -4975,7 +5223,7 @@ Guidelines:
                         <input
                           type="text"
                           required
-                          className="w-full bg-white border border-slate-200 focus:border-indigo-500 rounded-xl px-3 py-2 text-xs font-bold text-slate-800"
+                          className="w-full bg-slate-50 border border-slate-200 focus:border-indigo-600 focus:bg-white rounded-xl px-4 py-2.5 text-xs font-semibold text-slate-800 transition-all outline-none focus:ring-4 focus:ring-indigo-100/50"
                           placeholder={isBn ? 'উদা: মিরপুর ব্রাঞ্চ' : 'e.g. Mirpur Branch'}
                           value={formData.bankBranch || ''}
                           onChange={e => setFormData({ ...formData, bankBranch: e.target.value })}
@@ -4988,7 +5236,7 @@ Guidelines:
                         <input
                           type="text"
                           required
-                          className="w-full bg-white border border-slate-200 focus:border-indigo-500 rounded-xl px-3 py-2 text-xs font-bold font-mono text-slate-800"
+                          className="w-full bg-slate-50 border border-slate-200 focus:border-indigo-600 focus:bg-white rounded-xl px-4 py-2.5 text-xs font-semibold font-mono text-slate-800 transition-all outline-none focus:ring-4 focus:ring-indigo-100/50"
                           placeholder="e.g. 1234567890"
                           value={formData.accountNo || ''}
                           onChange={e => setFormData({ ...formData, accountNo: e.target.value })}
@@ -4999,7 +5247,7 @@ Guidelines:
                 )}
 
                 {formData.paymentMode === 'mfs' && (
-                  <div className="col-span-1 sm:col-span-2 bg-slate-50/70 p-4 rounded-2xl border border-slate-100 space-y-3">
+                  <div className="col-span-1 sm:col-span-2 bg-slate-50/70 p-4 rounded-2xl border border-slate-200 space-y-3">
                     <p className="text-[11px] font-black uppercase text-indigo-900 tracking-wider flex items-center gap-1.5 font-sans">
                       📱 {isBn ? 'এমএফএস ওয়ালেট তথ্য' : 'MFS Wallet Information'}
                     </p>
@@ -5011,7 +5259,7 @@ Guidelines:
                         type="tel"
                         required
                         pattern="[0-9]{11}"
-                        className="w-full bg-white border border-slate-200 focus:border-indigo-500 rounded-xl px-3 py-2 text-xs font-bold font-mono text-slate-800"
+                        className="w-full bg-slate-50 border border-slate-200 focus:border-indigo-600 focus:bg-white rounded-xl px-4 py-2.5 text-xs font-semibold font-mono text-slate-800 transition-all outline-none focus:ring-4 focus:ring-indigo-100/50"
                         placeholder="01xxxxxxxxx"
                         value={formData.mfsNo || ''}
                         onChange={e => setFormData({ ...formData, mfsNo: e.target.value })}
@@ -5021,11 +5269,11 @@ Guidelines:
                 )}
 
                 <div>
-                  <label className="text-[10px] font-black uppercase text-gray-400 tracking-wider block mb-1 font-sans">
+                  <label className="text-[10px] font-extrabold uppercase text-slate-400 tracking-wider block mb-1.5 font-sans">
                     {isBn ? 'স্টাফ স্ট্যাটাস' : 'Employment Status'}
                   </label>
                   <select
-                    className="w-full bg-white border-2 border-slate-100 rounded-xl px-3 py-2 text-xs font-bold"
+                    className="w-full bg-white border border-slate-200 focus:ring-4 focus:ring-indigo-100/50 focus:border-indigo-600 outline-none rounded-xl px-4 py-2.5 text-xs font-bold text-slate-800 transition-all"
                     value={formData.status || 'active'}
                     onChange={e => setFormData({ ...formData, status: e.target.value as any })}
                   >
@@ -5039,7 +5287,7 @@ Guidelines:
                     <label className="text-xs font-black text-indigo-950 block mb-1">
                       {isBn ? 'সিস্টেম লগইন অনুমতি দিন?' : 'Allow System Login?'}
                     </label>
-                    <p className="text-[10px] text-indigo-700 leading-relaxed max-w-md">
+                    <p className="text-[10px] text-indigo-700 leading-relaxed max-w-md font-sans">
                       {isBn 
                         ? 'সক্রিয় করলে এই কর্মচারী তার ইমেইল দিয়ে সিস্টেমে লগইন করে ড্যাশবোর্ড অ্যাক্সেস করতে পারবে।' 
                         : 'If enabled, this staff member can use their email to sign in and access designated areas.'}
@@ -5068,13 +5316,13 @@ Guidelines:
                 <button
                   type="button"
                   onClick={() => setIsAddModalOpen(false)}
-                  className="px-6 py-2.5 bg-gray-150 hover:bg-gray-200 text-gray-700 rounded-xl font-bold transition-colors uppercase tracking-wider"
+                  className="px-6 py-2.5 bg-gray-150 hover:bg-gray-200 text-gray-700 rounded-xl font-bold transition-colors uppercase tracking-wider text-[11px]"
                 >
                   {isBn ? 'ফিরে যান' : 'Cancel'}
                 </button>
                 <button
                   type="submit"
-                  className="px-6 py-2.5 bg-slate-900 hover:bg-slate-950 text-white rounded-xl font-black transition-colors uppercase tracking-wider flex items-center gap-1.5"
+                  className="px-6 py-2.5 bg-slate-900 hover:bg-slate-950 text-white rounded-xl font-black transition-colors uppercase tracking-wider text-[11px] flex items-center gap-1.5 shadow-md shadow-slate-900/10"
                 >
                   {isBn ? 'সংরক্ষণ করুন' : 'Save Employee'}
                 </button>
