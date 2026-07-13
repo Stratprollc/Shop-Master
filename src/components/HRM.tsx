@@ -32,7 +32,11 @@ import {
   CirclePlus,
   Upload,
   Camera,
-  History
+  History,
+  LogIn,
+  LogOut,
+  CheckCircle2,
+  XCircle
 } from 'lucide-react';
 import { db, secondaryAuth, 
   collection, 
@@ -363,10 +367,46 @@ export function HRM({ activeTab, setActiveTab, employees, onAddEmployee, user, s
   const [statusFilter, setStatusFilter] = useState('');
   const [isDragging, setIsDragging] = useState(false);
 
-  // HRM mock/persisted tracking state helper templates
-  const [attendanceLogs, setAttendanceLogs] = useState<any[]>([]);
+  // HRM mock/persisted tracking state helper templates with LocalStorage persistence
+  const [attendanceLogs, setAttendanceLogs] = useState<any[]>(() => {
+    try {
+      const saved = localStorage.getItem(`hrm_attendance_logs_${user?.shopId || 'default'}`);
+      return saved ? JSON.parse(saved) : [];
+    } catch (e) {
+      console.error(e);
+      return [];
+    }
+  });
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(`hrm_attendance_logs_${user?.shopId || 'default'}`, JSON.stringify(attendanceLogs));
+    } catch (e) {
+      console.error(e);
+    }
+  }, [attendanceLogs, user?.shopId]);
+
   const [payrollHistory, setPayrollHistory] = useState<any[]>([]);
   const [leaveRequests, setLeaveRequests] = useState<any[]>([]);
+
+  // Upgraded Attendance Tracker States
+  const [manualAttendanceEmp, setManualAttendanceEmp] = useState('');
+  const [manualAttendanceDate, setManualAttendanceDate] = useState(() => new Date().toISOString().split('T')[0]);
+  const [manualAttendanceIn, setManualAttendanceIn] = useState('08:00');
+  const [manualAttendanceOut, setManualAttendanceOut] = useState('17:00');
+  const [manualAttendanceStatus, setManualAttendanceStatus] = useState<'Present' | 'Late' | 'Absent' | 'Auto'>('Auto');
+  
+  const [timesheetFilterEmp, setTimesheetFilterEmp] = useState('');
+  const [timesheetFilterMonth, setTimesheetFilterMonth] = useState(() => new Date().toISOString().slice(0, 7)); // e.g. "2026-07"
+  const [importedScannerFile, setImportedScannerFile] = useState<any | null>(null);
+
+  // Live attendance dashboard filters & roster manager states
+  const [liveBranchFilter, setLiveBranchFilter] = useState('all');
+  const [liveShiftFilter, setLiveShiftFilter] = useState('all');
+  const [liveStatusFilter, setLiveStatusFilter] = useState('all');
+  const [rosterEditingEmployee, setRosterEditingEmployee] = useState<Employee | null>(null);
+  const [rosterShiftStart, setRosterShiftStart] = useState('09:00');
+  const [rosterShiftEnd, setRosterShiftEnd] = useState('18:00');
 
   // Advanced HRM PERSISTENCE & Custom Settings
   const [hrmSettings, setHrmSettings] = useState({
@@ -377,7 +417,8 @@ export function HRM({ activeTab, setActiveTab, employees, onAddEmployee, user, s
     sealUrl: '',
     prePrintedPad: false,
     headerText: settings?.shopName || 'ShopSync Corporation',
-    footerText: 'Verified Digital Document © ShopSync'
+    footerText: 'Verified Digital Document © ShopSync',
+    orgType: 'proprietor'
   });
   const [hrmRecords, setHrmRecords] = useState<any[]>([]);
   const [advanceDaysDeducted, setAdvanceDaysDeducted] = useState(0);
@@ -385,6 +426,20 @@ export function HRM({ activeTab, setActiveTab, employees, onAddEmployee, user, s
   const [bundleStaffId, setBundleStaffId] = useState('');
   const [bundleDuration, setBundleDuration] = useState<'3' | '6'>('3');
   const [idCardValidityDate, setIdCardValidityDate] = useState('31ST DEC 2028');
+
+  // Leave in Advance Form custom states (AI & Attachment)
+  const [selectedLeaveType, setSelectedLeaveType] = useState('Casual Leave');
+  const [leaveAttachment, setLeaveAttachment] = useState<string | null>(null);
+  const [leaveReasonText, setLeaveReasonText] = useState('');
+  const [leaveRecipientText, setLeaveRecipientText] = useState('To Whom It May Concern');
+  const [leaveSubjectText, setLeaveSubjectText] = useState('No Objection Certificate');
+  const [leaveDurationText, setLeaveDurationText] = useState('over 1 and half year');
+  const [leaveDestinationText, setLeaveDestinationText] = useState('India');
+  const [leaveProprietorName, setLeaveProprietorName] = useState('Md Nurul Islam');
+  const [leaveProprietorTitle, setLeaveProprietorTitle] = useState('Proprietor');
+  const [leaveProprietorPhone, setLeaveProprietorPhone] = useState('01849555552');
+  const [isPolishingLeaveReason, setIsPolishingLeaveReason] = useState(false);
+  const [previewImage, setPreviewImage] = useState<string | null>(null);
 
   // Local Form state
   const [formData, setFormData] = useState<Partial<Employee>>({
@@ -482,6 +537,131 @@ CRITICAL INSTRUCTIONS:
     }
   };
 
+  const handlePolishLeaveReason = async () => {
+    if (!leaveReasonText.trim()) {
+      setNotification({
+        message: isBn ? 'দয়া করে প্রথমে ছুটির সাধারণ কারণটি লিখুন।' : 'Please enter a simple reason first.',
+        type: 'info'
+      });
+      return;
+    }
+    setIsPolishingLeaveReason(true);
+    try {
+      const prompt = `Act as a professional employee applying for a "${selectedLeaveType || 'Leave in Advance'}".
+The raw reason given by the employee is: "${leaveReasonText}".
+Language must be: "${isBn ? 'Bengali' : 'English'}".
+The organization name is: "${settings.name || settings.shopName || hrmSettings.headerText || 'ShopSync Ltd.'}".
+The organization type is: "${hrmSettings.orgType === 'company' ? 'Corporate Company' : 'Proprietorship business'}".
+
+CRITICAL INSTRUCTIONS:
+1. Polish this raw reason into a highly professional, polite, and persuasive formal statement suitable for a leave application.
+2. If it is "Leave in Advance", explain formally and professionally why the advance is needed (e.g., unexpected medical expenses, pre-planned urgent personal travel, or family emergencies) while preserving the core intent of the employee's raw reason.
+3. Keep it brief, polite, and professional (around 1 to 2 sentences).
+4. Return ONLY the polished text. Do NOT include greetings, salutations, subject lines, signature sections, markdown code blocks, or enclosing quotes. Just return the pure polished text.`;
+
+      const response = await fetch('/api/gemini/generate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ prompt }),
+      });
+      const data = await response.json();
+      if (data.error) {
+        throw new Error(data.error);
+      }
+      if (data.text) {
+        setLeaveReasonText(data.text.trim());
+        setNotification({
+          message: isBn ? 'এআই দিয়ে ছুটির কারণটি চমৎকারভাবে সাজানো হয়েছে!' : 'AI polished the reason successfully!',
+          type: 'success'
+        });
+      }
+    } catch (err: any) {
+      console.error(err);
+      setNotification({
+        message: isBn ? 'এআই পলিশ করার সময় ত্রুটি ঘটেছে।' : 'Error polishing reason with AI.',
+        type: 'error'
+      });
+    } finally {
+      setIsPolishingLeaveReason(false);
+    }
+  };
+
+  const [isLeaveDragging, setIsLeaveDragging] = useState(false);
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsLeaveDragging(true);
+  };
+
+  const handleDragLeave = () => {
+    setIsLeaveDragging(false);
+  };
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsLeaveDragging(false);
+    const file = e.dataTransfer.files?.[0];
+    if (file) {
+      processAndCompressFile(file);
+    }
+  };
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      processAndCompressFile(file);
+    }
+  };
+
+  const processAndCompressFile = (file: File) => {
+    if (!file.type.startsWith('image/')) {
+      setNotification({
+        message: isBn ? 'দয়া করে শুধুমাত্র ছবি ফাইল আপলোড করুন।' : 'Please upload image files only.',
+        type: 'error'
+      });
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const img = new Image();
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        const MAX_WIDTH = 800;
+        const MAX_HEIGHT = 800;
+        let width = img.width;
+        let height = img.height;
+
+        if (width > height) {
+          if (width > MAX_WIDTH) {
+            height *= MAX_WIDTH / width;
+            width = MAX_WIDTH;
+          }
+        } else {
+          if (height > MAX_HEIGHT) {
+            width *= MAX_HEIGHT / height;
+            height = MAX_HEIGHT;
+          }
+        }
+
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        if (ctx) {
+          ctx.drawImage(img, 0, 0, width, height);
+          const compressedBase64 = canvas.toDataURL('image/jpeg', 0.7);
+          setLeaveAttachment(compressedBase64);
+          setNotification({
+            message: isBn ? 'ডকুমেন্ট সংযুক্ত করা হয়েছে!' : 'Document attached successfully!',
+            type: 'success'
+          });
+        }
+      };
+      img.src = event.target?.result as string;
+    };
+    reader.readAsDataURL(file);
+  };
+
   // Save branding settings directly to Firestore
   const saveHrmSettings = async (updatedFields: Partial<typeof hrmSettings>) => {
     if (!user?.shopId) return;
@@ -504,10 +684,51 @@ CRITICAL INSTRUCTIONS:
     }
   };
 
-  const handleBrandingImageUpload = (type: 'watermark' | 'signature' | 'seal', file: File) => {
-    const reader = new FileReader();
-    reader.onloadend = () => {
-      const base64String = reader.result as string;
+  const compressBrandingImage = (file: File, maxWidth: number = 400, maxHeight: number = 400): Promise<string> => {
+    return new Promise((resolve) => {
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        const img = new Image();
+        img.onload = () => {
+          const canvas = document.createElement('canvas');
+          let width = img.width;
+          let height = img.height;
+
+          if (width > height) {
+            if (width > maxWidth) {
+              height *= maxWidth / width;
+              width = maxWidth;
+            }
+          } else {
+            if (height > maxHeight) {
+              width *= maxHeight / height;
+              height = maxHeight;
+            }
+          }
+
+          canvas.width = width;
+          canvas.height = height;
+          const ctx = canvas.getContext('2d');
+          if (ctx) {
+            ctx.drawImage(img, 0, 0, width, height);
+            // Signatures, seals, and watermarks need to preserve transparency (PNG)
+            resolve(canvas.toDataURL('image/png'));
+          } else {
+            resolve(event.target?.result as string);
+          }
+        };
+        img.onerror = () => resolve(event.target?.result as string);
+        img.src = event.target?.result as string;
+      };
+      reader.onerror = () => resolve('');
+      reader.readAsDataURL(file);
+    });
+  };
+
+  const handleBrandingImageUpload = async (type: 'watermark' | 'signature' | 'seal', file: File) => {
+    try {
+      const base64String = await compressBrandingImage(file, 400, 400);
+      if (!base64String) return;
       if (type === 'watermark') {
         saveHrmSettings({ watermarkUrl: base64String });
       } else if (type === 'signature') {
@@ -515,8 +736,9 @@ CRITICAL INSTRUCTIONS:
       } else if (type === 'seal') {
         saveHrmSettings({ sealUrl: base64String });
       }
-    };
-    reader.readAsDataURL(file);
+    } catch (err) {
+      console.error("Error compressing branding image:", err);
+    }
   };
 
   // Download high-resolution print-ready A4 PDF of the selected certificate
@@ -578,6 +800,630 @@ CRITICAL INSTRUCTIONS:
       console.error("PDF generation error:", err);
       setNotification({
         message: isBn ? 'পিডিএফ তৈরি করতে ব্যর্থ হয়েছে' : 'Failed to generate PDF',
+        type: 'error'
+      });
+    }
+  };
+
+  // Download high-resolution print-ready A4 PDF of the approved leave authorization form (premium international standard vector layout)
+  const downloadLeaveCertificatePDF = async (leave: any) => {
+    try {
+      const emp = employees.find(e => e.id === leave.employeeId);
+      const designation = emp ? emp.designation : 'Staff Associate';
+      const staffDisplayId = emp ? getStaffDisplayId(emp) : leave.employeeId;
+      const leaveIdUpper = leave.id.toUpperCase();
+      const documentId = `LEA-${leaveIdUpper.includes('LEAVE-') ? leaveIdUpper.replace('LEAVE-', '').substring(0, 8) : leaveIdUpper.substring(0, 8)}`;
+
+      // Helper to load image securely with timeout and CORS support
+      const loadPdfImage = (src: string): Promise<string> => {
+        return new Promise((resolve) => {
+          if (!src) return resolve('');
+          if (src.startsWith('data:')) return resolve(src);
+          const timeoutId = setTimeout(() => resolve(''), 1500);
+          const img = new Image();
+          img.crossOrigin = 'anonymous';
+          img.onload = () => {
+            clearTimeout(timeoutId);
+            const canvas = document.createElement('canvas');
+            canvas.width = img.width;
+            canvas.height = img.height;
+            const ctx = canvas.getContext('2d');
+            if (ctx) {
+              try {
+                ctx.drawImage(img, 0, 0);
+                resolve(canvas.toDataURL('image/png'));
+              } catch (e) {
+                resolve(src);
+              }
+            } else {
+              resolve(src);
+            }
+          };
+          img.onerror = () => {
+            clearTimeout(timeoutId);
+            resolve('');
+          };
+          img.src = src;
+        });
+      };
+
+      // Generate dynamic verification data for QR Code
+      const qrDataString = `DocRef: ${documentId}\nStaff: ${leave.employeeName}\nID: ${staffDisplayId}\nLeave: ${leave.leaveType}\nPeriod: ${leave.startDate} to ${leave.endDate}\nStatus: Officially Approved\nVerify: ${window.location.origin}`;
+      const qrApiUrl = `https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=${encodeURIComponent(qrDataString)}`;
+
+      // Load both Logo and QR Code concurrently
+      const logoSrc = settings.logoBase64 || settings.logoUrl || '';
+      const [logoBase64, qrBase64] = await Promise.all([
+        loadPdfImage(logoSrc),
+        loadPdfImage(qrApiUrl)
+      ]);
+
+      if (leave.leaveType === 'Leave in Advance') {
+        const letterPdf = new jsPDF({
+          orientation: 'portrait',
+          unit: 'mm',
+          format: 'a4'
+        });
+
+        // Date conversions & formatted texts
+        const formatDateSlash = (dateStr: string): string => {
+          if (!dateStr) return '';
+          try {
+            const parts = dateStr.split('-');
+            if (parts.length === 3) {
+              return `${parts[2]}/${parts[1]}/${parts[0]}`;
+            }
+            const d = new Date(dateStr);
+            if (!isNaN(d.getTime())) {
+              const dd = String(d.getDate()).padStart(2, '0');
+              const mm = String(d.getMonth() + 1).padStart(2, '0');
+              return `${dd}/${mm}/${d.getFullYear()}`;
+            }
+          } catch (_) {}
+          return dateStr;
+        };
+
+        const getJoinDateLong = (endDateStr: string): string => {
+          if (!endDateStr) return '';
+          try {
+            const d = new Date(endDateStr);
+            if (!isNaN(d.getTime())) {
+              d.setDate(d.getDate() + 1);
+              const day = d.getDate();
+              const month = d.toLocaleDateString('en-US', { month: 'long' });
+              const weekday = d.toLocaleDateString('en-US', { weekday: 'long' });
+              const year = d.getFullYear();
+              return `${day} ${month} ${weekday} ${year}`;
+            }
+          } catch (_) {}
+          return endDateStr;
+        };
+
+        // Extract NOC values with fallback compatibility
+        const empNameVal = leave.employeeName || 'Employee';
+        const empDesignationVal = designation || 'Employee';
+        const companyNameVal = settings.shopName || hrmSettings.headerText || 'Bismillah Tiles and Sanitary';
+        const durationVal = leave.experienceDuration || 'over 1 and half year';
+        const destVal = leave.destinationCountry || 'India';
+        const propNameVal = leave.proprietorName || 'Md Nurul Islam';
+        const propTitleVal = leave.proprietorTitle || 'Proprietor';
+        const propPhoneVal = leave.proprietorPhone || '01849555552';
+
+        const formattedStart = formatDateSlash(leave.startDate);
+        const formattedEnd = formatDateSlash(leave.endDate);
+        const formattedJoin = getJoinDateLong(leave.endDate);
+
+        // Compute industry tagline automatically for executive styling
+        const lowerCompName = companyNameVal.toLowerCase();
+        let companyTagline = 'OFFICIAL BUSINESS CORRESPONDENCE';
+        if (lowerCompName.includes('tiles') || lowerCompName.includes('sanitary')) {
+          companyTagline = 'PREMIUM TILES, SANITARYWARE & BATH FITMENTS';
+        } else if (lowerCompName.includes('merchandise') || lowerCompName.includes('general') || lowerCompName.includes('trading')) {
+          companyTagline = 'GENERAL MERCHANDISE & WHOLESALE DISTRIBUTIONS';
+        } else if (lowerCompName.includes('sync') || lowerCompName.includes('tech') || lowerCompName.includes('solution') || lowerCompName.includes('software')) {
+          companyTagline = 'TECHNOLOGY SOLUTIONS & ENTERPRISE PORTFOLIO';
+        }
+
+        // 1. Double Corporate Framing (Security borders)
+        letterPdf.setDrawColor(15, 23, 42); // slate-900 (Deep navy charcoal)
+        letterPdf.setLineWidth(0.4);
+        letterPdf.rect(10, 10, 190, 277, 'S');
+
+        letterPdf.setDrawColor(226, 232, 240); // slate-200
+        letterPdf.setLineWidth(0.15);
+        letterPdf.rect(11.5, 11.5, 187, 274, 'S');
+
+        // Draw top solid band
+        letterPdf.setFillColor(15, 23, 42);
+        letterPdf.rect(10, 10, 190, 3.5, 'F');
+
+        // Draw Watermark if configured
+        if (hrmSettings.watermarkUrl || logoSrc) {
+          try {
+            const wmImg = hrmSettings.watermarkUrl || logoSrc;
+            const wmBase64 = await loadPdfImage(wmImg);
+            if (wmBase64) {
+              letterPdf.saveGraphicsState();
+              letterPdf.setGState(new (letterPdf as any).GState({ opacity: hrmSettings.watermarkOpacity || 0.05 }));
+              letterPdf.addImage(wmBase64, 'PNG', 105 - (hrmSettings.watermarkSize || 110) / 2, 148 - (hrmSettings.watermarkSize || 110) / 2, hrmSettings.watermarkSize || 110, hrmSettings.watermarkSize || 110);
+              letterPdf.restoreGraphicsState();
+            }
+          } catch (wmErr) {
+            console.error("Watermark render error:", wmErr);
+          }
+        }
+
+        // From Letterhead Logo & Info Block
+        if (logoBase64) {
+          try {
+            letterPdf.addImage(logoBase64, 'PNG', 18, 16, 20, 20);
+          } catch (e) {
+            console.error("Logo render error on NOC:", e);
+          }
+        }
+
+        const textStartX = logoBase64 ? 42 : 18;
+        
+        // Company Title
+        letterPdf.setFont('helvetica', 'bold');
+        letterPdf.setFontSize(16);
+        letterPdf.setTextColor(15, 23, 42); // slate-900
+        letterPdf.text(toSafePdfString(companyNameVal).toUpperCase(), textStartX, 22);
+
+        // Subtitle / Tagline
+        letterPdf.setFont('helvetica', 'bold');
+        letterPdf.setFontSize(7.5);
+        letterPdf.setTextColor(79, 70, 229); // Modern Indigo
+        letterPdf.text(companyTagline, textStartX, 26);
+
+        // Contact details
+        letterPdf.setFont('helvetica', 'normal');
+        letterPdf.setFontSize(8);
+        letterPdf.setTextColor(100, 116, 139); // slate-500
+        const fromAddr = toSafePdfString(settings.address || 'Global Operations Center, Sector 4');
+        const fromContact = `Tel: ${settings.phone || 'N/A'} | Email: ${settings.email || 'support@shopsync.com'}`;
+        letterPdf.text(fromAddr, textStartX, 30.5);
+        letterPdf.text(fromContact, textStartX, 34.5);
+
+        // Verification QR Code positioned beautifully on top-right
+        if (qrBase64) {
+          try {
+            letterPdf.setFillColor(248, 250, 252);
+            letterPdf.setDrawColor(226, 232, 240);
+            letterPdf.setLineWidth(0.2);
+            letterPdf.roundedRect(164, 15, 26, 26, 1.5, 1.5, 'FD');
+            letterPdf.addImage(qrBase64, 'PNG', 166, 16.5, 22, 22);
+            
+            letterPdf.setFont('helvetica', 'bold');
+            letterPdf.setFontSize(4.5);
+            letterPdf.setTextColor(148, 163, 184);
+            letterPdf.text('SECURE VERIFIED', 177, 39, { align: 'center' });
+          } catch (qrErr) {
+            console.error(qrErr);
+          }
+        }
+
+        // Horizontal elegant rule dividing header from the letter body
+        letterPdf.setDrawColor(79, 70, 229); // Indigo line
+        letterPdf.setLineWidth(0.5);
+        letterPdf.line(18, 44, 192, 44);
+
+        letterPdf.setDrawColor(226, 232, 240); // Slate-200 line
+        letterPdf.setLineWidth(0.15);
+        letterPdf.line(18, 45.2, 192, 45.2);
+
+        // Date & Document Reference Row
+        const letterDate = leave.createdAt ? new Date(leave.createdAt).toLocaleDateString('en-US', {
+          year: 'numeric', month: 'long', day: 'numeric'
+        }) : new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
+
+        letterPdf.setFont('helvetica', 'bold');
+        letterPdf.setFontSize(8.5);
+        letterPdf.setTextColor(71, 85, 105);
+        letterPdf.text(`Ref: NOC-${documentId.substring(0, 8).toUpperCase()}`, 18, 51);
+        letterPdf.text(`Date: ${letterDate}`, 192, 51, { align: 'right' });
+
+        // Certificate Title Banner
+        const titleY = 66;
+        letterPdf.setFillColor(241, 245, 249); // slate-100
+        letterPdf.roundedRect(45, titleY - 6, 120, 9, 1.5, 1.5, 'F');
+
+        letterPdf.setFont('helvetica', 'bold');
+        letterPdf.setFontSize(12.5);
+        letterPdf.setTextColor(15, 23, 42); // slate-900
+        const mainTitle = "NO OBJECTION CERTIFICATE";
+        letterPdf.text(mainTitle, 105, titleY, { align: 'center' });
+
+        // Underline details
+        letterPdf.setDrawColor(79, 70, 229);
+        letterPdf.setLineWidth(0.4);
+        letterPdf.line(75, titleY + 5, 135, titleY + 5);
+
+        // Salutation Block
+        const salY = titleY + 16;
+        letterPdf.setFont('helvetica', 'bold');
+        letterPdf.setFontSize(10.5);
+        letterPdf.setTextColor(15, 23, 42);
+        letterPdf.text('TO WHOM IT MAY CONCERN', 18, salY);
+
+        // Body Text starting with standard elegant margin
+        const bodyStart = salY + 9;
+        letterPdf.setFont('helvetica', 'normal');
+        letterPdf.setFontSize(10.5);
+        letterPdf.setTextColor(30, 41, 59); // Slate-800 for high readability
+        
+        // Construct the beautifully structured certificate content
+        const certParagraph1 = `This is to certify that Ms./Mr. ${empNameVal}, ${empDesignationVal} of ${companyNameVal} is an employee and has been working in this organization for ${durationVal}.`;
+        const certParagraph2 = `I formally approve his/her leave in advance from ${formattedStart} to ${formattedEnd}. I wish him/her a safe and sound journey to ${destVal}. Ms./Mr. ${empNameVal} will join in the duty on ${formattedJoin}.`;
+        const certParagraph3 = `I have no objection with regards to his/her visit to ${destVal}.`;
+        const certParagraph4 = `If you require any further information, please do not hesitate to contact me.`;
+
+        // Split paragraph lines for elegant text wrapping
+        const p1Lines = letterPdf.splitTextToSize(toSafePdfString(certParagraph1), 174);
+        const p2Lines = letterPdf.splitTextToSize(toSafePdfString(certParagraph2), 174);
+        const p3Lines = letterPdf.splitTextToSize(toSafePdfString(certParagraph3), 174);
+        const p4Lines = letterPdf.splitTextToSize(toSafePdfString(certParagraph4), 174);
+
+        // Render Paragraphs with spacious layout
+        let currentY = bodyStart;
+        
+        letterPdf.text(p1Lines, 18, currentY);
+        currentY += (p1Lines.length * 6.5) + 6;
+
+        letterPdf.text(p2Lines, 18, currentY);
+        currentY += (p2Lines.length * 6.5) + 6;
+
+        letterPdf.text(p3Lines, 18, currentY);
+        currentY += (p3Lines.length * 6.5) + 10;
+
+        letterPdf.text(p4Lines, 18, currentY);
+        currentY += (p4Lines.length * 6.5) + 16;
+
+        // Closing Sign-off
+        letterPdf.setFont('helvetica', 'normal');
+        letterPdf.setFontSize(10.5);
+        letterPdf.text('Yours Sincerely,', 18, currentY);
+
+        const sigLineY = Math.max(currentY + 22, 192);
+
+        // Draw Seal/Stamp image if configured
+        if (hrmSettings.sealUrl) {
+          try {
+            letterPdf.addImage(hrmSettings.sealUrl, 'PNG', 45, sigLineY - 14, 22, 22);
+          } catch (sealErr) {
+            console.error("Seal draw error on letter:", sealErr);
+          }
+        }
+
+        // Draw Signature image if configured
+        if (hrmSettings.signatureUrl) {
+          try {
+            letterPdf.addImage(hrmSettings.signatureUrl, 'PNG', 20, sigLineY - 6, 28, 12);
+          } catch (sigErr) {
+            console.error("Signature draw error on letter:", sigErr);
+          }
+        }
+
+        // Signatory Title and Name
+        letterPdf.setFont('helvetica', 'bold');
+        letterPdf.setFontSize(10.5);
+        letterPdf.setTextColor(15, 23, 42);
+        letterPdf.text(toSafePdfString(propNameVal), 18, sigLineY + 6);
+
+        letterPdf.setFont('helvetica', 'normal');
+        letterPdf.setFontSize(9);
+        letterPdf.setTextColor(71, 85, 105);
+        letterPdf.text(toSafePdfString(propTitleVal), 18, sigLineY + 11);
+        letterPdf.text(toSafePdfString(companyNameVal), 18, sigLineY + 16);
+        letterPdf.text(`Phone: ${toSafePdfString(propPhoneVal)}`, 18, sigLineY + 21);
+
+        // Elegant Page Footer bottom bar
+        letterPdf.setDrawColor(226, 232, 240); // Slate-200 line
+        letterPdf.setLineWidth(0.3);
+        letterPdf.line(18, 276, 192, 276);
+
+        letterPdf.setFont('helvetica', 'normal');
+        letterPdf.setFontSize(7.5);
+        letterPdf.setTextColor(148, 163, 184); // slate-400
+        letterPdf.text(`Document Reference Key: NOC-${documentId.substring(0, 12).toUpperCase()}`, 18, 281.5);
+        letterPdf.text(`System Generated Secure Document. Verify via QR Code above.`, 192, 281.5, { align: 'right' });
+
+        // Save formal PDF!
+        letterPdf.save(`NOC_${toSafePdfString(leave.employeeName).replace(/\s+/g, '_')}_${documentId}.pdf`);
+
+        setNotification({
+          message: isBn ? 'নো অবজেকশন সার্টিফিকেট সফলভাবে ডাউনলোড করা হয়েছে!' : 'No Objection Certificate downloaded successfully!',
+          type: 'success'
+        });
+        return;
+      }
+
+      const pdf = new jsPDF({
+        orientation: 'portrait',
+        unit: 'mm',
+        format: 'a4'
+      });
+
+      // A4 dimensions are 210mm x 297mm
+
+      // 1. Double Borders (Elegant margin lines)
+      pdf.setDrawColor(15, 23, 42); // slate-900 (Deep corporate blue/black)
+      pdf.setLineWidth(0.6);
+      pdf.rect(8.5, 8.5, 193, 280, 'S');
+
+      pdf.setDrawColor(148, 163, 184); // slate-400
+      pdf.setLineWidth(0.18);
+      pdf.rect(10.2, 10.2, 189.6, 276.6, 'S');
+
+      // Decorative corners
+      pdf.setFillColor(15, 23, 42);
+      pdf.rect(8, 8, 3, 3, 'F');
+      pdf.rect(199, 8, 3, 3, 'F');
+      pdf.rect(8, 286, 3, 3, 'F');
+      pdf.rect(199, 286, 3, 3, 'F');
+
+      // 2. Header Section (Premium Brand Placement)
+      let headerTextOffset = 15;
+      if (logoBase64) {
+        try {
+          pdf.addImage(logoBase64, 'PNG', 15, 15, 22, 22);
+          headerTextOffset = 42;
+        } catch (e) {
+          console.error("Failed to draw logo on PDF:", e);
+        }
+      }
+
+      // Company Name & Official Brand Label
+      pdf.setFont('helvetica', 'bold');
+      pdf.setFontSize(15);
+      pdf.setTextColor(15, 23, 42); // slate-900
+      pdf.text(toSafePdfString(settings.shopName || 'ShopSync Ltd.').toUpperCase(), headerTextOffset, 20);
+
+      // Address & Secondary Info
+      pdf.setFont('helvetica', 'normal');
+      pdf.setFontSize(8);
+      pdf.setTextColor(71, 85, 105); // slate-600
+      const companyAddress = toSafePdfString(settings.address, 'Global Operations Center, Sector 4');
+      const companyContact = `Tel: ${settings.phone || 'N/A'} | Email: ${settings.email || 'support@shopsync.com'}`;
+      pdf.text(companyAddress, headerTextOffset, 25.5);
+      pdf.text(companyContact, headerTextOffset, 29.5);
+
+      // Branch Info if exists
+      if (settings.branch) {
+        pdf.text(`Branch Terminal: ${toSafePdfString(settings.branch)}`, headerTextOffset, 33.5);
+      }
+
+      // 3. Verification QR Code (Right aligned in header)
+      if (qrBase64) {
+        try {
+          // Draw neat background box for QR
+          pdf.setFillColor(248, 250, 252); // slate-50
+          pdf.setDrawColor(226, 232, 240); // slate-200
+          pdf.setLineWidth(0.25);
+          pdf.roundedRect(168, 14, 27, 27, 1.5, 1.5, 'FD');
+
+          pdf.addImage(qrBase64, 'PNG', 170.5, 15.2, 22, 22);
+          
+          pdf.setFont('helvetica', 'bold');
+          pdf.setFontSize(5.5);
+          pdf.setTextColor(100);
+          pdf.text('SCAN TO VERIFY', 181.5, 39, { align: 'center' });
+        } catch (e) {
+          console.error("Failed to render QR code image:", e);
+        }
+      }
+
+      // Clean elegant horizontal border separating header from content
+      pdf.setDrawColor(226, 232, 240); // slate-200
+      pdf.setLineWidth(0.4);
+      pdf.line(15, 45, 195, 45);
+
+      // Metadata Row
+      pdf.setFont('helvetica', 'bold');
+      pdf.setFontSize(8);
+      pdf.setTextColor(79, 70, 229); // Indigo-600
+      pdf.text(`AUTHORIZATION CODE: ${documentId}`, 15, 51.5);
+
+      pdf.setTextColor(100);
+      pdf.setFont('helvetica', 'normal');
+      const issuedDate = leave.createdAt ? new Date(leave.createdAt).toLocaleDateString('en-US', {
+        year: 'numeric', month: 'long', day: 'numeric'
+      }) : new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
+      pdf.text(`REGISTRATION DATE: ${issuedDate}`, 195, 51.5, { align: 'right' });
+
+      // 4. Document Main Title Block
+      pdf.setFillColor(15, 23, 42); // Slate-900 (High contrast corporate block)
+      pdf.roundedRect(15, 56, 180, 12, 1, 1, 'F');
+      
+      pdf.setTextColor(255, 255, 255);
+      pdf.setFont('helvetica', 'bold');
+      pdf.setFontSize(10.5);
+      pdf.text('OFFICIAL CERTIFICATE OF LEAVE OF ABSENCE', 105, 63.8, { align: 'center' });
+
+      // 5. Verification / Status Stamp (Beautiful Pill Badge)
+      pdf.setFillColor(240, 253, 244); // Green-50
+      pdf.setDrawColor(22, 163, 74); // Green-600
+      pdf.setLineWidth(0.35);
+      pdf.roundedRect(30, 74, 150, 9, 1.5, 1.5, 'FD');
+
+      pdf.setTextColor(21, 128, 61); // Green-700
+      pdf.setFont('helvetica', 'bold');
+      pdf.setFontSize(7.5);
+      pdf.text('STATUS: APPLICATION APPROVED • SYSTEM VALIDATED • RECORD REGISTERED', 105, 80, { align: 'center' });
+
+      // 6. Perfect Application Accepted Detail Card (Sleek minimalist grid structure)
+      pdf.setFillColor(252, 253, 254); // Soft white-slate
+      pdf.setDrawColor(203, 213, 225); // Slate-300
+      pdf.setLineWidth(0.25);
+      pdf.roundedRect(15, 90, 180, 68, 2, 2, 'FD');
+
+      // Grid Separation lines
+      pdf.setDrawColor(226, 232, 240); // Slate-200
+      pdf.line(105, 90, 105, 158); // Center vertical divider
+      pdf.line(15, 107, 195, 107); // Row 1 divider
+      pdf.line(15, 124, 195, 124); // Row 2 divider
+      pdf.line(15, 141, 195, 141); // Row 3 divider
+
+      // Row 1: Employee Name & Leave Type
+      pdf.setFont('helvetica', 'bold');
+      pdf.setFontSize(7);
+      pdf.setTextColor(148, 163, 184); // Label color
+      pdf.text('BENEFICIARY STAFF MEMBER', 19, 95);
+      pdf.setFont('helvetica', 'bold');
+      pdf.setFontSize(9.5);
+      pdf.setTextColor(15, 23, 42); // Value color
+      pdf.text(toSafePdfString(leave.employeeName).toUpperCase(), 19, 101);
+
+      pdf.setFont('helvetica', 'bold');
+      pdf.setFontSize(7);
+      pdf.setTextColor(148, 163, 184);
+      pdf.text('LEAVE CLASSIFICATION / CATEGORY', 109, 95);
+      pdf.setFont('helvetica', 'bold');
+      pdf.setFontSize(9.5);
+      pdf.setTextColor(79, 70, 229); // Indigo-600 for Type
+      pdf.text(toSafePdfString(leave.leaveType).toUpperCase(), 109, 101);
+
+      // Row 2: Designation & Leave Duration
+      pdf.setFont('helvetica', 'bold');
+      pdf.setFontSize(7);
+      pdf.setTextColor(148, 163, 184);
+      pdf.text('OFFICIAL WORK POSITION', 19, 112);
+      pdf.setFont('helvetica', 'bold');
+      pdf.setFontSize(9);
+      pdf.setTextColor(15, 23, 42);
+      pdf.text(toSafePdfString(designation).toUpperCase(), 19, 118);
+
+      pdf.setFont('helvetica', 'bold');
+      pdf.setFontSize(7);
+      pdf.setTextColor(148, 163, 184);
+      pdf.text('AUTHORIZED ABSENCE COUNT', 109, 112);
+      pdf.setFont('helvetica', 'bold');
+      pdf.setFontSize(9.5);
+      pdf.setTextColor(22, 163, 74); // Green-600
+      pdf.text(`${leave.daysCount} DAYS TOTAL`, 109, 118);
+
+      // Row 3: Employee ID & Effective Dates
+      pdf.setFont('helvetica', 'bold');
+      pdf.setFontSize(7);
+      pdf.setTextColor(148, 163, 184);
+      pdf.text('EMPLOYEE RECOGNITION ID', 19, 129);
+      pdf.setFont('helvetica', 'bold');
+      pdf.setFontSize(9);
+      pdf.setTextColor(15, 23, 42);
+      pdf.text(staffDisplayId, 19, 135);
+
+      pdf.setFont('helvetica', 'bold');
+      pdf.setFontSize(7);
+      pdf.setTextColor(148, 163, 184);
+      pdf.text('OFFICIAL ABSENCE EFFECTIVE TIMELINE', 109, 129);
+      pdf.setFont('helvetica', 'bold');
+      pdf.setFontSize(9);
+      pdf.setTextColor(15, 23, 42);
+      pdf.text(`${leave.startDate} TO ${leave.endDate}`, 109, 135);
+
+      // Row 4: Security Status & Submitted Reason
+      pdf.setFont('helvetica', 'bold');
+      pdf.setFontSize(7);
+      pdf.setTextColor(148, 163, 184);
+      pdf.text('HR ARCHIVE AUTHENTICITY', 19, 146);
+      pdf.setFont('helvetica', 'bold');
+      pdf.setFontSize(8.5);
+      pdf.setTextColor(15, 23, 42);
+      pdf.text('VERIFIED & COMPLIANT', 19, 152);
+
+      pdf.setFont('helvetica', 'bold');
+      pdf.setFontSize(7);
+      pdf.setTextColor(148, 163, 184);
+      pdf.text('PURPOSE / SUBMITTED JUSTIFICATION', 109, 146);
+      pdf.setFont('helvetica', 'normal');
+      pdf.setFontSize(8.5);
+      pdf.setTextColor(51, 65, 85); // Slate-700
+      const reasonStr = toSafePdfString(leave.reason || 'General Leave / Personal Affairs');
+      const truncatedReason = reasonStr.length > 42 ? reasonStr.substring(0, 39) + '...' : reasonStr;
+      pdf.text(`"${truncatedReason}"`, 109, 152);
+
+      // 7. Perfect Application Accepted Administrative Callout (Soft shaded block)
+      pdf.setFillColor(243, 244, 246); // slate-100
+      pdf.setDrawColor(209, 213, 219); // slate-300
+      pdf.setLineWidth(0.2);
+      pdf.roundedRect(15, 166, 180, 33, 1.5, 1.5, 'FD');
+
+      // Add a clean indigo decorative left-edge ribbon to the callout box
+      pdf.setFillColor(79, 70, 229); // Indigo-600
+      pdf.rect(15, 166, 3, 33, 'F');
+
+      pdf.setFont('helvetica', 'bold');
+      pdf.setFontSize(8);
+      pdf.setTextColor(15, 23, 42); // slate-900
+      pdf.text('OFFICIAL MANAGEMENT RESOLUTION & CONTRACTUAL GUARANTEE', 22, 172.5);
+
+      pdf.setFont('helvetica', 'normal');
+      pdf.setFontSize(7.5);
+      pdf.setTextColor(71, 85, 105); // slate-600
+      const isProprietor = (hrmSettings.orgType || 'proprietor') === 'proprietor';
+      const d1 = isProprietor
+        ? "The Proprietor and administrative management team hereby certify that this leave application is officially accepted."
+        : "The Board of Directors and central Human Resources team hereby certify that this leave application is officially accepted.";
+      const d2 = "Under international labor regulations, the employee's career status, base compensation scale, health coverage, and accrued";
+      const d3 = "seniority bonuses remain fully protected. Regular duties and standard timesheets will resume directly upon expiration.";
+      pdf.text(d1, 22, 178);
+      pdf.text(d2, 22, 182.5);
+      pdf.text(d3, 22, 187);
+
+      // 8. Signature Panel (Y: 206 to 255)
+      const sigY = 216;
+      pdf.setDrawColor(148, 163, 184); // slate-400
+      pdf.setLineWidth(0.35);
+      pdf.line(25, sigY + 16, 80, sigY + 16); // Employer Line
+      pdf.line(130, sigY + 16, 185, sigY + 16); // Employee Line
+
+      pdf.setFont('helvetica', 'bold');
+      pdf.setFontSize(7.5);
+      pdf.setTextColor(15, 23, 42);
+      const signatoryTitle = isProprietor ? 'PROPRIETOR / OWNER' : 'AUTHORIZED HR DIRECTOR';
+      pdf.text(signatoryTitle, 52.5, sigY + 21, { align: 'center' });
+      pdf.text('APPROVED STAFF MEMBER', 157.5, sigY + 21, { align: 'center' });
+
+      // Overlay the official seal stamp if configured
+      if (hrmSettings.sealUrl) {
+        try {
+          pdf.addImage(hrmSettings.sealUrl, 'PNG', 43, sigY - 14, 18, 18);
+        } catch (sealErr) {
+          console.error("Seal image rendering failed:", sealErr);
+        }
+      }
+
+      // Overlay signature if configured
+      if (hrmSettings.signatureUrl) {
+        try {
+          pdf.addImage(hrmSettings.signatureUrl, 'PNG', 41, sigY + 5, 22, 9);
+        } catch (sigErr) {
+          console.error("Signature image rendering failed:", sigErr);
+        }
+      }
+
+      // 9. Bottom Security Verification Footer
+      pdf.setDrawColor(226, 232, 240); // slate-200
+      pdf.setLineWidth(0.4);
+      pdf.line(15, 266, 195, 266);
+
+      pdf.setFont('helvetica', 'normal');
+      pdf.setFontSize(7);
+      pdf.setTextColor(148, 163, 184); // slate-400
+      pdf.text('This document is electronically signed and secured under the central security keys of the POS Sync database protocol.', 105, 272, { align: 'center' });
+      pdf.text(`Official Document Verified • Global Operations Register • Powered by ${toSafePdfString(settings.shopName || 'ShopSync')} AI`, 105, 276, { align: 'center' });
+
+      // Save PDF!
+      pdf.save(`LEAVE_${toSafePdfString(leave.employeeName).replace(/\s+/g, '_')}_${documentId}.pdf`);
+
+      setNotification({
+        message: isBn ? 'ছুটি মঞ্জুরের পত্রটি সফলভাবে ডাউনলোড করা হয়েছে!' : 'Leave Certificate PDF downloaded successfully!',
+        type: 'success'
+      });
+    } catch (err) {
+      console.error("Leave PDF generation error:", err);
+      setNotification({
+        message: isBn ? 'ছুটি পত্র পিডিএফ তৈরি করতে ব্যর্থ হয়েছে' : 'Failed to generate Leave Certificate PDF',
         type: 'error'
       });
     }
@@ -1314,16 +2160,27 @@ CRITICAL INSTRUCTIONS:
     // Let's seed default attendance logs if empty
     if (employees.length > 0 && attendanceLogs.length === 0) {
       const todayStr = new Date().toISOString().split('T')[0];
-      const initialLogs = employees.map((emp, idx) => ({
-        id: `att-${emp.id}-${todayStr}`,
-        employeeId: emp.id,
-        employeeName: emp.name,
-        date: todayStr,
-        checkIn: idx % 4 === 0 ? '09:25 AM' : '08:55 AM',
-        checkOut: idx % 4 === 0 ? '---' : '06:05 PM',
-        status: idx % 5 === 4 ? 'Absent' : idx % 4 === 0 ? 'Late' : 'Present',
-        overtime: idx % 3 === 1 ? 2 : 0
-      }));
+      const initialLogs = employees.map((emp, idx) => {
+        const isLate = idx % 4 === 0;
+        const isAbsent = idx % 5 === 4;
+        const status = isAbsent ? 'Absent' : isLate ? 'Late' : 'Present';
+        return {
+          id: `att-${emp.id}-${todayStr}`,
+          employeeId: emp.id,
+          employeeName: emp.name,
+          date: todayStr,
+          checkIn: isAbsent ? '---' : isLate ? '08:25 AM' : '07:55 AM',
+          checkOut: isAbsent ? '---' : '05:05 PM',
+          checkInRaw: isAbsent ? '' : isLate ? '08:25' : '07:55',
+          checkOutRaw: isAbsent ? '' : '17:05',
+          status,
+          lateMinutes: isLate ? 25 : 0,
+          earlyExitMinutes: 0,
+          overtime: idx % 3 === 1 ? 2 : 0,
+          weekendOvertime: 0,
+          isWeekend: new Date(todayStr).getDay() === 5
+        };
+      });
       setAttendanceLogs(initialLogs);
     }
   }, [employees]);
@@ -1354,6 +2211,11 @@ CRITICAL INSTRUCTIONS:
       if (bundleStaffId && !validEmployeeIds.has(bundleStaffId)) {
         setBundleStaffId('');
       }
+      if (timesheetFilterEmp && !validEmployeeIds.has(timesheetFilterEmp)) {
+        setTimesheetFilterEmp(employees[0]?.id || '');
+      } else if (!timesheetFilterEmp && employees.length > 0) {
+        setTimesheetFilterEmp(employees[0].id);
+      }
 
       // 5. Filter any leftover local items in leaveRequests, payrollHistory or hrmRecords
       setLeaveRequests(prev => prev.filter(req => !req.employeeId || validEmployeeIds.has(req.employeeId)));
@@ -1369,11 +2231,12 @@ CRITICAL INSTRUCTIONS:
       setEditingEmployee(null);
       setPayrollStaffId('');
       setBundleStaffId('');
+      setTimesheetFilterEmp('');
       setLeaveRequests([]);
       setPayrollHistory([]);
       setHrmRecords([]);
     }
-  }, [employees, selectedCertEmployee, editingEmployee, payrollStaffId, bundleStaffId]);
+  }, [employees, selectedCertEmployee, editingEmployee, payrollStaffId, bundleStaffId, timesheetFilterEmp]);
 
   // Advanced HRM settings real-time sync
   useEffect(() => {
@@ -1390,7 +2253,8 @@ CRITICAL INSTRUCTIONS:
           sealUrl: data.sealUrl || '',
           prePrintedPad: !!data.prePrintedPad,
           headerText: data.headerText || settings?.shopName || 'ShopSync Corporation',
-          footerText: data.footerText || 'Verified Digital Document © ShopSync'
+          footerText: data.footerText || 'Verified Digital Document © ShopSync',
+          orgType: data.orgType || 'proprietor'
         });
       }
     });
@@ -1782,49 +2646,442 @@ CRITICAL INSTRUCTIONS:
     }
   };
 
-  // Quick Attendance Actions
-  const handlePunchAttendance = (empId: string, actionStatus: 'Present' | 'Late' | 'Absent') => {
-    const todayStr = new Date().toISOString().split('T')[0];
-    const logId = `att-${empId}-${todayStr}`;
-    
-    // Check if checkin already exists for today
-    const existingIndex = attendanceLogs.findIndex(log => log.id === logId);
-    const emp = employees.find(e => e.id === empId);
+  // Helper to parse "HH:MM" (24h) to minutes
+  const parse24TimeToMinutes = (timeStr: string): number => {
+    if (!timeStr) return 0;
+    const parts = timeStr.split(':');
+    const h = parseInt(parts[0]) || 0;
+    const m = parseInt(parts[1]) || 0;
+    return h * 60 + m;
+  };
 
-    if (!emp) return;
+  // Helper to format 24h string "17:30" to elegant 12h string "05:30 PM"
+  const format12Hour = (time24: string): string => {
+    if (!time24 || time24 === '---') return '---';
+    const parts = time24.split(':');
+    let h = parseInt(parts[0]) || 0;
+    const m = parseInt(parts[1]) || 0;
+    const ampm = h >= 12 ? 'PM' : 'AM';
+    h = h % 12;
+    if (h === 0) h = 12;
+    const hStr = h < 10 ? `0${h}` : `${h}`;
+    const mStr = m < 10 ? `0${m}` : `${m}`;
+    return `${hStr}:${mStr} ${ampm}`;
+  };
 
-    const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-
-    if (existingIndex > -1) {
-      const updated = [...attendanceLogs];
-      updated[existingIndex] = {
-        ...updated[existingIndex],
-        status: actionStatus,
-        checkIn: actionStatus === 'Absent' ? '---' : timeStr
-      };
-      setAttendanceLogs(updated);
-    } else {
-      setAttendanceLogs([
-        {
-          id: logId,
-          employeeId: empId,
-          employeeName: emp.name,
-          date: todayStr,
-          checkIn: actionStatus === 'Absent' ? '---' : timeStr,
-          checkOut: '---',
-          status: actionStatus,
-          overtime: 0
-        },
-        ...attendanceLogs
-      ]);
+  const handleClearAttendanceLogs = () => {
+    if (window.confirm(isBn ? 'আপনি কি নিশ্চিতভাবে সকল হাজিরা রেকর্ড মুছে দিতে চান?' : 'Are you sure you want to clear all attendance records?')) {
+      setAttendanceLogs([]);
+      setImportedScannerFile(null);
+      setNotification({
+        message: isBn ? 'সকল হাজিরা রেকর্ড মুছে ফেলা হয়েছে।' : 'All attendance records cleared.',
+        type: 'info'
+      });
     }
+  };
+
+  const handleSimulateScannerImport = () => {
+    if (employees.length === 0) {
+      setNotification({
+        message: isBn ? 'দয়া করে প্রথমে কর্মী যোগ করুন!' : 'Please add some employees first!',
+        type: 'error'
+      });
+      return;
+    }
+
+    // Generate logs for the selected timesheet filter month or current month
+    const targetMonth = timesheetFilterMonth || new Date().toISOString().slice(0, 7);
+    const [yearStr, monthStr] = targetMonth.split('-');
+    const year = parseInt(yearStr);
+    const month = parseInt(monthStr) - 1; // 0-indexed in JS
+
+    const daysInMonth = new Date(year, month + 1, 0).getDate();
+    const newLogs: any[] = [];
+
+    // Let's generate daily records for all active employees
+    employees.forEach(emp => {
+      // default shifts
+      const shInStr = emp.shiftStart || '08:00';
+      const shOutStr = emp.shiftEnd || '17:00';
+      const shInMin = parse24TimeToMinutes(shInStr);
+      const shOutMin = parse24TimeToMinutes(shOutStr);
+
+      for (let day = 1; day <= daysInMonth; day++) {
+        // Skip future days if targetMonth is current month
+        const logDateStr = `${yearStr}-${monthStr}-${day < 10 ? '0' + day : day}`;
+        const logDate = new Date(logDateStr);
+        if (logDate > new Date()) continue;
+
+        const dayOfWeek = logDate.getDay();
+        const isFriday = dayOfWeek === 5; // Friday is Bangladesh weekend
+        const logId = `att-${emp.id}-${logDateStr}`;
+
+        let checkInRaw = '';
+        let checkOutRaw = '';
+        let status: 'Present' | 'Late' | 'Absent' = 'Present';
+        let lateMinutes = 0;
+        let earlyExitMinutes = 0;
+        let overtime = 0;
+        let weekendOvertime = 0;
+
+        // Random generator seed for stability based on day and employee id length
+        const seed = (day * emp.name.length) % 100;
+
+        if (isFriday) {
+          // On Friday, 40% chance of voluntary holiday duty
+          if (seed < 40) {
+            status = 'Present';
+            checkInRaw = '08:00';
+            checkOutRaw = '13:00';
+            const workedMins = parse24TimeToMinutes(checkOutRaw) - parse24TimeToMinutes(checkInRaw);
+            weekendOvertime = parseFloat((workedMins / 60).toFixed(1));
+          } else {
+            // Weekend off, no entry
+            continue;
+          }
+        } else {
+          // Regular day
+          if (seed === 7) {
+            status = 'Absent';
+          } else {
+            // Arrives late with some probability
+            if (seed % 9 === 0) {
+              const lateMins = 5 + (seed % 15); // 5 to 19 minutes late
+              const arrMin = shInMin + lateMins;
+              const h = Math.floor(arrMin / 60);
+              const m = arrMin % 60;
+              checkInRaw = `${h < 10 ? '0' + h : h}:${m < 10 ? '0' + m : m}`;
+              status = 'Late';
+              lateMinutes = lateMins;
+            } else {
+              const earlyMins = seed % 12; // 0 to 11 minutes early
+              const arrMin = shInMin - earlyMins;
+              const h = Math.floor(arrMin / 60);
+              const m = arrMin % 60;
+              checkInRaw = `${h < 10 ? '0' + h : h}:${m < 10 ? '0' + m : m}`;
+              status = 'Present';
+            }
+
+            // Departs early or late (Overtime)
+            if (seed % 7 === 1) {
+              checkOutRaw = '16:30';
+              earlyExitMinutes = 30;
+            } else if (seed % 5 === 2) {
+              const otMins = 30 + (seed % 4) * 30; // 30, 60, 90 mins
+              const depMin = shOutMin + otMins;
+              const h = Math.floor(depMin / 60);
+              const m = depMin % 60;
+              checkOutRaw = `${h < 10 ? '0' + h : h}:${m < 10 ? '0' + m : m}`;
+              overtime = parseFloat((otMins / 60).toFixed(1));
+            } else {
+              checkOutRaw = shOutStr;
+            }
+          }
+        }
+
+        newLogs.push({
+          id: logId,
+          employeeId: emp.id,
+          employeeName: emp.name,
+          date: logDateStr,
+          checkIn: status === 'Absent' ? '---' : format12Hour(checkInRaw),
+          checkOut: status === 'Absent' ? '---' : format12Hour(checkOutRaw),
+          checkInRaw,
+          checkOutRaw,
+          status,
+          lateMinutes,
+          earlyExitMinutes,
+          overtime,
+          weekendOvertime,
+          isWeekend: isFriday
+        });
+      }
+    });
+
+    // Update state by merging new logs with existing ones
+    setAttendanceLogs(prev => {
+      const logMap = new Map(prev.map(l => [l.id, l]));
+      newLogs.forEach(l => logMap.set(l.id, l));
+      return Array.from(logMap.values());
+    });
+
+    setImportedScannerFile({
+      fileName: `face_scan_export_${targetMonth}.csv`,
+      totalRecords: newLogs.length,
+      importedAt: new Date().toLocaleTimeString()
+    });
 
     setNotification({
       message: isBn 
-        ? `${emp.name}-এর হাজিরা নিশ্চিত করা হয়েছে (${actionStatus})` 
-        : `Attendance marked for ${emp.name} as ${actionStatus}`,
+        ? `সফলভাবে বায়োমেট্রিক ফেস স্ক্যানার এক্সেল ফাইল ইম্পোর্ট করা হয়েছে! (${newLogs.length} টি রেকর্ড লোড হয়েছে)`
+        : `Successfully imported biometric face scanner logs! (${newLogs.length} records loaded)`,
       type: 'success'
     });
+  };
+
+  const handleManualPunchSave = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!manualAttendanceEmp) {
+      setNotification({
+        message: isBn ? 'দয়া করে কর্মী নির্বাচন করুন।' : 'Please select an employee.',
+        type: 'error'
+      });
+      return;
+    }
+    const emp = employees.find(e => e.id === manualAttendanceEmp);
+    if (!emp) return;
+
+    const logDate = manualAttendanceDate;
+    const logId = `att-${emp.id}-${logDate}`;
+
+    const shInStr = emp.shiftStart || '08:00';
+    const shOutStr = emp.shiftEnd || '17:00';
+    const shInMin = parse24TimeToMinutes(shInStr);
+    const shOutMin = parse24TimeToMinutes(shOutStr);
+
+    const actualInMin = parse24TimeToMinutes(manualAttendanceIn);
+    const actualOutMin = parse24TimeToMinutes(manualAttendanceOut);
+
+    const dayOfWeek = new Date(logDate).getDay();
+    const isFridayWeekend = dayOfWeek === 5;
+
+    let status: 'Present' | 'Late' | 'Absent' = 'Present';
+    let lateMinutes = 0;
+    let earlyExitMinutes = 0;
+    let overtimeHoursCalc = 0;
+    let weekendOvertimeHoursCalc = 0;
+
+    if (manualAttendanceStatus === 'Absent') {
+      status = 'Absent';
+    } else {
+      if (manualAttendanceStatus === 'Auto') {
+        if (actualInMin > shInMin + 3) {
+          status = 'Late';
+          lateMinutes = actualInMin - shInMin;
+        } else {
+          status = 'Present';
+        }
+      } else {
+        status = manualAttendanceStatus as 'Present' | 'Late';
+        if (status === 'Late') {
+          lateMinutes = Math.max(0, actualInMin - shInMin) || 5;
+        }
+      }
+
+      if (actualOutMin < shOutMin) {
+        earlyExitMinutes = shOutMin - actualOutMin;
+      }
+
+      if (isFridayWeekend) {
+        const totalWorkedMins = Math.max(0, actualOutMin - actualInMin);
+        weekendOvertimeHoursCalc = parseFloat((totalWorkedMins / 60).toFixed(1));
+        overtimeHoursCalc = 0;
+      } else {
+        if (actualOutMin > shOutMin) {
+          const otMins = actualOutMin - shOutMin;
+          overtimeHoursCalc = parseFloat((otMins / 60).toFixed(1));
+        }
+        weekendOvertimeHoursCalc = 0;
+      }
+    }
+
+    const newLog = {
+      id: logId,
+      employeeId: emp.id,
+      employeeName: emp.name,
+      date: logDate,
+      checkIn: status === 'Absent' ? '---' : format12Hour(manualAttendanceIn),
+      checkOut: status === 'Absent' ? '---' : format12Hour(manualAttendanceOut),
+      checkInRaw: manualAttendanceIn,
+      checkOutRaw: manualAttendanceOut,
+      status,
+      lateMinutes,
+      earlyExitMinutes,
+      overtime: overtimeHoursCalc,
+      weekendOvertime: weekendOvertimeHoursCalc,
+      isWeekend: isFridayWeekend
+    };
+
+    setAttendanceLogs(prev => {
+      const idx = prev.findIndex(l => l.id === logId);
+      if (idx > -1) {
+        const copy = [...prev];
+        copy[idx] = newLog;
+        return copy;
+      } else {
+        return [newLog, ...prev];
+      }
+    });
+
+    setNotification({
+      message: isBn 
+        ? `${emp.name}-এর জন্য ${logDate} তারিখের হাজিরা ও ডিউটি রেকর্ড সংরক্ষণ করা হয়েছে`
+        : `Attendance and duty record saved for ${emp.name} on ${logDate}`,
+      type: 'success'
+    });
+  };
+
+  // Quick Attendance Actions
+  const handleLivePunch = (empId: string, action: 'IN' | 'OUT' | 'ABSENT') => {
+    const todayStr = new Date().toISOString().split('T')[0];
+    const logId = `att-${empId}-${todayStr}`;
+    
+    const emp = employees.find(e => e.id === empId);
+    if (!emp) return;
+
+    const existingIndex = attendanceLogs.findIndex(log => log.id === logId);
+    const existingLog = existingIndex > -1 ? attendanceLogs[existingIndex] : null;
+
+    const isFriday = new Date().getDay() === 5;
+    const now = new Date();
+    const h = now.getHours();
+    const m = now.getMinutes();
+    const currentTimeRaw = `${h < 10 ? '0' + h : h}:${m < 10 ? '0' + m : m}`;
+    const currentTimeFormatted = format12Hour(currentTimeRaw);
+
+    const shInStr = emp.shiftStart || '08:00';
+    const shOutStr = emp.shiftEnd || '17:00';
+    const shInMin = parse24TimeToMinutes(shInStr);
+    const shOutMin = parse24TimeToMinutes(shOutStr);
+    const actualMin = h * 60 + m;
+
+    if (action === 'ABSENT') {
+      const newLog = {
+        id: logId,
+        employeeId: empId,
+        employeeName: emp.name,
+        date: todayStr,
+        checkIn: '---',
+        checkOut: '---',
+        checkInRaw: '',
+        checkOutRaw: '',
+        status: 'Absent' as const,
+        lateMinutes: 0,
+        earlyExitMinutes: 0,
+        overtime: 0,
+        weekendOvertime: 0,
+        isWeekend: isFriday
+      };
+      if (existingIndex > -1) {
+        setAttendanceLogs(prev => {
+          const copy = [...prev];
+          copy[existingIndex] = newLog;
+          return copy;
+        });
+      } else {
+        setAttendanceLogs(prev => [newLog, ...prev]);
+      }
+      setNotification({
+        message: isBn ? `${emp.name} কে অনুপস্থিত মার্ক করা হয়েছে` : `Marked ${emp.name} as ABSENT`,
+        type: 'success'
+      });
+      return;
+    }
+
+    if (action === 'IN') {
+      let status: 'Present' | 'Late' | 'Absent' = 'Present';
+      let lateMins = 0;
+
+      if (actualMin > shInMin) {
+        status = 'Late';
+        lateMins = actualMin - shInMin;
+      }
+
+      const newLog = {
+        id: logId,
+        employeeId: empId,
+        employeeName: emp.name,
+        date: todayStr,
+        checkIn: currentTimeFormatted,
+        checkOut: existingLog?.checkOut || '---',
+        checkInRaw: currentTimeRaw,
+        checkOutRaw: existingLog?.checkOutRaw || '',
+        status: status,
+        lateMinutes: lateMins,
+        earlyExitMinutes: existingLog?.earlyExitMinutes || 0,
+        overtime: existingLog?.overtime || 0,
+        weekendOvertime: existingLog?.weekendOvertime || 0,
+        isWeekend: isFriday
+      };
+
+      if (existingIndex > -1) {
+        setAttendanceLogs(prev => {
+          const copy = [...prev];
+          copy[existingIndex] = newLog;
+          return copy;
+        });
+      } else {
+        setAttendanceLogs(prev => [newLog, ...prev]);
+      }
+      setNotification({
+        message: isBn ? `${emp.name} এর ইন টাইম রেকর্ড করা হয়েছে (${currentTimeFormatted})` : `Punched IN for ${emp.name} at ${currentTimeFormatted}`,
+        type: 'success'
+      });
+    } else if (action === 'OUT') {
+      let actualInMin = shInMin;
+      let checkInFormattedToUse = existingLog?.checkIn || format12Hour(shInStr);
+      let checkInRawToUse = existingLog?.checkInRaw || shInStr;
+
+      if (!existingLog || !existingLog.checkInRaw) {
+        // Auto fill In if missing
+        setNotification({
+          message: isBn ? 'আগে ইন টাইম ছিল না, তাই শিফট শুরুর সময় ধরে আউট রেকর্ড করা হলো।' : 'No IN record, auto-filled IN with shift start.',
+          type: 'info'
+        });
+      } else {
+        actualInMin = parse24TimeToMinutes(existingLog.checkInRaw);
+      }
+      
+      let earlyExitMins = 0;
+      let overtimeHoursCalc = 0;
+      let weekendOvertimeHoursCalc = 0;
+
+      if (actualMin < shOutMin) {
+        earlyExitMins = shOutMin - actualMin;
+      }
+
+      if (isFriday) {
+        const totalWorkedMins = Math.max(0, actualMin - actualInMin);
+        weekendOvertimeHoursCalc = parseFloat((totalWorkedMins / 60).toFixed(1));
+      } else {
+        if (actualMin > shOutMin) {
+          const otMins = actualMin - shOutMin;
+          overtimeHoursCalc = parseFloat((otMins / 60).toFixed(1));
+        }
+      }
+
+      const updatedLog = {
+        id: logId,
+        employeeId: empId,
+        employeeName: emp.name,
+        date: todayStr,
+        checkIn: checkInFormattedToUse,
+        checkInRaw: checkInRawToUse,
+        checkOut: currentTimeFormatted,
+        checkOutRaw: currentTimeRaw,
+        status: existingLog?.status && existingLog.status !== 'Absent' ? existingLog.status : 'Present',
+        lateMinutes: existingLog?.lateMinutes || 0,
+        earlyExitMinutes: earlyExitMins,
+        overtime: overtimeHoursCalc,
+        weekendOvertime: weekendOvertimeHoursCalc,
+        isWeekend: isFriday
+      };
+
+      if (existingIndex > -1) {
+        setAttendanceLogs(prev => {
+          const copy = [...prev];
+          copy[existingIndex] = updatedLog;
+          return copy;
+        });
+      } else {
+        setAttendanceLogs(prev => [updatedLog, ...prev]);
+      }
+
+      setNotification({
+        message: isBn ? `${emp.name} এর আউট টাইম রেকর্ড করা হয়েছে (${currentTimeFormatted})` : `Punched OUT for ${emp.name} at ${currentTimeFormatted}`,
+        type: 'success'
+      });
+    }
   };
 
   // Salary calculation computed variables
@@ -1976,6 +3233,8 @@ CRITICAL INSTRUCTIONS:
 
     const start = fd.get('startDate') as string;
     const end = fd.get('endDate') as string;
+    const leaveType = fd.get('leaveType') as string;
+    const isLeaveInAdvance = leaveType === 'Leave in Advance';
 
     const daysCount = Math.max(1, Math.round((new Date(end).getTime() - new Date(start).getTime()) / (1000 * 60 * 60 * 24)) + 1);
     const newLeaveId = `leave-${Date.now()}`;
@@ -1985,11 +3244,19 @@ CRITICAL INSTRUCTIONS:
       shopId: user.shopId,
       employeeId: emp.id,
       employeeName: emp.name,
-      leaveType: fd.get('leaveType') as string,
+      leaveType,
       startDate: start,
       endDate: end,
       daysCount,
-      reason: fd.get('reason') as string,
+      reason: (fd.get('reason') as string) || leaveReasonText,
+      attachment: leaveAttachment || null,
+      recipient: isLeaveInAdvance ? (fd.get('recipient') as string || leaveRecipientText) : null,
+      subject: isLeaveInAdvance ? (fd.get('subject') as string || leaveSubjectText) : null,
+      experienceDuration: isLeaveInAdvance ? (fd.get('experienceDuration') as string || leaveDurationText) : null,
+      destinationCountry: isLeaveInAdvance ? (fd.get('destinationCountry') as string || leaveDestinationText) : null,
+      proprietorName: isLeaveInAdvance ? (fd.get('proprietorName') as string || leaveProprietorName) : null,
+      proprietorTitle: isLeaveInAdvance ? (fd.get('proprietorTitle') as string || leaveProprietorTitle) : null,
+      proprietorPhone: isLeaveInAdvance ? (fd.get('proprietorPhone') as string || leaveProprietorPhone) : null,
       status: 'Pending',
       createdAt: new Date().toISOString()
     };
@@ -2001,6 +3268,16 @@ CRITICAL INSTRUCTIONS:
         type: 'success'
       });
       form.reset();
+      setLeaveAttachment(null);
+      setLeaveReasonText('');
+      setLeaveRecipientText('To Whom It May Concern');
+      setLeaveSubjectText('No Objection Certificate');
+      setLeaveDurationText('over 1 and half year');
+      setLeaveDestinationText('India');
+      setLeaveProprietorName('Md Nurul Islam');
+      setLeaveProprietorTitle('Proprietor');
+      setLeaveProprietorPhone('01849555552');
+      setSelectedLeaveType('Casual Leave');
     } catch (err: any) {
       console.error(err);
       setNotification({ message: 'Error submitting leave request', type: 'error' });
@@ -2293,37 +3570,24 @@ CRITICAL INSTRUCTIONS:
 
                         {/* Mark Attendance Trigger button list */}
                         <div className="flex items-center gap-1.5">
-                          {punch ? (
-                            <span className={`px-3 py-1 rounded-xl text-[10px] font-black uppercase ${
-                              punch.status === 'Present' 
-                                ? 'bg-emerald-50 text-emerald-600' 
-                                : punch.status === 'Late' 
-                                ? 'bg-amber-50 text-amber-600 animate-pulse' 
-                                : 'bg-red-50 text-red-500'
-                            }`}>
-                              🟢 {punch.status} ({punch.checkIn})
+                          {punch?.checkOutRaw ? (
+                            <span className="px-3 py-1 bg-slate-100 text-slate-500 rounded-xl text-[10px] font-black uppercase">
+                              {isBn ? 'সম্পন্ন' : 'Completed'}
                             </span>
+                          ) : punch?.checkInRaw ? (
+                            <button
+                              onClick={() => handleLivePunch(emp.id, 'OUT')}
+                              className="px-3 py-1.5 hover:bg-amber-600 bg-amber-50 hover:text-white text-amber-600 rounded-xl text-[10px] font-black transition-colors"
+                            >
+                              {isBn ? 'লাইভ আউট' : 'Punch OUT'}
+                            </button>
                           ) : (
-                            <>
-                              <button
-                                onClick={() => handlePunchAttendance(emp.id, 'Present')}
-                                className="px-2.5 py-1.5 hover:bg-emerald-600 bg-emerald-50 hover:text-white text-emerald-600 rounded-xl text-[10px] font-black transition-colors"
-                              >
-                                {isBn ? 'উপস্থিত' : 'Present'}
-                              </button>
-                              <button
-                                onClick={() => handlePunchAttendance(emp.id, 'Late')}
-                                className="px-2.5 py-1.5 hover:bg-amber-600 bg-amber-50 hover:text-white text-amber-600 rounded-xl text-[10px] font-black transition-colors"
-                              >
-                                {isBn ? 'দেরি' : 'Late'}
-                              </button>
-                              <button
-                                onClick={() => handlePunchAttendance(emp.id, 'Absent')}
-                                className="px-2.5 py-1.5 hover:bg-red-600 bg-red-50 hover:text-white text-red-500 rounded-xl text-[10px] font-black transition-colors"
-                              >
-                                {isBn ? 'অনুপস্থিত' : 'Absent'}
-                              </button>
-                            </>
+                            <button
+                              onClick={() => handleLivePunch(emp.id, 'IN')}
+                              className="px-3 py-1.5 hover:bg-emerald-600 bg-emerald-50 hover:text-white text-emerald-600 rounded-xl text-[10px] font-black transition-colors"
+                            >
+                              {isBn ? 'লাইভ ইন' : 'Punch IN'}
+                            </button>
                           )}
                         </div>
                       </div>
@@ -3054,105 +4318,833 @@ CRITICAL INSTRUCTIONS:
       )}
 
       {/* 3. Attendance Tracker */}
-      {activeTab === 'attendance_tracker' && (
-        <div className="bg-white p-6 rounded-3xl border border-gray-150/70 shadow-sm space-y-6">
-          <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-            <div>
-              <h3 className="text-sm font-black text-gray-900 uppercase tracking-widest">
-                📅 {isBn ? 'হাজিরা ও ডিউটি শিফ্ট ওভারভিউ' : 'Attendance & Duty Shifts Overview'}
-              </h3>
-              <p className="text-[11px] text-gray-500 font-bold mt-1">
-                {isBn 
-                  ? 'দৈনিক হাজিরা হিসাব, ওভারটাইম ঘণ্টা ও কর্মীদের কর্মক্ষমতা রেকর্ড।' 
-                  : 'Manage active attendance entries, records, and monthly logs.'}
-              </p>
-            </div>
-          </div>
+      {activeTab === 'attendance_tracker' && (() => {
+        // Find selected employee details for timesheet summary
+        const selectedEmpDetails = employees.find(e => e.id === timesheetFilterEmp);
+        
+        // Filter monthly logs for selected employee and month
+        const filteredLogs = attendanceLogs
+          .filter(log => log.employeeId === timesheetFilterEmp && log.date.startsWith(timesheetFilterMonth))
+          .sort((a, b) => a.date.localeCompare(b.date));
 
-          <div className="overflow-x-auto border rounded-2xl">
-            <table className="w-full text-left text-xs text-gray-500 font-semibold">
-              <thead className="bg-slate-50 text-[10px] font-black uppercase text-slate-700 tracking-wider">
-                <tr>
-                  <th className="px-6 py-4">{isBn ? 'স্টাফের নাম' : 'Staff Profile'}</th>
-                  <th className="px-6 py-4">{isBn ? 'যোগদানের তারিখ' : 'Joining Date'}</th>
-                  <th className="px-6 py-4">{isBn ? 'আজকের ইন' : 'Check In'}</th>
-                  <th className="px-6 py-4">{isBn ? 'আজকের আউট' : 'Check Out'}</th>
-                  <th className="px-6 py-4">{isBn ? 'আজকের স্ট্যাটাস' : 'Attendance Status'}</th>
-                  <th className="px-6 py-4">{isBn ? 'ওভারটাইম (ঘণ্টা)' : 'Overtime Hours'}</th>
-                  <th className="px-6 py-4 text-right">{isBn ? 'অ্যাকশন' : 'Mark Absence'}</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-150">
-                {employees.map(emp => {
-                  const todayStr = new Date().toISOString().split('T')[0];
-                  const punch = attendanceLogs.find(log => log.employeeId === emp.id && log.date === todayStr);
-                  return (
-                    <tr key={emp.id} className="hover:bg-slate-50/50">
-                      <td className="px-6 py-4 flex items-center gap-3">
-                        <img src={emp.photoUrl || "https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?q=80&w=256&h=256&fit=crop"} className="w-8 h-8 rounded-full object-cover border" alt="" />
-                        <div>
-                          <p className="font-bold text-gray-900">{emp.name} (ID: {getStaffDisplayId(emp)})</p>
-                          <p className="text-[10px] font-bold text-gray-400">{emp.designation}</p>
+        // Calculate summary statistics
+        let daysPresent = 0;
+        let daysAbsent = 0;
+        let lateCount = 0;
+        let totalLateMinutes = 0;
+        let earlyExitCount = 0;
+        let totalEarlyMinutes = 0;
+        let totalOvertimeHours = 0;
+        let totalWeekendOvertimeHours = 0;
+
+        filteredLogs.forEach(log => {
+          if (log.status === 'Absent') {
+            daysAbsent++;
+          } else {
+            daysPresent++;
+            if (log.status === 'Late') {
+              lateCount++;
+              totalLateMinutes += log.lateMinutes || 0;
+            }
+            if (log.earlyExitMinutes > 0) {
+              earlyExitCount++;
+              totalEarlyMinutes += log.earlyExitMinutes;
+            }
+            totalOvertimeHours += log.overtime || 0;
+            totalWeekendOvertimeHours += log.weekendOvertime || 0;
+          }
+        });
+
+        const todayStr = new Date().toISOString().split('T')[0];
+        const todayLogs = attendanceLogs.filter(log => log.date === todayStr);
+
+        // Helper to parse 24h time to minutes for shift filter classification
+        const parse24TimeToMinutes = (timeStr: string): number => {
+          if (!timeStr) return 540; // Default to 9:00 AM (540 mins)
+          const [h, m] = timeStr.split(':').map(Number);
+          return (isNaN(h) ? 9 : h) * 60 + (isNaN(m) ? 0 : m);
+        };
+
+        // Filter employees based on our live attendance dashboard selections
+        const filteredEmployees = employees.filter(emp => {
+          // 1. Location / Branch Filter
+          if (liveBranchFilter !== 'all') {
+            if (liveBranchFilter === 'warehouse') {
+              const des = (emp.designation || '').toLowerCase();
+              const isWh = des.includes('warehouse') || des.includes('store') || emp.branchId === 'warehouse';
+              if (!isWh) return false;
+            } else {
+              if (emp.branchId !== liveBranchFilter) return false;
+            }
+          }
+
+          // 2. Shift Filter
+          if (liveShiftFilter !== 'all') {
+            const startMin = parse24TimeToMinutes(emp.shiftStart || '09:00');
+            let shiftType = 'general';
+            if (startMin >= 300 && startMin < 720) {
+              shiftType = 'morning';
+            } else if (startMin >= 720 && startMin < 1080) {
+              shiftType = 'afternoon';
+            } else if (startMin >= 1080 || startMin < 300) {
+              shiftType = 'night';
+            }
+
+            if (liveShiftFilter === 'morning' && shiftType !== 'morning') return false;
+            if (liveShiftFilter === 'afternoon' && shiftType !== 'afternoon') return false;
+            if (liveShiftFilter === 'night' && shiftType !== 'night') return false;
+          }
+
+          // 3. Attendance Status Filter
+          if (liveStatusFilter !== 'all') {
+            const punch = todayLogs.find(log => log.employeeId === emp.id);
+            const status = punch ? punch.status : 'Pending';
+
+            if (liveStatusFilter === 'Present' && status !== 'Present') return false;
+            if (liveStatusFilter === 'Late' && status !== 'Late') return false;
+            if (liveStatusFilter === 'Absent' && status !== 'Absent') return false;
+            if (liveStatusFilter === 'Pending' && punch) return false; // Not checked in yet
+          }
+
+          return true;
+        });
+
+        // Dynamic Summary Statistics based on active filters
+        const totalStaffCount = filteredEmployees.length;
+        const presentCount = filteredEmployees.filter(emp => {
+          const punch = todayLogs.find(log => log.employeeId === emp.id);
+          return punch?.status === 'Present';
+        }).length;
+        const lateStaffCount = filteredEmployees.filter(emp => {
+          const punch = todayLogs.find(log => log.employeeId === emp.id);
+          return punch?.status === 'Late';
+        }).length;
+        const absentCount = filteredEmployees.filter(emp => {
+          const punch = todayLogs.find(log => log.employeeId === emp.id);
+          return punch?.status === 'Absent';
+        }).length;
+        const pendingCount = totalStaffCount - (presentCount + lateStaffCount + absentCount);
+
+        const handleSaveRoster = async () => {
+          if (!rosterEditingEmployee) return;
+          try {
+            const empRef = doc(db, 'employees', rosterEditingEmployee.id);
+            await updateDoc(empRef, {
+              shiftStart: rosterShiftStart,
+              shiftEnd: rosterShiftEnd
+            });
+            setNotification({
+              message: isBn 
+                ? `${rosterEditingEmployee.name}-এর ডিউটি শিফট ও রোস্টার সফলভাবে পরিবর্তন করা হয়েছে (${format12Hour(rosterShiftStart)} - ${format12Hour(rosterShiftEnd)})`
+                : `Shift roster for ${rosterEditingEmployee.name} updated to ${format12Hour(rosterShiftStart)} - ${format12Hour(rosterShiftEnd)}`,
+              type: 'success'
+            });
+            setRosterEditingEmployee(null);
+          } catch (error) {
+            setNotification({
+              message: isBn ? 'ডিউটি শিফট পরিবর্তন করতে সমস্যা হয়েছে।' : 'Error updating shift roster.',
+              type: 'error'
+            });
+          }
+        };
+
+        const hasWarehouse = settings?.warehouseEnabled !== false;
+        const availableBranches = branches || [];
+        const hasBranches = availableBranches.length > 0;
+        const showLocationFilter = hasBranches || hasWarehouse;
+
+        return (
+          <div className="space-y-6">
+            
+            {/* Manager's Live Attendance Dashboard */}
+            <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm space-y-6">
+              <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 border-b border-slate-100 pb-4">
+                <div>
+                  <h3 className="text-sm font-black text-slate-800 uppercase tracking-wider flex items-center gap-2">
+                    <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse inline-block"></span>
+                    {isBn ? 'আজকের লাইভ হাজিরা ও ডিউটি রোস্টার প্যানেল' : "Today's Live Attendance & Duty Roster"}
+                  </h3>
+                  <p className="text-[11px] text-slate-500 font-bold mt-2 max-w-2xl">
+                    {isBn 
+                      ? 'শাখা ব্যবস্থাপক ও ওয়্যারহাউজ কর্মীদের ডিউটি রোস্টার তত্ত্বাবধান, রিয়েল-টাইম শিফট নির্বাচন ও রুটিন পরিবর্তন করার পরিপূর্ণ সুপারভাইজর কন্ট্রোল সেন্টার।' 
+                      : "Comprehensive Supervisor Control Center: Real-time Branch / Warehouse filtering, automatic stats computation, and live shift roster scheduling."}
+                  </p>
+                </div>
+
+                {/* Filter Controls */}
+                <div className={`grid grid-cols-1 ${showLocationFilter ? 'sm:grid-cols-3' : 'sm:grid-cols-2'} gap-3 bg-slate-50 p-3 rounded-2xl border border-slate-100 w-full lg:w-auto`}>
+                  {/* Location Filter */}
+                  {showLocationFilter && (
+                    <div className="flex flex-col gap-1">
+                      <span className="text-[9px] font-extrabold uppercase text-slate-400 tracking-wider">
+                        {isBn ? 'শাখা ও ওয়্যারহাউজ' : 'Branch/Warehouse'}
+                      </span>
+                      <select
+                        value={liveBranchFilter}
+                        onChange={e => setLiveBranchFilter(e.target.value)}
+                        className="px-2.5 py-1.5 rounded-xl border border-slate-200 bg-white text-[11px] font-bold text-slate-700 outline-none focus:ring-2 focus:ring-indigo-100"
+                      >
+                        <option value="all">{isBn ? 'সকল শাখা ও ওয়্যারহাউজ' : 'All Locations'}</option>
+                        {availableBranches.map(b => (
+                          <option key={b.id} value={b.id}>{b.name}</option>
+                        ))}
+                        {hasWarehouse && (
+                          <option value="warehouse">{isBn ? 'ওয়্যারহাউজ কর্মী' : 'Warehouse Staff'}</option>
+                        )}
+                      </select>
+                    </div>
+                  )}
+
+                  {/* Shift Filter */}
+                  <div className="flex flex-col gap-1">
+                    <span className="text-[9px] font-extrabold uppercase text-slate-400 tracking-wider">
+                      {isBn ? 'ডিউটি শিফট' : 'Shift Roster'}
+                    </span>
+                    <select
+                      value={liveShiftFilter}
+                      onChange={e => setLiveShiftFilter(e.target.value)}
+                      className="px-2.5 py-1.5 rounded-xl border border-slate-200 bg-white text-[11px] font-bold text-slate-700 outline-none focus:ring-2 focus:ring-indigo-100"
+                    >
+                      <option value="all">{isBn ? 'সকল শিফট' : 'All Shifts'}</option>
+                      <option value="morning">{isBn ? 'সকাল (Morning)' : 'Morning Shift'}</option>
+                      <option value="afternoon">{isBn ? 'বিকাল (Afternoon)' : 'Afternoon Shift'}</option>
+                      <option value="night">{isBn ? 'রাত (Night)' : 'Night Shift'}</option>
+                    </select>
+                  </div>
+
+                  {/* Attendance Status Filter */}
+                  <div className="flex flex-col gap-1">
+                    <span className="text-[9px] font-extrabold uppercase text-slate-400 tracking-wider">
+                      {isBn ? 'হাজিরা অবস্থা' : 'Punch Status'}
+                    </span>
+                    <select
+                      value={liveStatusFilter}
+                      onChange={e => setLiveStatusFilter(e.target.value)}
+                      className="px-2.5 py-1.5 rounded-xl border border-slate-200 bg-white text-[11px] font-bold text-slate-700 outline-none focus:ring-2 focus:ring-indigo-100"
+                    >
+                      <option value="all">{isBn ? 'সব হাজিরা অবস্থা' : 'All Statuses'}</option>
+                      <option value="Present">{isBn ? 'উপস্থিত' : 'Present'}</option>
+                      <option value="Late">{isBn ? 'দেরি (Late)' : 'Late'}</option>
+                      <option value="Absent">{isBn ? 'অনুপস্থিত' : 'Absent'}</option>
+                      <option value="Pending">{isBn ? 'বাকি (Not Checked In)' : 'Not Checked In'}</option>
+                    </select>
+                  </div>
+                </div>
+              </div>
+
+              {/* Today's Summary Metrics */}
+              <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+                <div className="bg-gradient-to-br from-indigo-50 to-white p-4 rounded-2xl border border-indigo-100 flex items-center gap-3 shadow-sm hover:shadow-md transition-shadow">
+                  <div className="w-10 h-10 rounded-xl bg-indigo-100 text-indigo-600 flex items-center justify-center font-black shadow-inner">
+                    <Users className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <p className="text-[9px] font-black text-indigo-400 uppercase tracking-widest">{isBn ? 'স্টাফ সংখ্যা' : 'Staff Count'}</p>
+                    <p className="text-xl font-black text-indigo-900 font-mono leading-none mt-1">{totalStaffCount}</p>
+                  </div>
+                </div>
+                <div className="bg-gradient-to-br from-emerald-50 to-white p-4 rounded-2xl border border-emerald-100 flex items-center gap-3 shadow-sm hover:shadow-md transition-shadow">
+                  <div className="w-10 h-10 rounded-xl bg-emerald-100 text-emerald-600 flex items-center justify-center font-black shadow-inner">
+                    <CheckCircle2 className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <p className="text-[9px] font-black text-emerald-500 uppercase tracking-widest">{isBn ? 'উপস্থিত' : 'Present'}</p>
+                    <p className="text-xl font-black text-emerald-900 font-mono leading-none mt-1">{presentCount}</p>
+                  </div>
+                </div>
+                <div className="bg-gradient-to-br from-amber-50 to-white p-4 rounded-2xl border border-amber-100 flex items-center gap-3 shadow-sm hover:shadow-md transition-shadow">
+                  <div className="w-10 h-10 rounded-xl bg-amber-100 text-amber-600 flex items-center justify-center font-black shadow-inner">
+                    <Clock className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <p className="text-[9px] font-black text-amber-500 uppercase tracking-widest">{isBn ? 'দেরি' : 'Late'}</p>
+                    <p className="text-xl font-black text-amber-900 font-mono leading-none mt-1">{lateStaffCount}</p>
+                  </div>
+                </div>
+                <div className="bg-gradient-to-br from-rose-50 to-white p-4 rounded-2xl border border-rose-100 flex items-center gap-3 shadow-sm hover:shadow-md transition-shadow">
+                  <div className="w-10 h-10 rounded-xl bg-rose-100 text-rose-600 flex items-center justify-center font-black shadow-inner">
+                    <XCircle className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <p className="text-[9px] font-black text-rose-500 uppercase tracking-widest">{isBn ? 'অনুপস্থিত' : 'Absent'}</p>
+                    <p className="text-xl font-black text-rose-900 font-mono leading-none mt-1">{absentCount}</p>
+                  </div>
+                </div>
+                <div className="bg-gradient-to-br from-slate-100 to-white p-4 rounded-2xl border border-slate-200 flex items-center gap-3 shadow-sm hover:shadow-md transition-shadow">
+                  <div className="w-10 h-10 rounded-xl bg-slate-200 text-slate-600 flex items-center justify-center font-black shadow-inner">
+                    <LogIn className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <p className="text-[9px] font-black text-slate-500 uppercase tracking-widest">{isBn ? 'হাজিরা বাকি' : 'Not Punched'}</p>
+                    <p className="text-xl font-black text-slate-900 font-mono leading-none mt-1">{pendingCount}</p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Live Attendance List - Modern Card View */}
+              <div className="space-y-3">
+                {filteredEmployees.length === 0 ? (
+                  <div className="p-8 text-center bg-slate-50 rounded-2xl border border-dashed border-slate-200">
+                    <p className="text-xs font-bold text-slate-500">
+                      {isBn ? 'কোনো কর্মী খুঁজে পাওয়া যায়নি।' : 'No employees match the selected location or shift filters.'}
+                    </p>
+                  </div>
+                ) : (
+                  filteredEmployees.map(emp => {
+                    const punch = attendanceLogs.find(log => log.employeeId === emp.id && log.date === todayStr);
+                    
+                    const isPresent = punch?.status === 'Present';
+                    const isLate = punch?.status === 'Late';
+                    const isAbsent = punch?.status === 'Absent';
+                    const isCompleted = punch?.checkOutRaw;
+                    const isPunchedIn = punch?.checkInRaw && !isCompleted;
+
+                    return (
+                      <div key={emp.id} className="group bg-white border border-slate-200 hover:border-indigo-300 rounded-2xl p-4 flex flex-col md:flex-row items-start md:items-center justify-between gap-4 transition-all shadow-sm hover:shadow-md">
+                        
+                        {/* Left: Profile & Info */}
+                        <div className="flex items-center gap-4 w-full md:w-auto">
+                          <div className="relative">
+                            <img src={emp.photoUrl || "https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?q=80&w=256&h=256&fit=crop"} className="w-12 h-12 rounded-full object-cover border-2 border-slate-100 shadow-sm" alt="" />
+                            <div className={`absolute -bottom-1 -right-1 w-4 h-4 rounded-full border-2 border-white flex items-center justify-center ${
+                              isPresent ? 'bg-emerald-500' : isLate ? 'bg-amber-500' : isAbsent ? 'bg-rose-500' : 'bg-slate-300'
+                            }`}></div>
+                          </div>
+                          <div>
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <p className="font-black text-slate-900 text-sm">{emp.name}</p>
+                              <span className="text-[9px] font-black uppercase tracking-wider text-slate-400 bg-slate-100 px-1.5 py-0.5 rounded">
+                                {getStaffDisplayId(emp)}
+                              </span>
+                            </div>
+                            <p className="text-[11px] font-bold text-slate-500 mt-0.5">{emp.designation}</p>
+
+                            {/* Shift & Location Details with direct Change Shift trigger */}
+                            <div className="mt-1.5 flex flex-wrap gap-2 items-center text-[10px]">
+                              <span className="flex items-center gap-1 bg-indigo-50/70 text-indigo-700 font-extrabold px-2 py-0.5 rounded-lg border border-indigo-100/60">
+                                <Clock className="w-3.5 h-3.5 text-indigo-500" />
+                                {isBn ? 'শিফট:' : 'Shift:'} {format12Hour(emp.shiftStart || '09:00')} - {format12Hour(emp.shiftEnd || '18:00')}
+                              </span>
+                              <span className="bg-slate-100 text-slate-600 px-2 py-0.5 rounded-lg font-extrabold">
+                                {branches?.find(b => b.id === emp.branchId)?.name || (emp.designation?.toLowerCase().includes('warehouse') || emp.designation?.toLowerCase().includes('store') || emp.branchId === 'warehouse' ? (isBn ? 'ওয়্যারহাউজ' : 'Warehouse') : (isBn ? 'মেইন শাখা' : 'Main Branch'))}
+                              </span>
+                              <button
+                                onClick={() => {
+                                  setRosterEditingEmployee(emp);
+                                  setRosterShiftStart(emp.shiftStart || '09:00');
+                                  setRosterShiftEnd(emp.shiftEnd || '18:00');
+                                }}
+                                className="flex items-center gap-1 text-[10px] text-indigo-600 hover:text-indigo-800 font-black hover:underline cursor-pointer ml-1"
+                                title={isBn ? 'রোস্টার শিফট পরিবর্তন করুন' : 'Change shift roster'}
+                              >
+                                <Edit className="w-3 h-3" />
+                                {isBn ? 'রোস্টার পরিবর্তন' : 'Change Roster'}
+                              </button>
+                            </div>
+                          </div>
                         </div>
-                      </td>
-                      <td className="px-6 py-4 font-mono font-bold text-gray-650">{emp.joiningDate || '---'}</td>
-                      <td className="px-6 py-4 font-mono font-bold text-gray-900">{punch?.checkIn || '---'}</td>
-                      <td className="px-6 py-4 font-mono font-bold text-gray-900">{punch?.checkOut || '---'}</td>
-                      <td className="px-6 py-4">
-                        <span className={`px-2 py-0.5 rounded text-[10px] font-black uppercase ${
-                          punch?.status === 'Present' 
-                            ? 'bg-emerald-50 text-emerald-600' 
-                            : punch?.status === 'Late' 
-                            ? 'bg-amber-50 text-amber-600' 
-                            : punch?.status === 'Absent' 
-                            ? 'bg-red-50 text-red-600 font-extrabold'
-                            : 'bg-slate-100 text-slate-500'
-                        }`}>
-                          {punch?.status || 'No entry today'}
-                        </span>
-                      </td>
-                      <td className="px-6 py-4 font-mono font-extrabold text-indigo-650 inline-flex items-center gap-1.5 pt-4">
-                        <span>{punch?.overtime || 0} Hrs</span>
+
+                        {/* Middle: Times & Status */}
+                        <div className="flex items-center gap-6 w-full md:w-auto justify-between md:justify-start bg-slate-50 md:bg-transparent p-3 md:p-0 rounded-xl border border-slate-100 md:border-transparent">
+                          
+                          <div className="flex flex-col">
+                            <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest">{isBn ? 'ইন টাইম' : 'IN TIME'}</span>
+                            <span className={`font-mono font-black ${punch?.checkIn ? 'text-slate-800' : 'text-slate-300'}`}>
+                              {punch?.checkIn || '--:--'}
+                            </span>
+                          </div>
+
+                          <div className="w-8 h-px bg-slate-200 hidden md:block"></div>
+
+                          <div className="flex flex-col">
+                            <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest">{isBn ? 'আউট টাইম' : 'OUT TIME'}</span>
+                            <span className={`font-mono font-black ${punch?.checkOut && punch.checkOut !== '---' ? 'text-slate-800' : 'text-slate-300'}`}>
+                              {punch?.checkOut && punch.checkOut !== '---' ? punch.checkOut : '--:--'}
+                            </span>
+                          </div>
+
+                          <div className="hidden lg:flex flex-col items-center justify-center px-4 border-l border-r border-slate-100">
+                             <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1">{isBn ? 'ওভারটাইম' : 'OVERTIME'}</span>
+                             <div className="flex items-center gap-2 bg-slate-100 rounded-lg p-1">
+                               <button
+                                  onClick={() => {
+                                    setAttendanceLogs(attendanceLogs.map(log => {
+                                      if (log.employeeId === emp.id && log.date === todayStr) {
+                                        return { ...log, overtime: Math.max(0, (log.overtime || 0) - 1) };
+                                      }
+                                      return log;
+                                    }));
+                                  }}
+                                  className="w-5 h-5 bg-white text-slate-600 rounded flex items-center justify-center hover:bg-rose-100 hover:text-rose-600 font-black transition-colors shadow-sm"
+                                >
+                                  -
+                                </button>
+                                <span className="font-mono font-black text-indigo-700 text-xs w-8 text-center">
+                                  {(punch?.overtime || 0) + (punch?.weekendOvertime || 0)}h
+                                </span>
+                                <button
+                                  onClick={() => {
+                                    setAttendanceLogs(attendanceLogs.map(log => {
+                                      if (log.employeeId === emp.id && log.date === todayStr) {
+                                        return { ...log, overtime: (log.overtime || 0) + 1 };
+                                      }
+                                      return log;
+                                    }));
+                                  }}
+                                  className="w-5 h-5 bg-white text-slate-600 rounded flex items-center justify-center hover:bg-emerald-100 hover:text-emerald-600 font-black transition-colors shadow-sm"
+                                >
+                                  +
+                                </button>
+                             </div>
+                          </div>
+
+                        </div>
+
+                        {/* Right: Actions */}
+                        <div className="w-full md:w-auto flex flex-wrap items-center justify-end gap-2">
+                          <button
+                            onClick={() => handleLivePunch(emp.id, 'IN')}
+                            className={`flex-1 md:flex-none flex items-center justify-center gap-1.5 px-4 py-2.5 rounded-xl font-black text-xs uppercase tracking-wider transition-all shadow-sm hover:shadow-md active:scale-95 border ${
+                              punch?.checkInRaw 
+                                ? 'bg-emerald-500 text-white border-emerald-600' 
+                                : 'bg-emerald-50 text-emerald-600 border-emerald-200 hover:bg-emerald-100 hover:border-emerald-300'
+                            }`}
+                          >
+                            {punch?.checkInRaw ? <CheckCircle2 className="w-4 h-4" /> : <LogIn className="w-4 h-4" />}
+                            {isBn ? 'ইন' : 'IN'}
+                          </button>
+
+                          <button
+                            onClick={() => handleLivePunch(emp.id, 'OUT')}
+                            className={`flex-1 md:flex-none flex items-center justify-center gap-1.5 px-4 py-2.5 rounded-xl font-black text-xs uppercase tracking-wider transition-all shadow-sm hover:shadow-md active:scale-95 border ${
+                              punch?.checkOutRaw 
+                                ? 'bg-amber-500 text-white border-amber-600' 
+                                : 'bg-amber-50 text-amber-600 border-amber-200 hover:bg-amber-100 hover:border-amber-300'
+                            }`}
+                          >
+                            {punch?.checkOutRaw ? <CheckCircle2 className="w-4 h-4" /> : <LogOut className="w-4 h-4" />}
+                            {isBn ? 'আউট' : 'OUT'}
+                          </button>
+
+                          <button
+                            onClick={() => handleLivePunch(emp.id, 'ABSENT')}
+                            className={`flex-1 md:flex-none flex items-center justify-center gap-1.5 px-4 py-2.5 rounded-xl font-black text-xs uppercase tracking-wider transition-all shadow-sm hover:shadow-md active:scale-95 border ${
+                              punch?.status === 'Absent' 
+                                ? 'bg-rose-500 text-white border-rose-600' 
+                                : 'bg-rose-50 text-rose-600 border-rose-200 hover:bg-rose-100 hover:border-rose-300'
+                            }`}
+                          >
+                            {punch?.status === 'Absent' ? <CheckCircle2 className="w-4 h-4" /> : <XCircle className="w-4 h-4" />}
+                            {isBn ? 'অ্যাবসেন্ট' : 'ABSENT'}
+                          </button>
+                        </div>
+
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+            </div>
+
+            {/* Shift Roster Assignment Modal */}
+            {rosterEditingEmployee && (
+              <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-50 p-4 animate-in fade-in duration-200">
+                <div className="bg-white rounded-3xl border border-slate-200 shadow-2xl max-w-md w-full overflow-hidden">
+                  {/* Modal Header */}
+                  <div className="bg-gradient-to-r from-indigo-900 to-slate-900 p-6 text-white relative">
+                    <button 
+                      onClick={() => setRosterEditingEmployee(null)}
+                      className="absolute top-4 right-4 text-white/70 hover:text-white bg-white/10 hover:bg-white/20 p-2 rounded-full transition-colors outline-none"
+                    >
+                      <X className="w-4 h-4" />
+                    </button>
+                    <span className="text-[10px] font-black uppercase tracking-widest text-indigo-300 bg-indigo-500/20 px-2 py-0.5 rounded-lg border border-indigo-400/20">
+                      {isBn ? 'শিফট রোস্টার এডিটর' : 'Shift Roster Assignment'}
+                    </span>
+                    <h3 className="text-lg font-black mt-2 leading-tight">
+                      {rosterEditingEmployee.name}
+                    </h3>
+                    <p className="text-xs text-white/70 font-bold mt-1">
+                      {rosterEditingEmployee.designation} • ID: {getStaffDisplayId(rosterEditingEmployee)}
+                    </p>
+                  </div>
+
+                  {/* Modal Content */}
+                  <div className="p-6 space-y-5">
+                    {/* Active shift display */}
+                    <div className="bg-slate-50 p-3 rounded-2xl border border-slate-100 text-xs text-slate-600 flex justify-between items-center">
+                      <span className="font-bold">{isBn ? 'বর্তমান শিফট:' : 'Active Shift:'}</span>
+                      <span className="font-mono font-black text-indigo-700 bg-indigo-50 px-2 py-1 rounded-lg">
+                        {format12Hour(rosterEditingEmployee.shiftStart || '09:00')} - {format12Hour(rosterEditingEmployee.shiftEnd || '18:00')}
+                      </span>
+                    </div>
+
+                    {/* Pre-defined Shift Presets */}
+                    <div className="space-y-2">
+                      <label className="text-[10px] font-extrabold uppercase text-slate-400 tracking-wider block">
+                        {isBn ? 'সরাসরি শিফট সিলেক্ট করুন' : 'Select Pre-set Shift'}
+                      </label>
+                      <div className="grid grid-cols-2 gap-2">
                         <button
+                          type="button"
                           onClick={() => {
-                            setAttendanceLogs(attendanceLogs.map(log => {
-                              if (log.employeeId === emp.id && log.date === todayStr) {
-                                return { ...log, overtime: (log.overtime || 0) + 1 };
-                              }
-                              return log;
-                            }));
-                            setNotification({ message: 'Overtime added', type: 'info' });
+                            setRosterShiftStart('08:00');
+                            setRosterShiftEnd('16:00');
                           }}
-                          className="w-5 h-5 bg-indigo-50 text-indigo-600 rounded-full flex items-center justify-center hover:bg-indigo-600 hover:text-white font-extrabold"
-                          title="Add overtime hour"
+                          className={`p-3 rounded-2xl border text-left transition-all outline-none ${
+                            rosterShiftStart === '08:00' && rosterShiftEnd === '16:00'
+                              ? 'border-indigo-600 bg-indigo-50 text-indigo-900 shadow-sm'
+                              : 'border-slate-200 hover:border-slate-300 text-slate-700 hover:bg-slate-50'
+                          }`}
                         >
-                          +
+                          <p className="text-xs font-black">{isBn ? 'সকাল শিফট' : 'Morning Shift'}</p>
+                          <p className="text-[10px] font-mono font-bold text-slate-400 mt-0.5">08:00 AM - 04:00 PM</p>
                         </button>
-                      </td>
-                      <td className="px-6 py-4 text-right">
-                        <div className="flex justify-end gap-1.5">
-                          <button
-                            onClick={() => handlePunchAttendance(emp.id, 'Present')}
-                            className="p-1 px-2.5 bg-emerald-50 hover:bg-emerald-600 hover:text-white text-emerald-600 font-extrabold text-[10px] rounded"
-                          >
-                            P
-                          </button>
-                          <button
-                            onClick={() => handlePunchAttendance(emp.id, 'Absent')}
-                            className="p-1 px-2.5 bg-red-50 hover:bg-red-600 hover:text-white text-red-600 font-extrabold text-[10px] rounded"
-                          >
-                            A
-                          </button>
+                        
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setRosterShiftStart('14:00');
+                            setRosterShiftEnd('22:00');
+                          }}
+                          className={`p-3 rounded-2xl border text-left transition-all outline-none ${
+                            rosterShiftStart === '14:00' && rosterShiftEnd === '22:00'
+                              ? 'border-indigo-600 bg-indigo-50 text-indigo-900 shadow-sm'
+                              : 'border-slate-200 hover:border-slate-300 text-slate-700 hover:bg-slate-50'
+                          }`}
+                        >
+                          <p className="text-xs font-black">{isBn ? 'বিকাল শিফট' : 'Afternoon Shift'}</p>
+                          <p className="text-[10px] font-mono font-bold text-slate-400 mt-0.5">02:00 PM - 10:00 PM</p>
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setRosterShiftStart('22:00');
+                            setRosterShiftEnd('06:00');
+                          }}
+                          className={`p-3 rounded-2xl border text-left transition-all outline-none ${
+                            rosterShiftStart === '22:00' && rosterShiftEnd === '06:00'
+                              ? 'border-indigo-600 bg-indigo-50 text-indigo-900 shadow-sm'
+                              : 'border-slate-200 hover:border-slate-300 text-slate-700 hover:bg-slate-50'
+                          }`}
+                        >
+                          <p className="text-xs font-black">{isBn ? 'রাত শিফট' : 'Night Shift'}</p>
+                          <p className="text-[10px] font-mono font-bold text-slate-400 mt-0.5">10:00 PM - 06:00 AM</p>
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setRosterShiftStart('09:00');
+                            setRosterShiftEnd('18:00');
+                          }}
+                          className={`p-3 rounded-2xl border text-left transition-all outline-none ${
+                            rosterShiftStart === '09:00' && rosterShiftEnd === '18:00'
+                              ? 'border-indigo-600 bg-indigo-50 text-indigo-900 shadow-sm'
+                              : 'border-slate-200 hover:border-slate-300 text-slate-700 hover:bg-slate-50'
+                          }`}
+                        >
+                          <p className="text-xs font-black">{isBn ? 'সাধারণ শিফট' : 'General Shift'}</p>
+                          <p className="text-[10px] font-mono font-bold text-slate-400 mt-0.5">09:00 AM - 06:00 PM</p>
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Custom shift inputs */}
+                    <div className="space-y-2 pt-2 border-t border-slate-100">
+                      <label className="text-[10px] font-extrabold uppercase text-slate-400 tracking-wider block">
+                        {isBn ? 'কাস্টম ডিউটি টাইম নির্ধারণ করুন' : 'Or Define Custom Shift Time'}
+                      </label>
+                      <div className="grid grid-cols-2 gap-3">
+                        <div className="flex flex-col gap-1.5">
+                          <span className="text-[10px] font-bold text-slate-500">{isBn ? 'ডিউটি শুরু (In)' : 'Shift In'}</span>
+                          <input
+                            type="time"
+                            value={rosterShiftStart}
+                            onChange={e => setRosterShiftStart(e.target.value)}
+                            className="px-3 py-2 rounded-xl border border-slate-200 font-mono text-xs text-slate-800 font-bold focus:border-indigo-600 focus:ring-2 focus:ring-indigo-100 outline-none transition-all"
+                          />
                         </div>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+                        <div className="flex flex-col gap-1.5">
+                          <span className="text-[10px] font-bold text-slate-500">{isBn ? 'ডিউটি শেষ (Out)' : 'Shift Out'}</span>
+                          <input
+                            type="time"
+                            value={rosterShiftEnd}
+                            onChange={e => setRosterShiftEnd(e.target.value)}
+                            className="px-3 py-2 rounded-xl border border-slate-200 font-mono text-xs text-slate-800 font-bold focus:border-indigo-600 focus:ring-2 focus:ring-indigo-100 outline-none transition-all"
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Modal Action Buttons */}
+                  <div className="bg-slate-50 p-4 border-t border-slate-100 flex items-center justify-end gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setRosterEditingEmployee(null)}
+                      className="px-4 py-2 bg-white hover:bg-slate-100 text-slate-600 border border-slate-200 rounded-xl font-bold text-xs transition-colors outline-none"
+                    >
+                      {isBn ? 'বাতিল' : 'Cancel'}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleSaveRoster}
+                      className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-black text-xs transition-colors shadow-sm outline-none"
+                    >
+                      {isBn ? 'রোস্টার আপডেট করুন' : 'Update Roster'}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Middle Section: Timesheet Filters & Dynamic Monthly Summary Reporter */}
+            <div className="bg-slate-50 p-6 rounded-3xl border border-slate-200 space-y-6">
+              
+              {/* Timesheet Filters Header */}
+              <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 bg-white p-4 rounded-2xl border border-slate-100">
+                <div>
+                  <h4 className="text-xs font-black text-slate-800 uppercase tracking-wider flex items-center gap-2">
+                    <FileText className="w-4 h-4 text-indigo-600" />
+                    {isBn ? 'কর্মীদের মাসিক হাজিরা রেজিস্টার ও রিপোর্ট' : 'Employee Monthly Timesheet & Registry'}
+                  </h4>
+                  <p className="text-[10px] text-slate-500 font-bold mt-0.5">
+                    {isBn ? 'যেকোনো কর্মীর নির্দিষ্ট মাসের সম্পূর্ণ হাজিরা ও ওভারটাইম হিসাব বিশ্লেষণ করুন।' : 'Analyze full attendance logs, late timings, early exits, and overtime counts.'}
+                  </p>
+                </div>
+
+                <div className="flex items-center gap-2 flex-wrap w-full md:w-auto">
+                  <div>
+                    <select
+                      className="bg-slate-50 border border-slate-200 rounded-xl px-3 py-1.5 text-xs font-black outline-none focus:border-indigo-500 cursor-pointer"
+                      value={timesheetFilterEmp}
+                      onChange={e => setTimesheetFilterEmp(e.target.value)}
+                    >
+                      <option value="">{isBn ? '-- কর্মী নির্বাচন করুন --' : '-- Choose Staff --'}</option>
+                      {employees.map(emp => (
+                        <option key={emp.id} value={emp.id}>[{getStaffDisplayId(emp)}] {emp.name}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div>
+                    <input
+                      type="month"
+                      className="bg-slate-50 border border-slate-200 rounded-xl px-3 py-1.5 text-xs font-black outline-none focus:border-indigo-500"
+                      value={timesheetFilterMonth}
+                      onChange={e => setTimesheetFilterMonth(e.target.value)}
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {timesheetFilterEmp ? (
+                <>
+                  {/* Summary Metric Bento Grid */}
+                  <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+                    
+                    {/* Metric 1: Present */}
+                    <div className="bg-white p-4 rounded-2xl border border-slate-150 flex flex-col justify-between shadow-sm">
+                      <div className="flex justify-between items-center">
+                        <span className="text-[10px] font-black text-slate-400 uppercase tracking-wider">{isBn ? 'উপস্থিত দিন' : 'Days Present'}</span>
+                        <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+                      </div>
+                      <div className="mt-2.5">
+                        <p className="text-xl font-black font-mono text-slate-800">{daysPresent} <span className="text-xs text-slate-500">{isBn ? 'দিন' : 'Days'}</span></p>
+                        <p className="text-[9px] text-emerald-600 font-bold mt-1">🟢 {isBn ? 'কর্মরত দিনসমূহ' : 'Active workdays'}</p>
+                      </div>
+                    </div>
+
+                    {/* Metric 2: Absent */}
+                    <div className="bg-white p-4 rounded-2xl border border-slate-150 flex flex-col justify-between shadow-sm">
+                      <div className="flex justify-between items-center">
+                        <span className="text-[10px] font-black text-slate-400 uppercase tracking-wider">{isBn ? 'অনুপস্থিত' : 'Days Absent'}</span>
+                        <span className="w-2 h-2 rounded-full bg-red-500"></span>
+                      </div>
+                      <div className="mt-2.5">
+                        <p className="text-xl font-black font-mono text-slate-800">{daysAbsent} <span className="text-xs text-slate-500">{isBn ? 'দিন' : 'Days'}</span></p>
+                        <p className="text-[9px] text-red-600 font-bold mt-1">🔴 {isBn ? 'বিনা বেতনে ছুটি' : 'Unpaid absent count'}</p>
+                      </div>
+                    </div>
+
+                    {/* Metric 3: Late Arrivals */}
+                    <div className="bg-white p-4 rounded-2xl border border-slate-150 flex flex-col justify-between shadow-sm">
+                      <div className="flex justify-between items-center">
+                        <span className="text-[10px] font-black text-slate-400 uppercase tracking-wider">{isBn ? 'দেরি (Late)' : 'Late Arrivals'}</span>
+                        <span className="w-2 h-2 rounded-full bg-amber-500"></span>
+                      </div>
+                      <div className="mt-2.5">
+                        <p className="text-xl font-black font-mono text-slate-800">
+                          {lateCount} <span className="text-xs text-slate-500">{isBn ? 'বার' : 'Times'}</span>
+                        </p>
+                        <p className="text-[9px] text-amber-600 font-bold mt-1">
+                          ⚠️ {totalLateMinutes} {isBn ? 'মিনিট মোট বিলম্ব' : 'mins total delay'}
+                        </p>
+                      </div>
+                    </div>
+
+                    {/* Metric 4: Early Exits */}
+                    <div className="bg-white p-4 rounded-2xl border border-slate-150 flex flex-col justify-between shadow-sm">
+                      <div className="flex justify-between items-center">
+                        <span className="text-[10px] font-black text-slate-400 uppercase tracking-wider">{isBn ? 'আগে বিদায়' : 'Early Exits'}</span>
+                        <span className="w-2 h-2 rounded-full bg-orange-400"></span>
+                      </div>
+                      <div className="mt-2.5">
+                        <p className="text-xl font-black font-mono text-slate-800">
+                          {earlyExitCount} <span className="text-xs text-slate-500">{isBn ? 'বার' : 'Times'}</span>
+                        </p>
+                        <p className="text-[9px] text-orange-600 font-bold mt-1">
+                          ⏱️ {totalEarlyMinutes} {isBn ? 'মিনিট শর্ট-টাইম' : 'mins early leave'}
+                        </p>
+                      </div>
+                    </div>
+
+                    {/* Metric 5: Overtime */}
+                    <div className="bg-indigo-50 p-4 rounded-2xl border border-indigo-100 flex flex-col justify-between shadow-sm col-span-2 md:col-span-1">
+                      <div className="flex justify-between items-center">
+                        <span className="text-[10px] font-black text-indigo-500 uppercase tracking-wider">{isBn ? 'মোট ওভারটাইম' : 'Overtime Worked'}</span>
+                        <TrendingUp className="w-4 h-4 text-indigo-600" />
+                      </div>
+                      <div className="mt-2.5">
+                        <p className="text-xl font-black font-mono text-indigo-700">
+                          {parseFloat((totalOvertimeHours + totalWeekendOvertimeHours).toFixed(1))} <span className="text-xs text-indigo-500">{isBn ? 'ঘণ্টা' : 'Hrs'}</span>
+                        </p>
+                        <p className="text-[9px] text-indigo-600 font-bold mt-1 flex flex-col">
+                          <span>⏱️ {totalOvertimeHours}h {isBn ? 'সাধারণ' : 'Regular'}</span>
+                          <span>🌟 {totalWeekendOvertimeHours}h {isBn ? 'ছুটির দিন' : 'Weekend'}</span>
+                        </p>
+                      </div>
+                    </div>
+
+                  </div>
+
+                  {/* Timesheet List Table */}
+                  {filteredLogs.length === 0 ? (
+                    <div className="bg-white py-12 text-center text-slate-400 font-bold text-xs rounded-2xl border border-slate-150">
+                      📅 {isBn 
+                        ? `${selectedEmpDetails?.name || 'কর্মী'}-এর জন্য এই মাসে কোনো হাজিরা রেকর্ড পাওয়া যায়নি।` 
+                        : `No attendance logs recorded for ${selectedEmpDetails?.name || 'employee'} in ${timesheetFilterMonth}.`}
+                    </div>
+                  ) : (
+                    <div className="bg-white border rounded-2xl overflow-hidden shadow-sm">
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-left text-xs font-semibold text-slate-600">
+                          <thead className="bg-slate-50 text-[10px] font-black uppercase text-slate-700 tracking-wider border-b">
+                            <tr>
+                              <th className="px-5 py-3">{isBn ? 'তারিখ ও বার' : 'Date & Day'}</th>
+                              <th className="px-5 py-3">{isBn ? 'ডিউটি শিফ্ট' : 'Shift Target'}</th>
+                              <th className="px-5 py-3">{isBn ? 'চেক-ইন টাইম' : 'Actual Punch In'}</th>
+                              <th className="px-5 py-3">{isBn ? 'চেক-আউট টাইম' : 'Actual Punch Out'}</th>
+                              <th className="px-5 py-3">{isBn ? 'হাজিরা স্ট্যাটাস' : 'Attendance Status'}</th>
+                              <th className="px-5 py-3 text-center">{isBn ? 'বিলম্ব (Late)' : 'Late Mins'}</th>
+                              <th className="px-5 py-3 text-center">{isBn ? 'শর্ট-টাইম' : 'Early Mins'}</th>
+                              <th className="px-5 py-3 text-center">{isBn ? 'ওভারটাইম (ঘণ্টা)' : 'OT Hours'}</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-slate-100 font-medium">
+                            {filteredLogs.map(log => {
+                              const dayName = new Date(log.date).toLocaleDateString(isBn ? 'bn-BD' : 'en-US', { weekday: 'short' });
+                              return (
+                                <tr key={log.id} className="hover:bg-slate-50/50">
+                                  <td className="px-5 py-3">
+                                    <p className="font-bold text-slate-800 font-mono">{log.date}</p>
+                                    <p className="text-[10px] text-slate-400 font-bold flex items-center gap-1">
+                                      {dayName} 
+                                      {log.isWeekend && (
+                                        <span className="bg-amber-50 text-amber-700 rounded px-1 text-[8px] font-black border border-amber-100 uppercase">
+                                          {isBn ? 'ছুটি' : 'OFF'}
+                                        </span>
+                                      )}
+                                    </p>
+                                  </td>
+                                  <td className="px-5 py-3 font-mono text-slate-500">
+                                    {selectedEmpDetails?.shiftStart || '08:00'} - {selectedEmpDetails?.shiftEnd || '17:00'}
+                                  </td>
+                                  <td className="px-5 py-3">
+                                    <span className={`font-mono font-bold ${log.status === 'Late' ? 'text-amber-600' : 'text-slate-800'}`}>
+                                      {log.checkIn || '---'}
+                                    </span>
+                                  </td>
+                                  <td className="px-5 py-3">
+                                    <span className="font-mono font-bold text-slate-800">
+                                      {log.checkOut || '---'}
+                                    </span>
+                                  </td>
+                                  <td className="px-5 py-3">
+                                    <span className={`px-2 py-0.5 rounded text-[10px] font-black uppercase ${
+                                      log.status === 'Present' 
+                                        ? 'bg-emerald-50 text-emerald-600' 
+                                        : log.status === 'Late' 
+                                        ? 'bg-amber-50 text-amber-600' 
+                                        : log.status === 'Absent' 
+                                        ? 'bg-red-50 text-red-600 font-extrabold'
+                                        : 'bg-slate-100 text-slate-500'
+                                    }`}>
+                                      {log.status}
+                                    </span>
+                                  </td>
+                                  <td className="px-5 py-3 text-center font-mono font-bold text-slate-700">
+                                    {log.lateMinutes > 0 ? (
+                                      <span className="text-amber-600 bg-amber-50 px-1.5 py-0.5 rounded border border-amber-100">
+                                        {log.lateMinutes}m
+                                      </span>
+                                    ) : (
+                                      <span className="text-slate-300">-</span>
+                                    )}
+                                  </td>
+                                  <td className="px-5 py-3 text-center font-mono font-bold text-slate-700">
+                                    {log.earlyExitMinutes > 0 ? (
+                                      <span className="text-orange-600 bg-orange-50 px-1.5 py-0.5 rounded border border-orange-100">
+                                        {log.earlyExitMinutes}m
+                                      </span>
+                                    ) : (
+                                      <span className="text-slate-300">-</span>
+                                    )}
+                                  </td>
+                                  <td className="px-5 py-3 text-center">
+                                    {log.isWeekend ? (
+                                      log.weekendOvertime > 0 ? (
+                                        <span className="text-indigo-600 bg-indigo-50 font-black font-mono px-2 py-0.5 rounded border border-indigo-100 block w-fit mx-auto">
+                                          🌟 {log.weekendOvertime} Hrs
+                                        </span>
+                                      ) : (
+                                        <span className="text-slate-300">-</span>
+                                      )
+                                    ) : (
+                                      log.overtime > 0 ? (
+                                        <span className="text-slate-700 bg-slate-100 font-black font-mono px-2 py-0.5 rounded border block w-fit mx-auto">
+                                          {log.overtime} Hrs
+                                        </span>
+                                      ) : (
+                                        <span className="text-slate-300">-</span>
+                                      )
+                                    )}
+                                  </td>
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  )}
+                </>
+              ) : (
+                <div className="bg-white py-12 text-center text-slate-400 font-bold text-xs rounded-2xl border border-slate-150">
+                  🔍 {isBn 
+                    ? 'মাসিক হাজিরা রেজিস্টার ও ক্যালকুলেশন রিপোর্ট দেখতে ওপরের ফিল্টার থেকে যেকোনো স্টাফ সিলেক্ট করুন।' 
+                    : 'Please select an employee and month from the filters above to view the structured monthly timesheet reports.'}
+                </div>
+              )}
+            </div>
+
+
+
           </div>
-        </div>
-      )}
+        );
+      })()}
 
       {/* 4. Payroll Disbursal */}
       {activeTab === 'payroll_disbursal' && (
@@ -3244,6 +5236,46 @@ CRITICAL INSTRUCTIONS:
                       onChange={e => setSelectedMonth(e.target.value)}
                     />
                   </div>
+
+                  {payrollStaffId && selectedMonth && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const targetLogs = attendanceLogs.filter(log => log.employeeId === payrollStaffId && log.date.startsWith(selectedMonth));
+                        if (targetLogs.length === 0) {
+                          setNotification({
+                            message: isBn 
+                              ? 'এই কর্মীর জন্য এই মাসে কোনো হাজিরা রেকর্ড পাওয়া যায়নি।' 
+                              : 'No attendance logs found for this employee in the selected month.',
+                            type: 'error'
+                          });
+                          return;
+                        }
+                        
+                        let otSum = 0;
+                        let absentCount = 0;
+                        targetLogs.forEach(l => {
+                          if (l.status === 'Absent') {
+                            absentCount++;
+                          } else {
+                            otSum += (l.overtime || 0) + (l.weekendOvertime || 0);
+                          }
+                        });
+                        
+                        setOvertimeHours(Math.round(otSum));
+                        setUnpaidDays(absentCount);
+                        setNotification({
+                          message: isBn 
+                            ? `হাজিরা রেজিস্টার থেকে সফলভাবে সিঙ্ক করা হয়েছে: ${Math.round(otSum)} ঘণ্টা মোট ওভারটাইম এবং ${absentCount} দিন অনুপস্থিতি।` 
+                            : `Successfully synced from attendance timesheet: ${Math.round(otSum)} cumulative OT hours and ${absentCount} absent days.`,
+                          type: 'success'
+                        });
+                      }}
+                      className="w-full py-2 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5 border border-indigo-200 cursor-pointer"
+                    >
+                      🔄 {isBn ? 'হাজিরা রেজিস্টার থেকে স্বয়ংক্রিয় তথ্য আনুন' : 'Auto-Sync from Attendance Logs'}
+                    </button>
+                  )}
 
                   {computedSalaryDetails && (
                     <div className="bg-slate-50 p-4 rounded-2xl border space-y-2 text-xs">
@@ -3598,9 +5630,10 @@ CRITICAL INSTRUCTIONS:
 
           <div className="grid grid-cols-1 md:grid-cols-12 gap-6">
             {/* Create Leave Request form */}
-            <div className="bg-white p-6 rounded-3xl border border-gray-150/70 shadow-sm md:col-span-5 space-y-4">
-              <h3 className="text-sm font-black text-gray-900 uppercase tracking-widest border-b pb-2">
-                ✍️ {isBn ? 'ছুটির আবেদন ফরম' : 'Request Leave Form'}
+            <div className="bg-white p-6 rounded-3xl border-t-4 border-indigo-600 border-x border-b border-gray-150/70 shadow-md shadow-indigo-600/5 hover:shadow-lg transition-all duration-300 md:col-span-5 space-y-4">
+              <h3 className="text-sm font-black text-gray-900 uppercase tracking-widest border-b pb-2 flex items-center gap-2">
+                <span className="text-indigo-600">✍️</span>
+                <span>{isBn ? 'ছুটির আবেদন ফরম' : 'Request Leave Form'}</span>
               </h3>
               
               <form onSubmit={handleAddCustomLeaveRequest} className="space-y-3.5">
@@ -3610,7 +5643,7 @@ CRITICAL INSTRUCTIONS:
                   </label>
                   <select
                     name="employeeId"
-                    className="w-full bg-white border-2 border-slate-100 rounded-xl px-3.5 py-2.5 text-xs font-bold outline-none focus:border-indigo-500"
+                    className="w-full bg-white border-2 border-slate-100 rounded-xl px-3.5 py-2.5 text-xs font-bold outline-none focus:border-indigo-500 transition-colors"
                     required
                   >
                     <option value="">{isBn ? '-- মেম্বার নির্বাচন করুন --' : '-- Choose Employee --'}</option>
@@ -3626,13 +5659,16 @@ CRITICAL INSTRUCTIONS:
                   </label>
                   <select
                     name="leaveType"
-                    className="w-full bg-white border-2 border-slate-100 rounded-xl px-3.5 py-2.5 text-xs font-bold outline-none focus:border-indigo-500"
+                    value={selectedLeaveType}
+                    onChange={(e) => setSelectedLeaveType(e.target.value)}
+                    className="w-full bg-white border-2 border-slate-100 rounded-xl px-3.5 py-2.5 text-xs font-bold outline-none focus:border-indigo-500 transition-colors"
                     required
                   >
                     <option value="Casual Leave">{isBn ? 'নৈমিত্তিক ছুটি (Casual Leave)' : 'Casual Leave'}</option>
                     <option value="Sick Leave">{isBn ? 'অসুস্থতাজনিত ছুটি (Sick Leave)' : 'Sick Leave'}</option>
                     <option value="Earned Leave">{isBn ? 'অর্জিত ছুটি (Earned Leave)' : 'Earned Leave'}</option>
                     <option value="Unpaid Leave">{isBn ? 'বিনা বেতনে ছুটি (Unpaid Leave)' : 'Unpaid Leave'}</option>
+                    <option value="Leave in Advance">{isBn ? 'অগ্রিম ছুটি (Leave in Advance)' : 'Leave in Advance'}</option>
                   </select>
                 </div>
 
@@ -3644,7 +5680,7 @@ CRITICAL INSTRUCTIONS:
                     <input
                       name="startDate"
                       type="date"
-                      className="w-full bg-slate-50 border-2 border-transparent focus:border-indigo-500 focus:bg-white rounded-xl px-3 py-1.5 text-xs font-bold font-mono"
+                      className="w-full bg-slate-50 border-2 border-transparent focus:border-indigo-500 focus:bg-white rounded-xl px-3 py-1.5 text-xs font-bold font-mono transition-colors"
                       required
                     />
                   </div>
@@ -3655,7 +5691,7 @@ CRITICAL INSTRUCTIONS:
                     <input
                       name="endDate"
                       type="date"
-                      className="w-full bg-slate-50 border-2 border-transparent focus:border-indigo-500 focus:bg-white rounded-xl px-3 py-1.5 text-xs font-bold font-mono"
+                      className="w-full bg-slate-50 border-2 border-transparent focus:border-indigo-500 focus:bg-white rounded-xl px-3 py-1.5 text-xs font-bold font-mono transition-colors"
                       required
                     />
                   </div>
@@ -3668,15 +5704,214 @@ CRITICAL INSTRUCTIONS:
                   <textarea
                     name="reason"
                     rows={2}
-                    className="w-full bg-slate-50 border-2 border-transparent focus:border-indigo-500 focus:bg-white rounded-xl px-3 py-1.5 text-xs font-bold font-sans"
+                    value={leaveReasonText}
+                    onChange={(e) => setLeaveReasonText(e.target.value)}
+                    className="w-full bg-slate-50 border-2 border-transparent focus:border-indigo-500 focus:bg-white rounded-xl px-3 py-1.5 text-xs font-bold font-sans transition-colors"
                     placeholder={isBn ? 'উদা: পারিবারিক অনুষ্ঠান' : 'e.g. medical appointments'}
                     required
                   />
                 </div>
 
+                {selectedLeaveType === 'Leave in Advance' && (
+                  <div className="bg-gradient-to-br from-indigo-50 to-violet-50/50 p-3.5 rounded-2xl border border-indigo-100 space-y-3">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[10px] font-black uppercase text-indigo-700 tracking-wider flex items-center gap-1.5">
+                        ✨ AI Copilot for Advance Leave
+                      </span>
+                      <button
+                        type="button"
+                        onClick={handlePolishLeaveReason}
+                        disabled={isPolishingLeaveReason || !leaveReasonText.trim()}
+                        className={`text-[10px] font-black px-2.5 py-1 rounded-lg transition-all flex items-center gap-1 ${
+                          !leaveReasonText.trim()
+                            ? 'bg-slate-100 text-slate-400 cursor-not-allowed'
+                            : 'bg-indigo-600 hover:bg-indigo-700 text-white cursor-pointer shadow-sm shadow-indigo-600/10'
+                        }`}
+                      >
+                        {isPolishingLeaveReason ? (
+                          <>
+                            <span className="w-2.5 h-2.5 rounded-full border-2 border-white border-t-transparent animate-spin inline-block"></span>
+                            {isBn ? 'পলিশ করা হচ্ছে...' : 'Polishing...'}
+                          </>
+                        ) : (
+                          <>
+                            <span>🪄</span>
+                            {isBn ? 'এআই দিয়ে প্রফেশনাল করুন' : 'AI Polish Reason'}
+                          </>
+                        )}
+                      </button>
+                    </div>
+                    <p className="text-[9.5px] font-bold text-slate-500 leading-normal">
+                      {isBn
+                        ? 'আপনার সাধারণ কারণটি লিখুন (যেমন: জরুরি চিকিৎসা বা ভ্রমণ) এবং এআই ব্যবহার করে একটি মার্জিত ও প্রফেশনাল ছুটির আবেদন সাজান।'
+                        : 'Write a basic reason (e.g. travel or medical) then click AI Polish to format it into an executive-level justification.'}
+                    </p>
+                    
+                    {/* Recipient & Subject Fields for Leave in Advance Letter */}
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2 border-t border-indigo-100/50">
+                      <div className="space-y-1">
+                        <label className="text-[9px] font-black text-indigo-700 uppercase tracking-wider block">
+                          To: {isBn ? 'প্রাপক কর্তৃপক্ষ' : 'Recipient Authority / Address'}
+                        </label>
+                        <input
+                          type="text"
+                          name="recipient"
+                          value={leaveRecipientText}
+                          onChange={(e) => setLeaveRecipientText(e.target.value)}
+                          placeholder={isBn ? 'উদা: অস্ট্রিয়ান দূতাবাস ঢাকা' : 'e.g. Austrian Embassy Manila'}
+                          className="w-full bg-white border border-indigo-150 rounded-xl px-3 py-2 text-xs font-bold outline-none focus:border-indigo-500 transition-colors"
+                          required
+                        />
+                      </div>
+                      <div className="space-y-1">
+                        <label className="text-[9px] font-black text-indigo-700 uppercase tracking-wider block">
+                          Subject: {isBn ? 'বিষয় (আবেদনের শিরোনাম)' : 'Document Subject'}
+                        </label>
+                        <input
+                          type="text"
+                          name="subject"
+                          value={leaveSubjectText}
+                          onChange={(e) => setLeaveSubjectText(e.target.value)}
+                          placeholder={isBn ? 'উদা: নো অবজেকশন সার্টিফিকেট' : 'e.g. No Objection Certificate'}
+                          className="w-full bg-white border border-indigo-150 rounded-xl px-3 py-2 text-xs font-bold outline-none focus:border-indigo-500 transition-colors"
+                          required
+                        />
+                      </div>
+                      <div className="space-y-1">
+                        <label className="text-[9px] font-black text-indigo-700 uppercase tracking-wider block">
+                          {isBn ? 'কাজের অভিজ্ঞতা / সময়কাল' : 'Experience Duration'}
+                        </label>
+                        <input
+                          type="text"
+                          name="experienceDuration"
+                          value={leaveDurationText}
+                          onChange={(e) => setLeaveDurationText(e.target.value)}
+                          placeholder={isBn ? 'উদা: over 1 and half year' : 'e.g. over 1 and half year'}
+                          className="w-full bg-white border border-indigo-150 rounded-xl px-3 py-2 text-xs font-bold outline-none focus:border-indigo-500 transition-colors"
+                          required
+                        />
+                      </div>
+                      <div className="space-y-1">
+                        <label className="text-[9px] font-black text-indigo-700 uppercase tracking-wider block">
+                          {isBn ? 'ভ্রমণের গন্তব্য দেশ / উদ্দেশ্য' : 'Journey Destination / Purpose'}
+                        </label>
+                        <input
+                          type="text"
+                          name="destinationCountry"
+                          value={leaveDestinationText}
+                          onChange={(e) => setLeaveDestinationText(e.target.value)}
+                          placeholder={isBn ? 'উদা: India' : 'e.g. India'}
+                          className="w-full bg-white border border-indigo-150 rounded-xl px-3 py-2 text-xs font-bold outline-none focus:border-indigo-500 transition-colors"
+                          required
+                        />
+                      </div>
+                      <div className="space-y-1">
+                        <label className="text-[9px] font-black text-indigo-700 uppercase tracking-wider block">
+                          {isBn ? 'প্রোপাইটার / স্বাক্ষরকারীর নাম' : 'Proprietor Name'}
+                        </label>
+                        <input
+                          type="text"
+                          name="proprietorName"
+                          value={leaveProprietorName}
+                          onChange={(e) => setLeaveProprietorName(e.target.value)}
+                          placeholder={isBn ? 'উদা: Md Nurul Islam' : 'e.g. Md Nurul Islam'}
+                          className="w-full bg-white border border-indigo-150 rounded-xl px-3 py-2 text-xs font-bold outline-none focus:border-indigo-500 transition-colors"
+                          required
+                        />
+                      </div>
+                      <div className="space-y-1">
+                        <label className="text-[9px] font-black text-indigo-700 uppercase tracking-wider block">
+                          {isBn ? 'পদবি (যেমন: Proprietor)' : 'Proprietor Title / Designation'}
+                        </label>
+                        <input
+                          type="text"
+                          name="proprietorTitle"
+                          value={leaveProprietorTitle}
+                          onChange={(e) => setLeaveProprietorTitle(e.target.value)}
+                          placeholder={isBn ? 'উদা: Profiter' : 'e.g. Proprietor'}
+                          className="w-full bg-white border border-indigo-150 rounded-xl px-3 py-2 text-xs font-bold outline-none focus:border-indigo-500 transition-colors"
+                          required
+                        />
+                      </div>
+                      <div className="space-y-1 sm:col-span-2">
+                        <label className="text-[9px] font-black text-indigo-700 uppercase tracking-wider block">
+                          {isBn ? 'প্রোপাইটার ফোন নম্বর' : 'Proprietor Contact Phone'}
+                        </label>
+                        <input
+                          type="text"
+                          name="proprietorPhone"
+                          value={leaveProprietorPhone}
+                          onChange={(e) => setLeaveProprietorPhone(e.target.value)}
+                          placeholder={isBn ? 'উদা: 01849555552' : 'e.g. 01849555552'}
+                          className="w-full bg-white border border-indigo-150 rounded-xl px-3 py-2 text-xs font-bold outline-none focus:border-indigo-500 transition-colors"
+                          required
+                        />
+                      </div>
+                    </div>
+
+                    {/* Drag-and-Drop Image Attachment */}
+                    <div className="space-y-1.5 pt-1">
+                      <label className="text-[9px] font-black text-indigo-700 uppercase tracking-wider block">
+                        📁 {isBn ? 'ডকুমেন্ট / প্রুফ সংযুক্তি (ঐচ্ছিক)' : 'Proof / Document Attachment (Optional)'}
+                      </label>
+                      <div
+                        onDragOver={handleDragOver}
+                        onDragLeave={handleDragLeave}
+                        onDrop={handleDrop}
+                        onClick={() => document.getElementById('leave-file-input')?.click()}
+                        className={`border-2 border-dashed rounded-xl p-4 text-center cursor-pointer transition-all flex flex-col items-center justify-center gap-1.5 ${
+                          isLeaveDragging
+                            ? 'border-indigo-600 bg-indigo-50/50'
+                            : leaveAttachment
+                            ? 'border-emerald-500 bg-emerald-50/20'
+                            : 'border-slate-200 hover:border-indigo-400 bg-white'
+                        }`}
+                      >
+                        <input
+                          id="leave-file-input"
+                          type="file"
+                          accept="image/*"
+                          onChange={handleFileChange}
+                          className="hidden"
+                        />
+                        {leaveAttachment ? (
+                          <div className="w-full flex flex-col items-center gap-1.5">
+                            <div className="relative w-20 h-14 rounded-lg overflow-hidden border border-slate-200">
+                              <img src={leaveAttachment} alt="Preview" className="w-full h-full object-cover" />
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setLeaveAttachment(null);
+                                }}
+                                className="absolute top-0.5 right-0.5 w-4 h-4 bg-red-650 hover:bg-red-700 text-white rounded-full flex items-center justify-center text-[8px] font-black shadow-md cursor-pointer"
+                              >
+                                ✕
+                              </button>
+                            </div>
+                            <span className="text-[8.5px] font-black text-emerald-600 uppercase tracking-wider flex items-center gap-0.5">
+                              ✓ {isBn ? 'ফাইল সংযোজিত' : 'Proof Attached'}
+                            </span>
+                          </div>
+                        ) : (
+                          <>
+                            <span className="text-lg">📸</span>
+                            <div className="text-[10px] font-black text-slate-700">
+                              {isBn ? 'ক্লিক বা ড্র্যাগ করে ছবি দিন' : 'Drag & drop or Click to upload'}
+                            </div>
+                            <span className="text-[8px] text-slate-400 uppercase tracking-tight">
+                              {isBn ? 'জেপেগ, পিএনজি (সর্বোচ্চ ৫০০ কেবি)' : 'Supports JPEG, PNG (Auto Compressed)'}
+                            </span>
+                          </>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                )}
+
                 <button
                   type="submit"
-                  className="w-full py-3 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-black uppercase tracking-wider transition-colors flex items-center justify-center gap-2 shadow-md shadow-indigo-600/15"
+                  className="w-full py-3 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-black uppercase tracking-wider transition-colors flex items-center justify-center gap-2 shadow-md shadow-indigo-600/15 hover:shadow-indigo-600/25"
                 >
                   <CirclePlus className="w-4 h-4" />
                   {isBn ? 'আবেদন জমা দিন' : 'Submit Application'}
@@ -3685,9 +5920,17 @@ CRITICAL INSTRUCTIONS:
             </div>
 
             {/* Leave Approvals list */}
-            <div className="bg-white p-6 rounded-3xl border border-gray-150/70 shadow-sm md:col-span-7 space-y-4">
-              <h3 className="text-sm font-black text-gray-900 uppercase tracking-widest border-b pb-2">
-                📋 {isBn ? 'ছুটির আবেদন ও মূল্যায়ন' : 'Leave Verification & Requests'}
+            <div className="bg-white p-6 rounded-3xl border-t-4 border-emerald-500 border-x border-b border-gray-150/70 shadow-md shadow-emerald-500/5 hover:shadow-lg transition-all duration-300 md:col-span-7 space-y-4">
+              <h3 className="text-sm font-black text-gray-900 uppercase tracking-widest border-b pb-2 flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <span className="text-emerald-500">📋</span>
+                  <span>{isBn ? 'ছুটির আবেদন ও মূল্যায়ন' : 'Leave Verification & Requests'}</span>
+                </div>
+                {leaveRequests.length > 0 && (
+                  <span className="text-[9.5px] px-2 py-0.5 rounded-full font-black bg-indigo-50 text-indigo-600 border border-indigo-100">
+                    {leaveRequests.length} {isBn ? 'টি মোট' : 'TOTAL'}
+                  </span>
+                )}
               </h3>
               
               {leaveRequests.length === 0 ? (
@@ -3697,39 +5940,74 @@ CRITICAL INSTRUCTIONS:
               ) : (
                 <div className="divide-y divide-gray-105 space-y-3 max-h-[420px] overflow-y-auto pr-1">
                   {leaveRequests.map(leave => (
-                    <div key={leave.id} className="py-3.5 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2">
-                      <div className="space-y-1">
-                        <p className="text-xs font-black text-gray-950">{leave.employeeName}</p>
+                    <div key={leave.id} className="py-3 px-3.5 rounded-2xl hover:bg-slate-50 border border-transparent hover:border-slate-150/50 transition-all duration-200 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
+                      <div className="space-y-1 flex-1">
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <p className="text-xs font-black text-gray-950">{leave.employeeName}</p>
+                          <span className="text-[8.5px] font-black font-mono bg-slate-100 text-slate-500 px-1.5 py-0.5 rounded">
+                            {leave.id.toUpperCase().substring(0, 6)}
+                          </span>
+                        </div>
                         <p className="text-[10px] text-gray-400 font-bold">
                           {leave.leaveType} | <span className="text-indigo-600 font-mono">{leave.daysCount} days</span> ({leave.startDate} - {leave.endDate})
                         </p>
-                        <p className="text-[10.5px] text-gray-600 font-medium italic">
-                          " {leave.reason} "
-                        </p>
+                        <div className="flex flex-col gap-1 items-start">
+                          <p className="text-[10.5px] text-gray-600 font-semibold bg-white/70 px-2 py-1 rounded-lg border border-gray-100 inline-block">
+                            <span className="text-slate-350">“</span>{leave.reason}<span className="text-slate-350">”</span>
+                          </p>
+                          {leave.attachment && (
+                            <div className="mt-1 flex items-center gap-1.5 bg-slate-50 border border-slate-150/60 px-2 py-1 rounded-lg">
+                              <span className="text-[8.5px] font-black text-indigo-700 uppercase tracking-tight">{isBn ? 'সংযুক্ত প্রমাণ:' : 'Attached Proof:'}</span>
+                              <div 
+                                onClick={() => setPreviewImage(leave.attachment)}
+                                className="relative group w-11 h-8 rounded-md overflow-hidden border border-slate-200 shadow-sm cursor-pointer hover:border-indigo-500 transition-all active:scale-95"
+                                title={isBn ? 'ক্লিক করে বড় করে দেখুন' : 'Click to zoom'}
+                              >
+                                <img src={leave.attachment} alt="Attached Document" className="w-full h-full object-cover group-hover:scale-105 transition-all" />
+                                <div className="absolute inset-0 bg-black/10 group-hover:bg-black/0 transition-all flex items-center justify-center">
+                                  <span className="text-white text-[9px] drop-shadow opacity-0 group-hover:opacity-100 transition-all">🔍</span>
+                                </div>
+                              </div>
+                            </div>
+                          )}
+                        </div>
                       </div>
 
-                      <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-2 self-stretch sm:self-auto justify-end">
                         {leave.status === 'Pending' ? (
                           <>
                             <button
                               onClick={() => handleApproveLeave(leave.id, 'Approved')}
-                              className="px-2.5 py-1 bg-emerald-50 hover:bg-emerald-600 text-emerald-600 hover:text-white rounded text-[10px] font-black transition-all"
+                              className="px-3 py-1.5 bg-emerald-50 hover:bg-emerald-600 text-emerald-600 hover:text-white rounded-xl text-[10px] font-black transition-all hover:shadow-md hover:shadow-emerald-600/10"
                             >
                               {isBn ? 'অনুমোদন' : 'Approve'}
                             </button>
                             <button
                               onClick={() => handleApproveLeave(leave.id, 'Rejected')}
-                              className="px-2.5 py-1 bg-red-50 hover:bg-red-600 text-red-650 hover:text-white rounded text-[10px] font-black transition-all"
+                              className="px-3 py-1.5 bg-red-50 hover:bg-red-600 text-red-650 hover:text-white rounded-xl text-[10px] font-black transition-all hover:shadow-md hover:shadow-red-600/10"
                             >
                               {isBn ? 'বাতিল' : 'Reject'}
                             </button>
                           </>
                         ) : (
-                          <span className={`px-2.5 py-1 text-[10px] font-black rounded uppercase ${
-                            leave.status === 'Approved' ? 'bg-emerald-50 text-emerald-600' : 'bg-red-50 text-red-500'
-                          }`}>
-                            {leave.status === 'Approved' ? (isBn ? 'অনুমোদিত' : 'Approved') : (isBn ? 'প্রত্যাখ্যাত' : 'Rejected')}
-                          </span>
+                          <div className="flex items-center gap-2">
+                            <span className={`px-2.5 py-1 text-[9px] font-black rounded-lg uppercase tracking-wide border ${
+                              leave.status === 'Approved' 
+                                ? 'bg-emerald-50/70 text-emerald-600 border-emerald-200/50' 
+                                : 'bg-red-50/70 text-red-500 border-red-200/50'
+                            }`}>
+                              {leave.status === 'Approved' ? (isBn ? 'অনুমোদিত' : 'Approved') : (isBn ? 'প্রত্যাখ্যাত' : 'Rejected')}
+                            </span>
+                            {leave.status === 'Approved' && (
+                              <button
+                                onClick={() => downloadLeaveCertificatePDF(leave)}
+                                className="p-2 text-indigo-600 hover:text-white bg-indigo-50 hover:bg-indigo-600 rounded-xl transition-all flex items-center justify-center shadow-sm hover:shadow-indigo-600/10 border border-indigo-150"
+                                title={isBn ? 'লিভ সার্টিফিকেট ডাউনলোড' : 'Download Leave Certificate'}
+                              >
+                                <Download className="w-3.5 h-3.5" />
+                              </button>
+                            )}
+                          </div>
                         )}
                       </div>
                     </div>
@@ -4253,6 +6531,38 @@ CRITICAL INSTRUCTIONS:
                     <span className="text-[9px] text-slate-400 group-open:rotate-180 transition-all font-sans">▼</span>
                   </summary>
                   <div className="p-4 space-y-3.5 bg-white border-t border-gray-150/70 text-[11px] font-medium text-slate-600">
+                    <div className="space-y-2 border-b border-slate-100 pb-3">
+                      <label className="text-[9px] font-black text-slate-400 uppercase tracking-wider block">
+                        🏢 {isBn ? 'প্রতিষ্ঠানের ধরন (সংগঠনের ধরন)' : 'Organization Type'}
+                      </label>
+                      <div className="grid grid-cols-2 gap-2 bg-slate-50 p-1 rounded-2xl border border-slate-150/60">
+                        <button
+                          type="button"
+                          onClick={() => saveHrmSettings({ orgType: 'proprietor' })}
+                          className={`py-2 px-3 rounded-xl text-center text-[10px] font-black transition-all flex flex-col items-center justify-center gap-0.5 cursor-pointer ${
+                            (hrmSettings.orgType || 'proprietor') === 'proprietor'
+                              ? 'bg-white text-indigo-600 shadow-sm border border-slate-200/50'
+                              : 'text-slate-500 hover:text-slate-800 hover:bg-slate-100/50 border border-transparent'
+                          }`}
+                        >
+                          <span className="text-[10.5px]">👤 {isBn ? 'প্রোপ্রাইটরশিপ' : 'Proprietorship'}</span>
+                          <span className="text-[8px] font-bold text-slate-400 uppercase tracking-tight">{isBn ? 'ক্ষুদ্র ব্যবসা বা রিটেইল' : 'Small Retail/Shop'}</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => saveHrmSettings({ orgType: 'company' })}
+                          className={`py-2 px-3 rounded-xl text-center text-[10px] font-black transition-all flex flex-col items-center justify-center gap-0.5 cursor-pointer ${
+                            hrmSettings.orgType === 'company'
+                              ? 'bg-white text-indigo-600 shadow-sm border border-slate-200/50'
+                              : 'text-slate-500 hover:text-slate-800 hover:bg-slate-100/50 border border-transparent'
+                          }`}
+                        >
+                          <span className="text-[10.5px]">🏢 {isBn ? 'লিমিটেড কোম্পানি' : 'Corporate Company'}</span>
+                          <span className="text-[8px] font-bold text-slate-400 uppercase tracking-tight">{isBn ? 'বোর্ড / হিউম্যান রিসোর্স' : 'Limited/Enterprise'}</span>
+                        </button>
+                      </div>
+                    </div>
+
                     <div className="space-y-1">
                       <label className="text-[9px] font-black text-slate-400 uppercase tracking-wider block">
                         {isBn ? 'কোম্পানির হেডার টেক্সট' : 'Company Header Title'}
@@ -4690,7 +7000,10 @@ CRITICAL INSTRUCTIONS:
                         <div style={{ height: '39px' }}></div>
                       )}
                       <div style={{ borderTop: '1.5px solid #1e293b', width: '150px', paddingTop: '4px' }}>
-                        {certLanguage === 'bn' ? 'নিয়োগকর্তার স্বাক্ষর' : 'Authorized Signature'}
+                        {(hrmSettings.orgType || 'proprietor') === 'proprietor'
+                          ? (certLanguage === 'bn' ? 'প্রোপ্রাইটর / মালিকের স্বাক্ষর' : 'Proprietor / Owner')
+                          : (certLanguage === 'bn' ? 'মানবসম্পদ কর্মকর্তা / পরিচালক' : 'Authorized HR Director')
+                        }
                       </div>
                       <div style={{ fontSize: '8px', color: '#94a3b8', marginTop: '2px' }}>
                         {hrmSettings.footerText || 'Verified Official Document'}
@@ -5438,6 +7751,31 @@ CRITICAL INSTRUCTIONS:
           </div>
         );
       })()}
+
+      {/* Full Screen Image Preview Modal */}
+      {previewImage && (
+        <div
+          className="fixed inset-0 bg-black/85 backdrop-blur-md z-[100] flex items-center justify-center p-4"
+          onClick={() => setPreviewImage(null)}
+        >
+          <div className="relative max-w-3xl max-h-[85vh] bg-white p-2.5 rounded-3xl overflow-hidden shadow-2xl flex flex-col" onClick={e => e.stopPropagation()}>
+            <button
+              onClick={() => setPreviewImage(null)}
+              className="absolute top-4 right-4 w-9 h-9 bg-black/75 hover:bg-black text-white rounded-full flex items-center justify-center text-sm font-bold shadow-lg transition-all border border-white/20 hover:scale-105 z-10 cursor-pointer"
+            >
+              ✕
+            </button>
+            <div className="overflow-auto max-h-[75vh]">
+              <img src={previewImage} alt="Leave Document Attached Proof" className="max-w-full rounded-2xl object-contain h-auto shadow-inner" />
+            </div>
+            <div className="p-4 border-t border-slate-100 text-center bg-slate-50/50 rounded-b-2xl">
+              <span className="text-[11px] font-black uppercase text-indigo-600 tracking-wider">
+                📄 {isBn ? 'সংযুক্ত ডকুমেন্ট (ছুটির প্রমাণপত্র)' : 'Leave Document Proof'}
+              </span>
+            </div>
+          </div>
+        </div>
+      )}
 
     </div>
   );

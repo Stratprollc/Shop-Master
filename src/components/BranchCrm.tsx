@@ -126,7 +126,7 @@ export default function BranchCrm({ shopSettings, user, onSendMessage, setNotifi
         try {
           await setDoc(doc(db, 'branches', defaultBranchId), defaultBranchData);
         } catch (err) {
-          console.error("Error creating default branch", err);
+          console.log("Error creating default branch (possibly offline):", err);
         }
       }
     }, (err) => {

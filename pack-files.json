@@ -1,0 +1,846 @@
+[
+  {
+    "id": "react-example@1.0.3",
+    "name": "react-example",
+    "version": "1.0.3",
+    "size": 2553251,
+    "unpackedSize": 11346584,
+    "shasum": "08b4e85c6d65494f025b5dabf67b24049e2ec59f",
+    "integrity": "sha512-MDqIxvi7WShoBxfLg2PLzwFB6GPQz3+ep9NmI1zP5U/1LESMmzoWjpTgf8Hy+S0k0eY+8Ap54ZYyIMYCXNWBEg==",
+    "filename": "react-example-1.0.3.tgz",
+    "files": [
+      {
+        "path": ".env.example",
+        "size": 444,
+        "mode": 420
+      },
+      {
+        "path": "AGENTS.md",
+        "size": 1693,
+        "mode": 420
+      },
+      {
+        "path": "DRAFT_firestore.rules",
+        "size": 3480,
+        "mode": 420
+      },
+      {
+        "path": "HOSTINGER_SETUP.md",
+        "size": 4354,
+        "mode": 420
+      },
+      {
+        "path": "OLD_firestore.rules",
+        "size": 6132,
+        "mode": 420
+      },
+      {
+        "path": "README.md",
+        "size": 5238,
+        "mode": 420
+      },
+      {
+        "path": "app/applet/test-accounts.mjs",
+        "size": 672,
+        "mode": 420
+      },
+      {
+        "path": "app/applet/test-device-param.cjs",
+        "size": 856,
+        "mode": 420
+      },
+      {
+        "path": "app/applet/test-device-param.mjs",
+        "size": 1059,
+        "mode": 420
+      },
+      {
+        "path": "app/applet/test-params.cjs",
+        "size": 1048,
+        "mode": 420
+      },
+      {
+        "path": "app/applet/test-params.mjs",
+        "size": 1274,
+        "mode": 420
+      },
+      {
+        "path": "app/applet/test-send.cjs",
+        "size": 1340,
+        "mode": 420
+      },
+      {
+        "path": "app/applet/test-send.mjs",
+        "size": 1291,
+        "mode": 420
+      },
+      {
+        "path": "app/applet/test-send2.mjs",
+        "size": 1086,
+        "mode": 420
+      },
+      {
+        "path": "app/applet/test-send3.mjs",
+        "size": 507,
+        "mode": 420
+      },
+      {
+        "path": "app/applet/test-send4.mjs",
+        "size": 1562,
+        "mode": 420
+      },
+      {
+        "path": "dist/assets/comp-accountingdashboard-oYnMDd3X.js",
+        "size": 6558,
+        "mode": 420
+      },
+      {
+        "path": "dist/assets/comp-adminpages-CJflLXGo.js",
+        "size": 193887,
+        "mode": 420
+      },
+      {
+        "path": "dist/assets/comp-branchcrm-Dei2Rp-Z.js",
+        "size": 48928,
+        "mode": 420
+      },
+      {
+        "path": "dist/assets/comp-businessbio-DNbSkjYt.js",
+        "size": 11889,
+        "mode": 420
+      },
+      {
+        "path": "dist/assets/comp-businessmail-ChkwCd47.js",
+        "size": 243,
+        "mode": 420
+      },
+      {
+        "path": "dist/assets/comp-categorymanagement-De7w0Pxb.js",
+        "size": 2301,
+        "mode": 420
+      },
+      {
+        "path": "dist/assets/comp-centralwarehouse-DAyh7_Z6.js",
+        "size": 16283,
+        "mode": 420
+      },
+      {
+        "path": "dist/assets/comp-communityhubpage-BqoODk0T.js",
+        "size": 51181,
+        "mode": 420
+      },
+      {
+        "path": "dist/assets/comp-customdomain-BQ52xokx.js",
+        "size": 40552,
+        "mode": 420
+      },
+      {
+        "path": "dist/assets/comp-customerportal-BSbC1fHP.js",
+        "size": 55659,
+        "mode": 420
+      },
+      {
+        "path": "dist/assets/comp-damageexpirepage-Bo5c1912.js",
+        "size": 11990,
+        "mode": 420
+      },
+      {
+        "path": "dist/assets/comp-dashboard-CqLgToty.js",
+        "size": 32746,
+        "mode": 420
+      },
+      {
+        "path": "dist/assets/comp-dealershipmoduleview-CoryJs4E.js",
+        "size": 201511,
+        "mode": 420
+      },
+      {
+        "path": "dist/assets/comp-documentverificationpage-Bnth_P7R.js",
+        "size": 11144,
+        "mode": 420
+      },
+      {
+        "path": "dist/assets/comp-dynamiccustompage-Dd1PwfqR.js",
+        "size": 10523,
+        "mode": 420
+      },
+      {
+        "path": "dist/assets/comp-globalpipplayer-Cpe_oKzQ.js",
+        "size": 4232,
+        "mode": 420
+      },
+      {
+        "path": "dist/assets/comp-gmailclient-BmFXTbCe.js",
+        "size": 45310,
+        "mode": 420
+      },
+      {
+        "path": "dist/assets/comp-howtousepage-1LA9ri3D.js",
+        "size": 6959,
+        "mode": 420
+      },
+      {
+        "path": "dist/assets/comp-hrm-xOaMZpw7.js",
+        "size": 194751,
+        "mode": 420
+      },
+      {
+        "path": "dist/assets/comp-inventorydashboard-CGIJ1_4k.js",
+        "size": 6857,
+        "mode": 420
+      },
+      {
+        "path": "dist/assets/comp-jarvisai-DfDQBLmA.js",
+        "size": 77298,
+        "mode": 420
+      },
+      {
+        "path": "dist/assets/comp-kitchendisplay-C6uftZPu.js",
+        "size": 17109,
+        "mode": 420
+      },
+      {
+        "path": "dist/assets/comp-livetvportal-D5IZHLiH.js",
+        "size": 65087,
+        "mode": 420
+      },
+      {
+        "path": "dist/assets/comp-loanmanagement-iscE6_fg.js",
+        "size": 20955,
+        "mode": 420
+      },
+      {
+        "path": "dist/assets/comp-mainadmin-BFL8WobD.js",
+        "size": 2817,
+        "mode": 420
+      },
+      {
+        "path": "dist/assets/comp-meetscheduler-DOOf3B5b.js",
+        "size": 49288,
+        "mode": 420
+      },
+      {
+        "path": "dist/assets/comp-membershippage-D3HoOvTh.js",
+        "size": 19507,
+        "mode": 420
+      },
+      {
+        "path": "dist/assets/comp-messaginggateway-Dbl_W_1g.js",
+        "size": 44737,
+        "mode": 420
+      },
+      {
+        "path": "dist/assets/comp-mobileelectronicsview-S7BoVufG.js",
+        "size": 52960,
+        "mode": 420
+      },
+      {
+        "path": "dist/assets/comp-networkconsole-DTZY-Ia1.js",
+        "size": 26138,
+        "mode": 420
+      },
+      {
+        "path": "dist/assets/comp-onlineshop-DUNPZixU.js",
+        "size": 104729,
+        "mode": 420
+      },
+      {
+        "path": "dist/assets/comp-pagemanagement-CmGQXTRh.js",
+        "size": 67770,
+        "mode": 420
+      },
+      {
+        "path": "dist/assets/comp-paymentmethodmanager-BmwqOj07.js",
+        "size": 3477,
+        "mode": 420
+      },
+      {
+        "path": "dist/assets/comp-pharmacymoduleview-KF3NFm12.js",
+        "size": 36347,
+        "mode": 420
+      },
+      {
+        "path": "dist/assets/comp-premiumlockscreen-wPLGvEsE.js",
+        "size": 2539,
+        "mode": 420
+      },
+      {
+        "path": "dist/assets/comp-salescrmdashboard-CuoK4Cf5.js",
+        "size": 7492,
+        "mode": 420
+      },
+      {
+        "path": "dist/assets/comp-sellerordersview-Col4aE1V.js",
+        "size": 17665,
+        "mode": 420
+      },
+      {
+        "path": "dist/assets/comp-serviceofferdashboard-kLuVzD-e.js",
+        "size": 52358,
+        "mode": 420
+      },
+      {
+        "path": "dist/assets/comp-stocktransfer-DHyY4Q4s.js",
+        "size": 14482,
+        "mode": 420
+      },
+      {
+        "path": "dist/assets/comp-supportpage-5Y1gG0HL.js",
+        "size": 43266,
+        "mode": 420
+      },
+      {
+        "path": "dist/assets/comp-tableroompage-B0LM0zn7.js",
+        "size": 24821,
+        "mode": 420
+      },
+      {
+        "path": "dist/assets/index-D6CdUbFq.js",
+        "size": 767495,
+        "mode": 420
+      },
+      {
+        "path": "dist/assets/index-XUbSIrPW.css",
+        "size": 351753,
+        "mode": 420
+      },
+      {
+        "path": "dist/assets/vendor-charts-BTlLjeyE.js",
+        "size": 267390,
+        "mode": 420
+      },
+      {
+        "path": "dist/assets/vendor-codes-5ugwiuAF.js",
+        "size": 341301,
+        "mode": 420
+      },
+      {
+        "path": "dist/assets/vendor-core-A1e73oJn.js",
+        "size": 2111242,
+        "mode": 420
+      },
+      {
+        "path": "dist/assets/vendor-firebase-B1pUxgjd.js",
+        "size": 620928,
+        "mode": 420
+      },
+      {
+        "path": "dist/assets/vendor-pdf-CU-QJFgN.js",
+        "size": 592716,
+        "mode": 420
+      },
+      {
+        "path": "dist/index.html",
+        "size": 5523,
+        "mode": 420
+      },
+      {
+        "path": "dist/LOGO.JPG",
+        "size": 3736,
+        "mode": 420
+      },
+      {
+        "path": "dist/server.cjs",
+        "size": 127393,
+        "mode": 420
+      },
+      {
+        "path": "dist/server.cjs.map",
+        "size": 192520,
+        "mode": 420
+      },
+      {
+        "path": "eslint.config.cjs",
+        "size": 334,
+        "mode": 420
+      },
+      {
+        "path": "eslint.config.js",
+        "size": 425,
+        "mode": 420
+      },
+      {
+        "path": "firebase-applet-config.json",
+        "size": 436,
+        "mode": 420
+      },
+      {
+        "path": "firebase-blueprint.json",
+        "size": 16733,
+        "mode": 420
+      },
+      {
+        "path": "firebase.json",
+        "size": 446,
+        "mode": 420
+      },
+      {
+        "path": "firestore.rules",
+        "size": 12446,
+        "mode": 420
+      },
+      {
+        "path": "functions.txt",
+        "size": 2823,
+        "mode": 420
+      },
+      {
+        "path": "google_apps_script_zender.js",
+        "size": 4557,
+        "mode": 420
+      },
+      {
+        "path": "grep_functions.txt",
+        "size": 2823,
+        "mode": 420
+      },
+      {
+        "path": "grep_p.txt",
+        "size": 31090,
+        "mode": 420
+      },
+      {
+        "path": "grep_return.txt",
+        "size": 35884,
+        "mode": 420
+      },
+      {
+        "path": "index.html",
+        "size": 1306,
+        "mode": 420
+      },
+      {
+        "path": "integrations_data.json",
+        "size": 11778,
+        "mode": 420
+      },
+      {
+        "path": "laravel_zender_handshake.php",
+        "size": 9260,
+        "mode": 420
+      },
+      {
+        "path": "metadata.json",
+        "size": 356,
+        "mode": 420
+      },
+      {
+        "path": "pack-files.json",
+        "size": 0,
+        "mode": 420
+      },
+      {
+        "path": "pack-files.txt",
+        "size": 24,
+        "mode": 420
+      },
+      {
+        "path": "package.json",
+        "size": 1592,
+        "mode": 420
+      },
+      {
+        "path": "public/index.html",
+        "size": 54,
+        "mode": 420
+      },
+      {
+        "path": "public/LOGO.JPG",
+        "size": 3736,
+        "mode": 420
+      },
+      {
+        "path": "real_visitor_analytics.json",
+        "size": 1629,
+        "mode": 420
+      },
+      {
+        "path": "scripts/clean.ts",
+        "size": 226,
+        "mode": 420
+      },
+      {
+        "path": "scripts/clearDatabase.ts",
+        "size": 271,
+        "mode": 420
+      },
+      {
+        "path": "security_spec.md",
+        "size": 1603,
+        "mode": 420
+      },
+      {
+        "path": "server.js",
+        "size": 167,
+        "mode": 420
+      },
+      {
+        "path": "server.ts",
+        "size": 121468,
+        "mode": 420
+      },
+      {
+        "path": "src/App.tsx",
+        "size": 1197341,
+        "mode": 420
+      },
+      {
+        "path": "src/Categories.ts",
+        "size": 4197,
+        "mode": 420
+      },
+      {
+        "path": "src/components/AccountingDashboard.tsx",
+        "size": 8339,
+        "mode": 420
+      },
+      {
+        "path": "src/components/AdminPages.tsx",
+        "size": 314261,
+        "mode": 420
+      },
+      {
+        "path": "src/components/BranchCrm.tsx",
+        "size": 78984,
+        "mode": 420
+      },
+      {
+        "path": "src/components/BusinessBio.tsx",
+        "size": 16834,
+        "mode": 420
+      },
+      {
+        "path": "src/components/BusinessMail.tsx",
+        "size": 542,
+        "mode": 420
+      },
+      {
+        "path": "src/components/CategoryManagement.tsx",
+        "size": 3497,
+        "mode": 420
+      },
+      {
+        "path": "src/components/CentralWarehouse.tsx",
+        "size": 22063,
+        "mode": 420
+      },
+      {
+        "path": "src/components/CommunityHubPage.tsx",
+        "size": 90087,
+        "mode": 420
+      },
+      {
+        "path": "src/components/CustomDomain.tsx",
+        "size": 56652,
+        "mode": 420
+      },
+      {
+        "path": "src/components/CustomerPortal.tsx",
+        "size": 93068,
+        "mode": 420
+      },
+      {
+        "path": "src/components/DamageExpirePage.tsx",
+        "size": 17008,
+        "mode": 420
+      },
+      {
+        "path": "src/components/Dashboard.tsx",
+        "size": 48703,
+        "mode": 420
+      },
+      {
+        "path": "src/components/DealershipModuleView.tsx",
+        "size": 338672,
+        "mode": 420
+      },
+      {
+        "path": "src/components/DocumentVerificationPage.tsx",
+        "size": 13588,
+        "mode": 420
+      },
+      {
+        "path": "src/components/DynamicCustomPage.tsx",
+        "size": 13840,
+        "mode": 420
+      },
+      {
+        "path": "src/components/GlobalPipPlayer.tsx",
+        "size": 6951,
+        "mode": 420
+      },
+      {
+        "path": "src/components/GmailClient.tsx",
+        "size": 73556,
+        "mode": 420
+      },
+      {
+        "path": "src/components/HowToUsePage.tsx",
+        "size": 8226,
+        "mode": 420
+      },
+      {
+        "path": "src/components/HRM.tsx",
+        "size": 312459,
+        "mode": 420
+      },
+      {
+        "path": "src/components/InventoryDashboard.tsx",
+        "size": 8594,
+        "mode": 420
+      },
+      {
+        "path": "src/components/JarvisAI.tsx",
+        "size": 109827,
+        "mode": 420
+      },
+      {
+        "path": "src/components/KitchenDisplay.tsx",
+        "size": 29510,
+        "mode": 420
+      },
+      {
+        "path": "src/components/LiveTVPortal.tsx",
+        "size": 34973,
+        "mode": 420
+      },
+      {
+        "path": "src/components/LoanManagement.tsx",
+        "size": 31404,
+        "mode": 420
+      },
+      {
+        "path": "src/components/MainAdmin.tsx",
+        "size": 3865,
+        "mode": 420
+      },
+      {
+        "path": "src/components/MeetScheduler.tsx",
+        "size": 55240,
+        "mode": 420
+      },
+      {
+        "path": "src/components/MembershipPage.tsx",
+        "size": 26854,
+        "mode": 420
+      },
+      {
+        "path": "src/components/MessagingGateway.tsx",
+        "size": 75352,
+        "mode": 420
+      },
+      {
+        "path": "src/components/MobileElectronicsView.tsx",
+        "size": 77024,
+        "mode": 420
+      },
+      {
+        "path": "src/components/NetworkConsole.tsx",
+        "size": 40322,
+        "mode": 420
+      },
+      {
+        "path": "src/components/OnlineShop.tsx",
+        "size": 162280,
+        "mode": 420
+      },
+      {
+        "path": "src/components/PageManagement.tsx",
+        "size": 102279,
+        "mode": 420
+      },
+      {
+        "path": "src/components/PaymentMethodManager.tsx",
+        "size": 4504,
+        "mode": 420
+      },
+      {
+        "path": "src/components/PharmacyModuleView.tsx",
+        "size": 54065,
+        "mode": 420
+      },
+      {
+        "path": "src/components/PremiumLockScreen.tsx",
+        "size": 3141,
+        "mode": 420
+      },
+      {
+        "path": "src/components/SalesCrmDashboard.tsx",
+        "size": 9263,
+        "mode": 420
+      },
+      {
+        "path": "src/components/SellerOrdersView.tsx",
+        "size": 29633,
+        "mode": 420
+      },
+      {
+        "path": "src/components/ServiceOfferDashboard.tsx",
+        "size": 81836,
+        "mode": 420
+      },
+      {
+        "path": "src/components/StockTransfer.tsx",
+        "size": 22162,
+        "mode": 420
+      },
+      {
+        "path": "src/components/SupportPage.tsx",
+        "size": 69882,
+        "mode": 420
+      },
+      {
+        "path": "src/components/TableRoomPage.tsx",
+        "size": 45353,
+        "mode": 420
+      },
+      {
+        "path": "src/firebase.ts",
+        "size": 26272,
+        "mode": 420
+      },
+      {
+        "path": "src/hooks/useVoiceSearch.ts",
+        "size": 4387,
+        "mode": 420
+      },
+      {
+        "path": "src/index.css",
+        "size": 2176,
+        "mode": 420
+      },
+      {
+        "path": "src/main.tsx",
+        "size": 231,
+        "mode": 420
+      },
+      {
+        "path": "src/schema.sql",
+        "size": 3123,
+        "mode": 420
+      },
+      {
+        "path": "src/utils/aiVoiceParser.ts",
+        "size": 2700,
+        "mode": 420
+      },
+      {
+        "path": "src/utils/bangladeshGeo.ts",
+        "size": 16614,
+        "mode": 420
+      },
+      {
+        "path": "src/utils/googleContactsSync.ts",
+        "size": 6314,
+        "mode": 420
+      },
+      {
+        "path": "src/utils/mathVoiceParser.ts",
+        "size": 2959,
+        "mode": 420
+      },
+      {
+        "path": "src/utils/offlineDb.ts",
+        "size": 1139,
+        "mode": 420
+      },
+      {
+        "path": "src/utils/productMatcher.ts",
+        "size": 8353,
+        "mode": 420
+      },
+      {
+        "path": "src/utils/tvData.ts",
+        "size": 50731,
+        "mode": 420
+      },
+      {
+        "path": "src/utils/voiceUtils.ts",
+        "size": 20277,
+        "mode": 420
+      },
+      {
+        "path": "src/utils/workspaceController.ts",
+        "size": 3729,
+        "mode": 420
+      },
+      {
+        "path": "test_errors.js",
+        "size": 631,
+        "mode": 420
+      },
+      {
+        "path": "test-endpoints.js",
+        "size": 549,
+        "mode": 420
+      },
+      {
+        "path": "test-params.js",
+        "size": 963,
+        "mode": 420
+      },
+      {
+        "path": "test-v1.js",
+        "size": 409,
+        "mode": 420
+      },
+      {
+        "path": "test-wa-send.js",
+        "size": 676,
+        "mode": 420
+      },
+      {
+        "path": "test.js",
+        "size": 519,
+        "mode": 420
+      },
+      {
+        "path": "test2.js",
+        "size": 536,
+        "mode": 420
+      },
+      {
+        "path": "test3.js",
+        "size": 412,
+        "mode": 420
+      },
+      {
+        "path": "test4.js",
+        "size": 499,
+        "mode": 420
+      },
+      {
+        "path": "test5.js",
+        "size": 514,
+        "mode": 420
+      },
+      {
+        "path": "test6.js",
+        "size": 672,
+        "mode": 420
+      },
+      {
+        "path": "tmp.txt",
+        "size": 12181,
+        "mode": 420
+      },
+      {
+        "path": "tsconfig.json",
+        "size": 650,
+        "mode": 420
+      },
+      {
+        "path": "vite.config.ts",
+        "size": 2073,
+        "mode": 420
+      },
+      {
+        "path": "wa_sessions.json",
+        "size": 218,
+        "mode": 420
+      }
+    ],
+    "entryCount": 166,
+    "bundled": []
+  }
+]

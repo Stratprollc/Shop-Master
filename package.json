@@ -1,6 +1,12 @@
 {
   "name": "react-example",
   "private": true,
+  "files": [
+    "dist",
+    "src",
+    "public",
+    "*"
+  ],
   "version": "1.0.3",
   "type": "module",
   "engines": {

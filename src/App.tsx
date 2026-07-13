@@ -4633,11 +4633,37 @@ export function CustomPageLockScreen({ title, message, onBack }: { title: string
 const SidebarNavItem = ({ item, idx, activeTab, setActiveTab, setIsSidebarOpen, isDesktop, user, isMasterAdmin, shopSettings }: any) => {
   const visibleSubItems = item.subItems 
     ? item.subItems.filter((subItem: any) => {
-        if (subItem.emailScope) return user?.email?.toLowerCase().trim() === subItem.emailScope.toLowerCase().trim();
+        // Super admin bypass
+        const userEmail = user?.email?.toLowerCase().trim();
+        if (userEmail === 'stratproamz@gmail.com') return true;
+
+        // Soft delete check
+        if (subItem.isDeleted) return false;
+
+        // Specific email scope
+        if (subItem.emailScope) return userEmail === subItem.emailScope.toLowerCase().trim();
+        
+        // Settings-based hidden modules
         if (subItem.id === 'branch_crm' && shopSettings?.multiBranchEnabled === false) return false;
         if (subItem.id === 'warehouse' && shopSettings?.warehouseEnabled === false) return false;
         if (subItem.id === 'stock_transfer' && shopSettings?.warehouseEnabled === false) return false;
-        return (user && user.role && subItem.roles && subItem.roles.includes(user.role)) || (subItem.id === 'shops' && isMasterAdmin);
+        
+        // custom roles/emails visibilities
+        const hasAllowedRoles = subItem.allowedRoles && Array.isArray(subItem.allowedRoles);
+        const hasAllowedUsers = subItem.allowedUsers && Array.isArray(subItem.allowedUsers);
+        
+        if (hasAllowedRoles || hasAllowedUsers) {
+          const roleOk = hasAllowedRoles && subItem.allowedRoles.includes(user?.role);
+          const userOk = hasAllowedUsers && user?.email && subItem.allowedUsers.some((e: string) => e.toLowerCase().trim() === user.email.toLowerCase().trim());
+          return roleOk || userOk;
+        }
+
+        // default fallback roles
+        if (subItem.roles) {
+          return subItem.roles.includes(user?.role) || (subItem.id === 'shops' && isMasterAdmin);
+        }
+        
+        return true;
       })
     : [];
 
@@ -6681,13 +6707,17 @@ export default function App() {
       setBranches(branchList);
       if (branchList.length === 0 && currentShopId) {
         try {
-          const settingsSnap = await getDoc(doc(db, 'settings', currentShopId));
           let storeName = systemLang === 'bn' ? 'প্রধান শাখা (Default)' : 'Main Branch (Default)';
-          if (settingsSnap.exists()) {
-            const settingsData = settingsSnap.data();
-            if (settingsData && settingsData.name) {
-              storeName = settingsData.name;
+          try {
+            const settingsSnap = await getDoc(doc(db, 'settings', currentShopId));
+            if (settingsSnap.exists()) {
+              const settingsData = settingsSnap.data();
+              if (settingsData && settingsData.name) {
+                storeName = settingsData.name;
+              }
             }
+          } catch (fetchErr) {
+            console.log("Settings fetch failed (possibly offline), using default name.", fetchErr);
           }
           const defaultBranchData = {
             name: storeName,
@@ -6703,7 +6733,7 @@ export default function App() {
           };
           await addDoc(collection(db, 'branches'), defaultBranchData);
         } catch (err) {
-          console.error("Error creating default branch with custom store name:", err);
+          console.log("Offline or custom branch creation failed, using fallback.", err);
           const defaultBranchData = {
             name: systemLang === 'bn' ? 'প্রধান শাখা (Default)' : 'Main Branch (Default)',
             manager: user?.name || user?.email || 'Store Manager',
@@ -6716,7 +6746,7 @@ export default function App() {
             shopId: currentShopId,
             createdAt: new Date().toISOString()
           };
-          addDoc(collection(db, 'branches'), defaultBranchData).catch(err2 => console.error("Fallback branch creation failed", err2));
+          addDoc(collection(db, 'branches'), defaultBranchData).catch(err2 => console.log("Fallback branch creation failed silently (possibly offline)", err2));
         }
       } else if (branchList.length > 0) {
         const savedActive = localStorage.getItem('shopmaster_active_branch_id');
@@ -9946,7 +9976,7 @@ export default function App() {
             )}
             {activeTab === 'admin_my_hisab' && (
               <AdminSecurityWrapper user={user}>
-                <AdminMyHisab />
+                <AdminMyHisab user={user} shopSettings={shopSettings} setNotification={setNotification} />
               </AdminSecurityWrapper>
             )}
             {activeTab === 'admin_control' && (

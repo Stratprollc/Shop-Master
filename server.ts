@@ -2457,7 +2457,7 @@ async function startServer() {
     }
   });
 
-  const isProd = process.env.NODE_ENV === 'production';
+  const isProd = (process.env.NODE_ENV === 'production' || (process.argv[1] && process.argv[1].includes('server.cjs'))) && !(process.argv[1] && process.argv[1].includes('server.ts'));
 
   // API 404 Catch-all (must be before SPA fallback)
   app.use('/api', (req, res) => {

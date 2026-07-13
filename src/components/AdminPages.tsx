@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { db, doc, updateDoc, setDoc } from '../firebase';
+import PersonalHisab from './PersonalHisab';
 import { 
   Home, 
   PenTool, 
@@ -63,7 +64,13 @@ import {
   Clock,
   Laptop,
   MapPin,
-  UserCheck
+  UserCheck,
+  Edit,
+  X,
+  ShieldCheck,
+  Building2,
+  Briefcase,
+  CheckCircle
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
@@ -4131,13 +4138,72 @@ export function AdminSidebarPages({ shopSettings = {}, user = {}, setNotificatio
     }
   ];
 
-  const ALL_ROLES = ['admin', 'manager', 'assistant_manager', 'sales_manager', 'sales_team', 'warehouse'];
+  const [ALL_ROLES, setALL_ROLES] = useState<string[]>(['admin', 'manager', 'assistant_manager', 'sales_manager', 'sales_team', 'warehouse']);
+  const [newRoleInput, setNewRoleInput] = useState('');
+  const [editingRoleName, setEditingRoleName] = useState<string | null>(null);
+  const [newRoleEditValue, setNewRoleEditValue] = useState('');
+
+  const handleAddRole = () => {
+    const role = newRoleInput.trim().toLowerCase().replace(/[^a-z0-9_]/g, '');
+    if (!role) {
+      if (setNotification) setNotification({ type: 'error', message: 'রোলের নাম খালি হতে পারে না।' });
+      return;
+    }
+    if (ALL_ROLES.includes(role)) {
+      if (setNotification) setNotification({ type: 'error', message: 'এই রোলটি ইতিমধ্যে তালিকাভুক্ত রয়েছে।' });
+      return;
+    }
+    const updatedRoles = [...ALL_ROLES, role];
+    setALL_ROLES(updatedRoles);
+    setNewRoleInput('');
+    if (setNotification) setNotification({ type: 'success', message: `কাস্টম রোল "${role}" সফলভাবে যুক্ত হয়েছে। সেভ করতে নিচে সংরক্ষণ করুন চাপুন।` });
+  };
+
+  const handleDeleteRole = (roleToDelete: string) => {
+    if (roleToDelete === 'admin') {
+      if (setNotification) setNotification({ type: 'error', message: 'নিরাপত্তার স্বার্থে "admin" রোলটি ডিলিট করা সম্ভব নয়।' });
+      return;
+    }
+    
+    setALL_ROLES(prev => prev.filter(r => r !== roleToDelete));
+    if (setNotification) {
+      setNotification({ 
+        type: 'info', 
+        message: `রোল "${roleToDelete}" ডিলিট করা হয়েছে। সেভ করতে নিচে সংরক্ষণ করুন চাপুন।` 
+      });
+    }
+  };
+
+  const handleSaveRoleEdit = (oldRole: string) => {
+    const newName = newRoleEditValue.trim().toLowerCase().replace(/[^a-z0-9_]/g, '');
+    if (!newName) return;
+    if (oldRole === 'admin') {
+      if (setNotification) setNotification({ type: 'error', message: 'নিরাপত্তার স্বার্থে "admin" রোলটি এডিট বা পরিবর্তন করা সম্ভব নয়।' });
+      return;
+    }
+    if (ALL_ROLES.includes(newName) && newName !== oldRole) {
+      if (setNotification) setNotification({ type: 'error', message: 'এই নাম অন্য একটি রোল ইতিমধ্যে রয়েছে।' });
+      return;
+    }
+
+    setALL_ROLES(prev => prev.map(r => r === oldRole ? newName : r));
+    setEditingRoleName(null);
+    setNewRoleEditValue('');
+    if (setNotification) {
+      setNotification({ 
+        type: 'success', 
+        message: `রোল "${oldRole}" পরিবর্তন করে "${newName}" করা হয়েছে। নিচে সেভ চাপুন।` 
+      });
+    }
+  };
 
   const POPULAR_ICONS = ['LayoutDashboard', 'ShoppingBag', 'DoorOpen', 'ChefHat', 'FileText', 'Smartphone', 'Pill', 'Truck', 'BookOpen', 'Package', 'Warehouse', 'Users', 'Barcode', 'Trash2', 'ArrowLeftRight', 'History', 'Building2', 'Globe', 'ShieldCheck', 'Zap', 'StickyNote', 'Calculator', 'Clock', 'CheckSquare', 'Banknote', 'Calendar', 'Link', 'Image', 'FileEdit', 'Video', 'Brain', 'Award', 'Bot', 'CreditCard', 'Tv', 'User', 'Phone', 'Mail', 'Activity', 'Settings', 'MessageSquare', 'Shield', 'Home', 'PenTool', 'Layers', 'Terminal'];
 
   const [sections, setSections] = useState<any[]>([]);
   const [customLockMessage, setCustomLockMessage] = useState('');
   const [isSaving, setIsSaving] = useState(false);
+  const [activeConfigTab, setActiveConfigTab] = useState<'lock' | 'roles' | 'business'>('lock');
+  const [selectedBusinessType, setSelectedBusinessType] = useState<string>('Retail');
   const [expandedSections, setExpandedSections] = useState<Record<string, boolean>>({});
   
   // Modals / Editors state
@@ -4207,7 +4273,19 @@ export function AdminSidebarPages({ shopSettings = {}, user = {}, setNotificatio
     } else {
       setCustomLockMessage('');
     }
-  }, [shopSettings?.sidebarConfig, shopSettings?.customLockMessage]);
+
+    if (shopSettings?.rolesList && Array.isArray(shopSettings.rolesList)) {
+      setALL_ROLES(shopSettings.rolesList);
+    } else {
+      setALL_ROLES(['admin', 'manager', 'assistant_manager', 'sales_manager', 'sales_team', 'warehouse']);
+    }
+
+    if (shopSettings?.businessType) {
+      setSelectedBusinessType(shopSettings.businessType);
+    } else {
+      setSelectedBusinessType('Retail');
+    }
+  }, [shopSettings?.sidebarConfig, shopSettings?.customLockMessage, shopSettings?.rolesList, shopSettings?.businessType]);
 
   const toggleExpand = (sectionId: string) => {
     setExpandedSections(prev => ({ ...prev, [sectionId]: !prev[sectionId] }));
@@ -4472,7 +4550,7 @@ export function AdminSidebarPages({ shopSettings = {}, user = {}, setNotificatio
       iconName,
       isLocked: false,
       isDeleted: false,
-      allowedRoles: ['admin', 'manager', 'assistant_manager', 'sales_manager', 'sales_team'],
+      allowedRoles: [...ALL_ROLES],
       allowedUsers: []
     };
 
@@ -4597,14 +4675,18 @@ export function AdminSidebarPages({ shopSettings = {}, user = {}, setNotificatio
 
       await updateDoc(doc(db, 'settings', shopId), {
         sidebarConfig: { sections: cleanedSections },
-        customLockMessage: cleanedLockMessage
+        customLockMessage: cleanedLockMessage,
+        rolesList: ALL_ROLES,
+        businessType: selectedBusinessType
       });
 
       const isMasterAdmin = user?.email?.toLowerCase().trim() === 'stratproamz@gmail.com' || user?.role === 'master_admin';
       if (isMasterAdmin) {
         await setDoc(doc(db, 'settings', 'master'), {
           sidebarConfig: { sections: cleanedSections },
-          customLockMessage: cleanedLockMessage
+          customLockMessage: cleanedLockMessage,
+          rolesList: ALL_ROLES,
+          businessType: selectedBusinessType
         }, { merge: true });
       }
 
@@ -4988,22 +5070,312 @@ export function AdminSidebarPages({ shopSettings = {}, user = {}, setNotificatio
 
         {/* Right Configuration panel (Lock message and Modals) */}
         <div className="space-y-4">
-          {/* Custom Lock Screen Prompt Message configuration */}
-          <div className="bg-white dark:bg-slate-900 p-6 rounded-3xl border border-gray-100 dark:border-slate-800/80 shadow-sm space-y-4">
-            <h3 className="text-sm font-black text-gray-900 dark:text-gray-100 uppercase tracking-wider flex items-center gap-2">
-              <Lock className="w-4 h-4 text-rose-500" />
-              Locked Warning Prompt
-            </h3>
-            <p className="text-[11px] text-gray-400 font-bold uppercase tracking-wider leading-relaxed">
-              বাংলা বা ইংরেজি নোটিশ পরিবর্তন করুন যা লক করা পেইজে ভেসে উঠবে:
-            </p>
-            <textarea
-              value={customLockMessage}
-              onChange={e => setCustomLockMessage(e.target.value)}
-              placeholder="যেমন: দুঃখিত, এই সেকশনটি বর্তমানে অ্যাডমিন কর্তৃক লক করা রয়েছে!"
-              className="w-full h-24 p-3 border border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-950/50 rounded-2xl text-xs outline-none focus:border-indigo-500 transition-colors dark:text-gray-200"
-            />
+        {/* Right Configuration panel (Lock message, Custom Roles and Business Mapping) */}
+        <div className="space-y-4">
+          {/* Segmented Controls for 3 Tabs */}
+          <div className="flex bg-slate-100 dark:bg-slate-950 p-1 rounded-2xl gap-1 select-none border border-slate-200/50 dark:border-slate-800">
+            <button
+              type="button"
+              onClick={() => setActiveConfigTab('lock')}
+              className={`flex-1 py-2 text-center rounded-xl text-[10px] md:text-xs font-black uppercase tracking-wider transition-all duration-200 cursor-pointer flex items-center justify-center gap-1.5 ${
+                activeConfigTab === 'lock'
+                  ? 'bg-white dark:bg-slate-900 text-indigo-600 dark:text-indigo-400 shadow-xs'
+                  : 'text-gray-400 hover:text-gray-600 dark:hover:text-gray-200'
+              }`}
+            >
+              <Lock className="w-3.5 h-3.5" />
+              {shopSettings?.systemLanguage === 'bn' ? 'লক মেসেজ' : 'Lock Msg'}
+            </button>
+            <button
+              type="button"
+              onClick={() => setActiveConfigTab('roles')}
+              className={`flex-1 py-2 text-center rounded-xl text-[10px] md:text-xs font-black uppercase tracking-wider transition-all duration-200 cursor-pointer flex items-center justify-center gap-1.5 ${
+                activeConfigTab === 'roles'
+                  ? 'bg-white dark:bg-slate-900 text-emerald-600 dark:text-emerald-400 shadow-xs'
+                  : 'text-gray-400 hover:text-gray-600 dark:hover:text-gray-200'
+              }`}
+            >
+              <ShieldCheck className="w-3.5 h-3.5" />
+              {shopSettings?.systemLanguage === 'bn' ? 'রোল ম্যানেজার' : 'Roles'}
+            </button>
+            <button
+              type="button"
+              onClick={() => setActiveConfigTab('business')}
+              className={`flex-1 py-2 text-center rounded-xl text-[10px] md:text-xs font-black uppercase tracking-wider transition-all duration-200 cursor-pointer flex items-center justify-center gap-1.5 ${
+                activeConfigTab === 'business'
+                  ? 'bg-white dark:bg-slate-900 text-amber-600 dark:text-amber-400 shadow-xs'
+                  : 'text-gray-400 hover:text-gray-600 dark:hover:text-gray-200'
+              }`}
+            >
+              <Building2 className="w-3.5 h-3.5" />
+              {shopSettings?.systemLanguage === 'bn' ? 'ব্যবসায় ক্ষেত্র' : 'Business'}
+            </button>
           </div>
+
+          <AnimatePresence mode="wait">
+            {activeConfigTab === 'lock' && (
+              <motion.div
+                key="tab-lock"
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -10 }}
+                className="bg-white dark:bg-slate-900 p-6 rounded-3xl border border-gray-100 dark:border-slate-800/80 shadow-sm space-y-4"
+              >
+                <h3 className="text-sm font-black text-gray-900 dark:text-gray-100 uppercase tracking-wider flex items-center gap-2">
+                  <Lock className="w-4 h-4 text-rose-500" />
+                  Locked Warning Prompt
+                </h3>
+                <p className="text-[11px] text-gray-400 font-bold uppercase tracking-wider leading-relaxed">
+                  বাংলা বা ইংরেজি নোটিশ পরিবর্তন করুন যা লক করা পেইজে ভেসে উঠবে:
+                </p>
+                <textarea
+                  value={customLockMessage}
+                  onChange={e => setCustomLockMessage(e.target.value)}
+                  placeholder="যেমন: দুঃখিত, এই সেকশনটি বর্তমানে অ্যাডমিন কর্তৃক লক করা রয়েছে!"
+                  className="w-full h-32 p-3 border border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-950/50 rounded-2xl text-xs outline-none focus:border-indigo-500 transition-colors dark:text-gray-200"
+                />
+              </motion.div>
+            )}
+
+            {activeConfigTab === 'roles' && (
+              <motion.div
+                key="tab-roles"
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -10 }}
+                className="bg-white dark:bg-slate-900 p-6 rounded-3xl border border-gray-100 dark:border-slate-800/80 shadow-sm space-y-4"
+              >
+                <h3 className="text-sm font-black text-gray-900 dark:text-gray-100 uppercase tracking-wider flex items-center gap-2">
+                  <ShieldCheck className="w-4 h-4 text-emerald-500" />
+                  {shopSettings?.systemLanguage === 'bn' ? 'কাস্টম রোল ও সিকিউরিটি রুলস' : 'Custom Roles & Security Rules'}
+                </h3>
+                <p className="text-[11px] text-gray-400 font-bold uppercase tracking-wider leading-relaxed">
+                  {shopSettings?.systemLanguage === 'bn' 
+                    ? 'আপনার ব্যবসার কাস্টম রোলসমূহ যুক্ত, পরিবর্তন অথবা ডিলিট করুন। এই রোলসমূহ ব্যবহার করে আলাদা পেজের অ্যাক্সেস কন্ট্রোল করতে পারবেন:'
+                    : 'Create, edit, or delete custom roles for your business. These custom roles will regulate page visibility permissions:'}
+                </p>
+
+                {/* List of current roles */}
+                <div className="space-y-2 max-h-56 overflow-y-auto pr-1">
+                  {ALL_ROLES.map((role) => (
+                    <div key={role} className="flex items-center justify-between p-2.5 bg-slate-50/50 dark:bg-slate-950/50 border border-slate-100 dark:border-slate-850 rounded-xl">
+                      {editingRoleName === role ? (
+                        <div className="flex items-center gap-1.5 w-full">
+                          <input 
+                            type="text"
+                            value={newRoleEditValue}
+                            onChange={(e) => setNewRoleEditValue(e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, ''))}
+                            className="flex-1 px-2.5 py-1.5 border border-indigo-200 rounded-lg text-xs outline-none dark:bg-slate-900 dark:text-white"
+                            placeholder="e.g. accounts"
+                            autoFocus
+                          />
+                          <button 
+                            type="button"
+                            onClick={() => handleSaveRoleEdit(role)}
+                            className="p-1.5 bg-emerald-50 text-emerald-600 hover:bg-emerald-100 rounded-lg cursor-pointer animate-none"
+                            title="Save Rename"
+                          >
+                            <Check className="w-3.5 h-3.5" />
+                          </button>
+                          <button 
+                            type="button"
+                            onClick={() => setEditingRoleName(null)}
+                            className="p-1.5 bg-rose-50 text-rose-600 hover:bg-rose-100 rounded-lg cursor-pointer"
+                            title="Cancel"
+                          >
+                            <X className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      ) : (
+                        <>
+                          <div className="flex items-center gap-2">
+                            <div className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse"></div>
+                            <span className="text-xs font-black text-slate-700 dark:text-slate-300 uppercase tracking-wider">{role}</span>
+                          </div>
+                          <div className="flex items-center gap-1">
+                            <button 
+                              type="button"
+                              onClick={() => {
+                                setEditingRoleName(role);
+                                setNewRoleEditValue(role);
+                              }}
+                              className="p-1.5 text-gray-400 hover:text-indigo-600 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg cursor-pointer"
+                              title="Rename Role"
+                            >
+                              <Edit className="w-3.5 h-3.5" />
+                            </button>
+                            <button 
+                              type="button"
+                              onClick={() => handleDeleteRole(role)}
+                              className="p-1.5 text-gray-400 hover:text-rose-500 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg cursor-pointer"
+                              title="Delete Role"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        </>
+                      )}
+                    </div>
+                  ))}
+                </div>
+
+                {/* Add Role Form */}
+                <div className="flex gap-2 pt-1">
+                  <input 
+                    type="text"
+                    value={newRoleInput}
+                    onChange={(e) => setNewRoleInput(e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, ''))}
+                    placeholder={shopSettings?.systemLanguage === 'bn' ? 'নতুন রোলের নাম (যেমন: accounts)' : 'New role name (e.g. accounts)'}
+                    className="flex-1 px-3 py-2 border border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-950/50 rounded-xl text-xs outline-none focus:border-indigo-500 transition-colors dark:text-gray-200"
+                  />
+                  <button 
+                    type="button"
+                    onClick={handleAddRole}
+                    className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-black uppercase tracking-wider transition-all cursor-pointer flex items-center gap-1 shrink-0 shadow-sm shadow-emerald-600/10"
+                  >
+                    <Plus className="w-3.5 h-3.5" />
+                    {shopSettings?.systemLanguage === 'bn' ? 'যোগ করুন' : 'Add'}
+                  </button>
+                </div>
+              </motion.div>
+            )}
+
+            {activeConfigTab === 'business' && (
+              <motion.div
+                key="tab-business"
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -10 }}
+                className="bg-white dark:bg-slate-900 p-6 rounded-3xl border border-gray-100 dark:border-slate-800/80 shadow-sm space-y-4"
+              >
+                <h3 className="text-sm font-black text-gray-900 dark:text-gray-100 uppercase tracking-wider flex items-center gap-2">
+                  <Building2 className="w-4 h-4 text-amber-500" />
+                  {shopSettings?.systemLanguage === 'bn' ? 'ব্যবসায়িক ক্ষেত্র নির্বাচন' : 'Operational Business Field'}
+                </h3>
+                
+                <div className="space-y-4">
+                  <div>
+                    <label className="block text-xs font-black text-indigo-600 dark:text-indigo-400 uppercase tracking-wider mb-2 flex items-center gap-1.5 select-none font-sans">
+                      <Briefcase className="w-4 h-4 text-indigo-500" />
+                      {shopSettings?.systemLanguage === 'bn' ? 'Operational Business Field / ব্যবসায়িক ক্ষেত্র' : 'Operational Business Field'}
+                      <span className="text-red-500">*</span>
+                    </label>
+                    <select 
+                      name="businessType" 
+                      value={selectedBusinessType}
+                      onChange={(e) => setSelectedBusinessType(e.target.value)}
+                      className="w-full px-4 py-3 rounded-xl border-2 border-indigo-100 hover:border-indigo-300 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 outline-none bg-indigo-50/10 dark:bg-slate-950 dark:border-slate-800 font-bold transition-all cursor-pointer shadow-xs text-sm dark:text-white"
+                    >
+                      <option value="Retail">{shopSettings?.systemLanguage === 'bn' ? 'Retail Store / সাধারণ রিটেল ও মুদি দোকান' : 'Retail Store'}</option>
+                      <option value="Restaurant">{shopSettings?.systemLanguage === 'bn' ? 'Restaurant / রেস্টুরেন্ট ও কফি শপ' : 'Restaurant'}</option>
+                      <option value="Electronics">{shopSettings?.systemLanguage === 'bn' ? 'Electronics / মোবাইল ও ইলেকট্রনিক্স শপ' : 'Electronics'}</option>
+                      <option value="Pharmacy">{shopSettings?.systemLanguage === 'bn' ? 'Pharmacy / মেডিসিন ও ফার্মেসি' : 'Pharmacy'}</option>
+                      <option value="Dealer">{shopSettings?.systemLanguage === 'bn' ? 'Dealer / ডিলারশিপ ও পাইকারি ব্যবসা' : 'Dealer'}</option>
+                    </select>
+                    <p className="text-[10px] text-indigo-400 font-bold mt-1 select-none leading-relaxed">
+                      {shopSettings?.systemLanguage === 'bn'
+                        ? 'ক্যাটাগরি পরিবর্তনের সাথে সাথে POS স্কিম এবং কাস্টমাইজড ডাটা মডেল স্বয়ংক্রিয়ভাবে পরিবর্তিত হবে।'
+                        : 'Choosing a category configures dynamic POS schemes and customized data models.'}
+                    </p>
+                  </div>
+
+                  {/* Custom visual display for recommended pages */}
+                  <div className="bg-slate-50/50 dark:bg-slate-950/50 p-4 rounded-2xl border border-dashed border-slate-200 dark:border-slate-800 space-y-2.5">
+                    <div className="flex items-center gap-1.5 text-[10px] font-black text-slate-500 uppercase tracking-wider">
+                      <Layers className="w-3.5 h-3.5 text-indigo-500" />
+                      {shopSettings?.systemLanguage === 'bn' ? 'এই শিল্পের জন্য প্রস্তাবিত মডিউলসমূহ' : 'Recommended Industry Modules'}
+                    </div>
+                    
+                    {selectedBusinessType === 'Retail' && (
+                      <div className="space-y-1.5">
+                        <div className="flex items-center gap-1.5 text-xs text-slate-700 dark:text-slate-300 font-medium">
+                          <CheckCircle className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
+                          <span>{shopSettings?.systemLanguage === 'bn' ? 'রিটেল কুইক বিলিং ও বারকোড সেল' : 'Retail Quick Billing & Barcode Sales'}</span>
+                        </div>
+                        <div className="flex items-center gap-1.5 text-xs text-slate-700 dark:text-slate-300 font-medium">
+                          <CheckCircle className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
+                          <span>{shopSettings?.systemLanguage === 'bn' ? 'বারকোড লেবেল জেনারেটর' : 'Barcode Label Generator'}</span>
+                        </div>
+                        <div className="flex items-center gap-1.5 text-xs text-slate-700 dark:text-slate-300 font-medium">
+                          <CheckCircle className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
+                          <span>{shopSettings?.systemLanguage === 'bn' ? 'সাপ্লায়ার ইনভেন্টরি ট্র্যাকার' : 'Supplier Inventory Tracker'}</span>
+                        </div>
+                      </div>
+                    )}
+
+                    {selectedBusinessType === 'Restaurant' && (
+                      <div className="space-y-1.5">
+                        <div className="flex items-center gap-1.5 text-xs text-slate-700 dark:text-slate-300 font-medium">
+                          <CheckCircle className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
+                          <span>{shopSettings?.systemLanguage === 'bn' ? 'KOT কিচেন ডিসপ্লে সিস্টেম (KDS)' : 'KOT Kitchen Display System (KDS)'}</span>
+                        </div>
+                        <div className="flex items-center gap-1.5 text-xs text-slate-700 dark:text-slate-300 font-medium">
+                          <CheckCircle className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
+                          <span>{shopSettings?.systemLanguage === 'bn' ? 'টেবিল ম্যানেজমেন্ট ও ফ্লোর লেআউট' : 'Table Management & Floor Layout'}</span>
+                        </div>
+                        <div className="flex items-center gap-1.5 text-xs text-slate-700 dark:text-slate-300 font-medium">
+                          <CheckCircle className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
+                          <span>{shopSettings?.systemLanguage === 'bn' ? 'রেসিপি উপাদান ও খাদ্য তালিকা' : 'Recipe Ingredients & Menu Card (BOM)'}</span>
+                        </div>
+                      </div>
+                    )}
+
+                    {selectedBusinessType === 'Electronics' && (
+                      <div className="space-y-1.5">
+                        <div className="flex items-center gap-1.5 text-xs text-slate-700 dark:text-slate-300 font-medium">
+                          <CheckCircle className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
+                          <span>{shopSettings?.systemLanguage === 'bn' ? 'IMEI ও ডিভাইস সিরিয়াল রেজিস্টার' : 'IMEI & Device Serial Register'}</span>
+                        </div>
+                        <div className="flex items-center gap-1.5 text-xs text-slate-700 dark:text-slate-300 font-medium">
+                          <CheckCircle className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
+                          <span>{shopSettings?.systemLanguage === 'bn' ? 'ওয়ারেন্টি ট্র্যাকিং ও ক্লেম ম্যানেজমেন্ট' : 'Warranty Tracking & Claims'}</span>
+                        </div>
+                        <div className="flex items-center gap-1.5 text-xs text-slate-700 dark:text-slate-300 font-medium">
+                          <CheckCircle className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
+                          <span>{shopSettings?.systemLanguage === 'bn' ? 'সার্ভিসিং ও রিপেয়ারিং ডেক্স' : 'Servicing & Repair Desk'}</span>
+                        </div>
+                      </div>
+                    )}
+
+                    {selectedBusinessType === 'Pharmacy' && (
+                      <div className="space-y-1.5">
+                        <div className="flex items-center gap-1.5 text-xs text-slate-700 dark:text-slate-300 font-medium">
+                          <CheckCircle className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
+                          <span>{shopSettings?.systemLanguage === 'bn' ? 'মেডিসিন জেনেরিক ও ব্র্যান্ড ম্যাপিং' : 'Medicine Generic & Brand Mapping'}</span>
+                        </div>
+                        <div className="flex items-center gap-1.5 text-xs text-slate-700 dark:text-slate-300 font-medium">
+                          <CheckCircle className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
+                          <span>{shopSettings?.systemLanguage === 'bn' ? 'মেয়াদোত্তীর্ণ এলার্ট ও শেলফ লোকেটার' : 'Expiry Alert & Drug Shelf Locator'}</span>
+                        </div>
+                        <div className="flex items-center gap-1.5 text-xs text-slate-700 dark:text-slate-300 font-medium">
+                          <CheckCircle className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
+                          <span>{shopSettings?.systemLanguage === 'bn' ? 'প্রেসক্রিপশন রেজিস্টার ও ড্রাগ লগ' : 'Prescription Register & Drug Logs'}</span>
+                        </div>
+                      </div>
+                    )}
+
+                    {selectedBusinessType === 'Dealer' && (
+                      <div className="space-y-1.5">
+                        <div className="flex items-center gap-1.5 text-xs text-slate-700 dark:text-slate-300 font-medium">
+                          <CheckCircle className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
+                          <span>{shopSettings?.systemLanguage === 'bn' ? 'পাইকারি কাস্টমার ও ডিলারশিপ লেজার' : 'Wholesale Customer & Dealer Ledger'}</span>
+                        </div>
+                        <div className="flex items-center gap-1.5 text-xs text-slate-700 dark:text-slate-300 font-medium">
+                          <CheckCircle className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
+                          <span>{shopSettings?.systemLanguage === 'bn' ? 'ডিলার এজেন্ট কমিশন ম্যাট্রিক্স' : 'Dealer Agent Commission Matrix'}</span>
+                        </div>
+                        <div className="flex items-center gap-1.5 text-xs text-slate-700 dark:text-slate-300 font-medium">
+                          <CheckCircle className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
+                          <span>{shopSettings?.systemLanguage === 'bn' ? 'ডেলিভারি চালান ও ট্রাক ট্র্যাকিং' : 'Delivery Challan & Fleet Tracking'}</span>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
+        </div>
 
           {/* Active Overlay Modals rendered inside this column block for clean ergonomics */}
           <AnimatePresence mode="wait">
@@ -5585,122 +5957,21 @@ export function AdminMerchantConsole() {
 }
 
 // 5. MY HISAB LEDGER
-export function AdminMyHisab() {
-  const [items, setItems] = useState([
-    { description: 'Cloud Engine Deployment Fee', amount: -29.99, date: '2026-07-01', category: 'Infrastructure' },
-    { description: 'Merchant Enterprise Licensing Recipt', amount: 350.00, date: '2026-06-28', category: 'Licensing' },
-    { description: 'Zender SMS API Token Allotment', amount: -15.00, date: '2026-06-25', category: 'API Usage' },
-    { description: 'Global POS Core Subscriptions Bundle', amount: 840.00, date: '2026-06-20', category: 'Subscriptions' }
-  ]);
-
-  const [desc, setDesc] = useState('');
-  const [amt, setAmt] = useState('');
-  const [cat, setCat] = useState('Infrastructure');
-
-  const handleAdd = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!desc || !amt) return;
-
-    setItems([
-      {
-        description: desc,
-        amount: Number(amt),
-        date: new Date().toISOString().split('T')[0],
-        category: cat
-      },
-      ...items
-    ]);
-    setDesc('');
-    setAmt('');
-  };
-
-  const totalProceeds = items.reduce((sum, item) => sum + item.amount, 0);
-
+export function AdminMyHisab({ 
+  user, 
+  shopSettings, 
+  setNotification 
+}: { 
+  user: any; 
+  shopSettings: any; 
+  setNotification: (notif: { type: 'success' | 'error'; message: string }) => void;
+}) {
   return (
-    <motion.div 
-      initial={{ opacity: 0, y: 15 }}
-      animate={{ opacity: 1, y: 0 }}
-      className="space-y-6 max-w-7xl mx-auto p-4 md:p-6"
-    >
-      <div className="bg-white dark:bg-slate-900 p-6 rounded-3xl border border-gray-100 dark:border-slate-800/80 shadow-sm">
-        <h2 className="text-xl font-black text-gray-900 dark:text-gray-100 tracking-tight uppercase mb-1">My HISAB Central Ledger</h2>
-        <p className="text-xs text-gray-400 font-bold uppercase tracking-widest">Aggregate administrative earnings, compute expenses, and balance accounts.</p>
-      </div>
-
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        <div className="lg:col-span-2 space-y-6">
-          <div className="bg-white dark:bg-slate-900 p-6 rounded-3xl border border-gray-100 dark:border-slate-800/80 shadow-sm space-y-4">
-            <h3 className="text-sm font-black text-gray-900 dark:text-gray-100 uppercase tracking-wider">Record Transaction</h3>
-            <form onSubmit={handleAdd} className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-              <input
-                type="text"
-                placeholder="Description"
-                value={desc}
-                onChange={e => setDesc(e.target.value)}
-                className="px-4 py-2.5 bg-gray-50 dark:bg-slate-800 rounded-xl border-none outline-none text-xs font-bold w-full"
-              />
-              <input
-                type="number"
-                step="0.01"
-                placeholder="Amount (e.g., 250 or -15)"
-                value={amt}
-                onChange={e => setAmt(e.target.value)}
-                className="px-4 py-2.5 bg-gray-50 dark:bg-slate-800 rounded-xl border-none outline-none text-xs font-bold w-full"
-              />
-              <button type="submit" className="px-6 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-black uppercase tracking-widest transition-colors">
-                Add Entry
-              </button>
-            </form>
-          </div>
-
-          <div className="bg-white dark:bg-slate-900 rounded-3xl border border-gray-100 dark:border-slate-800/80 shadow-sm overflow-hidden">
-            <div className="p-6 border-b border-gray-50 dark:border-slate-800/80">
-              <h3 className="text-sm font-black text-gray-900 dark:text-gray-100 uppercase tracking-wider">Transaction Ledger</h3>
-            </div>
-            <div className="overflow-x-auto">
-              <table className="w-full text-left border-collapse">
-                <thead>
-                  <tr className="bg-gray-50 dark:bg-slate-800/50 text-[10px] font-black text-gray-400 uppercase tracking-widest">
-                    <th className="px-6 py-3.5">Date</th>
-                    <th className="px-6 py-3.5">Description</th>
-                    <th className="px-6 py-3.5">Category</th>
-                    <th className="px-6 py-3.5 text-right">Amount</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-gray-100 dark:divide-slate-850 text-xs font-semibold">
-                  {items.map((item, i) => (
-                    <tr key={i} className="hover:bg-gray-50 dark:hover:bg-slate-800/20">
-                      <td className="px-6 py-4 font-mono text-gray-400">{item.date}</td>
-                      <td className="px-6 py-4 text-gray-900 dark:text-gray-100">{item.description}</td>
-                      <td className="px-6 py-4">
-                        <span className="px-2.5 py-1 bg-indigo-50 dark:bg-indigo-950/20 text-indigo-600 dark:text-indigo-400 rounded-full font-black text-[10px] uppercase tracking-wide">
-                          {item.category}
-                        </span>
-                      </td>
-                      <td className={`px-6 py-4 text-right font-black ${item.amount >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>
-                        {item.amount >= 0 ? '+' : ''}${Math.abs(item.amount).toFixed(2)}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        </div>
-
-        <div className="space-y-6">
-          <div className="bg-white dark:bg-slate-900 p-6 rounded-3xl border border-gray-100 dark:border-slate-800/80 shadow-sm flex flex-col items-center justify-center text-center">
-            <div className="p-4 bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-400 rounded-2xl mb-4">
-              <Calculator className="w-7 h-7" />
-            </div>
-            <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest">NET LEDGER PROCEEDS</p>
-            <h3 className={`text-4xl font-black tracking-tight mt-1 ${totalProceeds >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>
-              ${totalProceeds.toFixed(2)}
-            </h3>
-          </div>
-        </div>
-      </div>
-    </motion.div>
+    <PersonalHisab 
+      user={user} 
+      shopSettings={shopSettings} 
+      setNotification={setNotification} 
+    />
   );
 }
 
