@@ -156,9 +156,9 @@ async function startServer() {
       
       const snap = await getServerDocs(q);
       
-      // Resolve shopCode values in parallel to minimize queries
+      // Resolve shopCode and shopName values in parallel to minimize queries
       const shopIds = Array.from(new Set(snap.docs.map(d => d.data().shopId).filter(Boolean)));
-      const shopCodesMap: Record<string, string> = {};
+      const shopDetailsMap: Record<string, { shopCode: string; shopName: string }> = {};
       
       if (shopIds.length > 0) {
         await Promise.all(shopIds.map(async (id) => {
@@ -167,8 +167,11 @@ async function startServer() {
             const shopDocSnap = await getServerDocSnap(shopDocRef);
             if (shopDocSnap.exists()) {
               const shopData = shopDocSnap.data();
-              if (shopData && shopData.shopCode) {
-                shopCodesMap[id] = shopData.shopCode.toString();
+              if (shopData) {
+                shopDetailsMap[id] = {
+                  shopCode: (shopData.shopCode || '').toString(),
+                  shopName: (shopData.name || '').toString()
+                };
               }
             }
           } catch (err) {
@@ -180,10 +183,19 @@ async function startServer() {
       const reviews = snap.docs.map(docSnap => {
         const data = docSnap.data();
         
-        // Use Shop Code if available, otherwise fallback to anonymized email
+        // Use Shop Details if available, otherwise fallback to anonymized email
         let author = 'Anonymous';
-        if (data.shopId && shopCodesMap[data.shopId]) {
-          author = `Shop Code: ${shopCodesMap[data.shopId]}`;
+        let shopCode = '';
+        let shopName = '';
+        if (data.shopId && shopDetailsMap[data.shopId]) {
+          const detail = shopDetailsMap[data.shopId];
+          shopCode = detail.shopCode;
+          shopName = detail.shopName;
+          if (shopName) {
+            author = `${shopName} (Code: ${shopCode})`;
+          } else {
+            author = `Shop Code: ${shopCode}`;
+          }
         } else if (data.userEmail && typeof data.userEmail === 'string') {
           const emailParts = data.userEmail.split('@');
           if (emailParts.length === 2) {
@@ -209,6 +221,8 @@ async function startServer() {
           title: data.title || '',
           comment: comment,
           author: author,
+          shopCode: shopCode,
+          shopName: shopName,
           createdAt: data.createdAt || new Date().toISOString()
         };
       });

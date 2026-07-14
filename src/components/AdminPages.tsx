@@ -6246,99 +6246,332 @@ function ApiIntegrationConsole() {
   }, []);
 
   const widgetSnippet = `<!-- 🏪 SHOP SYNC REVIEWS WIDGET -->
-<div id="shop-reviews-widget" style="font-family: system-ui, -apple-system, sans-serif; max-width: 1200px; margin: 2rem auto; padding: 1.5rem; background-color: #f8fafc; border-radius: 1.5rem; border: 1px solid #e2e8f0;">
-  <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 2rem; border-bottom: 2px solid #e2e8f0; padding-bottom: 1.25rem; flex-wrap: wrap; gap: 1rem;">
+<div id="shop-reviews-widget" style="font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 1200px; margin: 2rem auto; padding: 2.25rem; background: linear-gradient(135deg, #ffffff 0%, #f8fafc 100%); border-radius: 2rem; border: 1px solid rgba(226, 232, 240, 0.8); box-shadow: 0 10px 30px -10px rgba(15, 23, 42, 0.04); position: relative; overflow: hidden; box-sizing: border-box;">
+  
+  <!-- Subtle backplate glowing design -->
+  <div style="position: absolute; top: -100px; right: -100px; width: 300px; height: 300px; background: radial-gradient(circle, rgba(99, 102, 241, 0.05) 0%, rgba(255,255,255,0) 70%); pointer-events: none;"></div>
+  <div style="position: absolute; bottom: -100px; left: -100px; width: 300px; height: 300px; background: radial-gradient(circle, rgba(34, 197, 94, 0.03) 0%, rgba(255,255,255,0) 70%); pointer-events: none;"></div>
+
+  <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 2rem; border-bottom: 1px solid #e2e8f0; padding-bottom: 1.5rem; flex-wrap: wrap; gap: 1rem; position: relative; z-index: 2;">
     <div>
-      <h2 style="margin: 0; font-size: 1.5rem; font-weight: 900; color: #0f172a; text-transform: uppercase; letter-spacing: -0.025em;">Customer Reviews</h2>
+      <div style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.25rem;">
+        <span style="font-size: 0.7rem; font-weight: 900; background-color: rgba(99, 102, 241, 0.1); color: #4f46e5; padding: 0.25rem 0.65rem; border-radius: 9999px; text-transform: uppercase; letter-spacing: 0.075em;">Merchant Feedback</span>
+      </div>
+      <h2 style="margin: 0; font-size: 1.75rem; font-weight: 900; color: #0f172a; letter-spacing: -0.03em;">Verified Partner Reviews</h2>
       <p style="margin: 0.35rem 0 0 0; font-size: 0.875rem; color: #64748b; font-weight: 600;" id="widget-reviews-count">Loading feedback reviews...</p>
     </div>
-    <div style="display: flex; align-items: center; gap: 0.5rem; background-color: #ffffff; border: 1px solid #e2e8f0; padding: 0.5rem 1rem; border-radius: 1rem; box-shadow: 0 1px 2px 0 rgba(0,0,0,0.05);">
-      <span style="width: 8px; height: 8px; background-color: #22c55e; border-radius: 50%; display: inline-block; animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;"></span>
-      <span style="font-size: 0.75rem; font-weight: 800; color: #475569; text-transform: uppercase; letter-spacing: 0.05em;">Synced Live</span>
+    
+    <div style="display: flex; align-items: center; gap: 1rem;">
+      <!-- Sync Status -->
+      <div style="display: flex; align-items: center; gap: 0.5rem; background-color: #ffffff; border: 1px solid #e2e8f0; padding: 0.5rem 1rem; border-radius: 1rem; box-shadow: 0 1px 2px 0 rgba(0,0,0,0.03);">
+        <span style="width: 8px; height: 8px; background-color: #22c55e; border-radius: 50%; display: inline-block; animation: shopPulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;"></span>
+        <span style="font-size: 0.75rem; font-weight: 800; color: #475569; text-transform: uppercase; letter-spacing: 0.05em;">Synced Live</span>
+      </div>
+      
+      <!-- Carousel navigation controls -->
+      <div id="carousel-nav-buttons" style="display: none; align-items: center; gap: 0.5rem;">
+        <button id="carousel-prev" style="width: 2.25rem; height: 2.25rem; border-radius: 50%; border: 1px solid #e2e8f0; background: #ffffff; display: flex; align-items: center; justify-content: center; cursor: pointer; color: #475569; transition: all 0.2s ease; outline: none;" onmouseenter="this.style.borderColor='#94a3b8'; this.style.backgroundColor='#f8fafc';" onmouseleave="this.style.borderColor='#e2e8f0'; this.style.backgroundColor='#ffffff';">
+          <svg style="width: 1rem; height: 1rem; fill: none; stroke: currentColor; stroke-width: 2.5;" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M15 19l-7-7 7-7"/></svg>
+        </button>
+        <button id="carousel-next" style="width: 2.25rem; height: 2.25rem; border-radius: 50%; border: 1px solid #e2e8f0; background: #ffffff; display: flex; align-items: center; justify-content: center; cursor: pointer; color: #475569; transition: all 0.2s ease; outline: none;" onmouseenter="this.style.borderColor='#94a3b8'; this.style.backgroundColor='#f8fafc';" onmouseleave="this.style.borderColor='#e2e8f0'; this.style.backgroundColor='#ffffff';">
+          <svg style="width: 1rem; height: 1rem; fill: none; stroke: currentColor; stroke-width: 2.5;" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7"/></svg>
+        </button>
+      </div>
     </div>
   </div>
   
-  <div id="reviews-container" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 1.5rem;">
-    <!-- Reviews will be loaded dynamically by the fetch script below -->
+  <!-- Carousel Viewport Wrapper -->
+  <div id="reviews-viewport" style="overflow: hidden; width: 100%; position: relative; z-index: 1;">
+    <div id="reviews-container" style="display: flex; gap: 1.5rem; transition: transform 0.6s cubic-bezier(0.16, 1, 0.3, 1); width: max-content; padding: 0.5rem 0.25rem;">
+      <!-- Loaded Dynamically -->
+    </div>
   </div>
+  
+  <!-- Page pagination indicators -->
+  <div id="carousel-dots" style="display: flex; justify-content: center; align-items: center; gap: 0.5rem; margin-top: 1.75rem;"></div>
 </div>
 
 <script>
 (async function() {
+  const widget = document.getElementById('shop-reviews-widget');
+  const viewport = document.getElementById('reviews-viewport');
   const container = document.getElementById('reviews-container');
   const countLabel = document.getElementById('widget-reviews-count');
+  const dotsContainer = document.getElementById('carousel-dots');
+  const navButtons = document.getElementById('carousel-nav-buttons');
+  const prevBtn = document.getElementById('carousel-prev');
+  const nextBtn = document.getElementById('carousel-next');
+  
   const apiEndpoint = '${apiEndpointUrl}';
+  let currentIndex = 0;
+  let autoPlayInterval = null;
+  let isHovered = false;
 
   try {
     const res = await fetch(apiEndpoint);
     const data = await res.json();
     
     if (data.success && data.reviews && data.reviews.length > 0) {
-      countLabel.textContent = "Based on " + data.count + " approved merchant reviews";
+      countLabel.textContent = "Based on " + data.count + " approved merchant partner reviews";
       container.innerHTML = '';
+      dotsContainer.innerHTML = '';
       
-      data.reviews.forEach(review => {
+      data.reviews.forEach((review, index) => {
         const card = document.createElement('div');
         card.style.backgroundColor = '#ffffff';
-        card.style.border = '1px solid #e2e8f0';
-        card.style.borderRadius = '1.25rem';
-        card.style.padding = '1.5rem';
-        card.style.boxShadow = '0 4px 6px -1px rgba(0, 0, 0, 0.05), 0 2px 4px -2px rgba(0, 0, 0, 0.05)';
+        card.style.border = '1px solid rgba(226, 232, 240, 0.8)';
+        card.style.borderRadius = '1.5rem';
+        card.style.padding = '1.75rem';
+        card.style.boxShadow = '0 4px 20px -2px rgba(15, 23, 42, 0.02), 0 2px 6px -1px rgba(15, 23, 42, 0.02)';
         card.style.display = 'flex';
         card.style.flexDirection = 'column';
         card.style.justifyContent = 'space-between';
-        card.style.transition = 'transform 0.2s ease, box-shadow 0.2s ease';
+        card.style.width = '360px';
+        card.style.boxSizing = 'border-box';
+        card.style.flexShrink = '0';
+        card.style.position = 'relative';
+        card.style.overflow = 'hidden';
+        card.style.transition = 'all 0.3s cubic-bezier(0.16, 1, 0.3, 1)';
         
-        card.onmouseenter = () => {
-          card.style.transform = 'translateY(-2px)';
-          card.style.boxShadow = '0 10px 15px -3px rgba(0, 0, 0, 0.05), 0 4px 6px -4px rgba(0, 0, 0, 0.05)';
-        };
-        card.onmouseleave = () => {
-          card.style.transform = 'none';
-          card.style.boxShadow = '0 4px 6px -1px rgba(0, 0, 0, 0.05), 0 2px 4px -2px rgba(0, 0, 0, 0.05)';
-        };
+        // Large background watermark quote
+        const quoteBg = document.createElement('div');
+        quoteBg.textContent = '“';
+        quoteBg.style.position = 'absolute';
+        quoteBg.style.top = '-10px';
+        quoteBg.style.right = '10px';
+        quoteBg.style.fontSize = '8rem';
+        quoteBg.style.fontFamily = 'Georgia, serif';
+        quoteBg.style.color = '#f1f5f9';
+        quoteBg.style.lineHeight = '1';
+        quoteBg.style.opacity = '0.5';
+        quoteBg.style.pointerEvents = 'none';
+        quoteBg.style.zIndex = '0';
+        card.appendChild(quoteBg);
+        
+        const contentArea = document.createElement('div');
+        contentArea.style.position = 'relative';
+        contentArea.style.zIndex = '1';
+        contentArea.style.marginBottom = '1.5rem';
         
         let starsHtml = '';
         for (let i = 1; i <= 5; i++) {
-          starsHtml += '<svg style="width: 1.125rem; height: 1.125rem; margin-right: 3px; fill: ' + (i <= review.rating ? '#fbbf24' : '#e2e8f0') + '" viewBox="0 0 20 20"><path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z"/></svg>';
+          starsHtml += '<svg style="width: 1.125rem; height: 1.125rem; margin-right: 3px; fill: ' + (i <= review.rating ? '#f59e0b' : '#e2e8f0') + '; display: inline-block;" viewBox="0 0 20 20"><path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z"/></svg>';
         }
         
-        const dateStr = new Date(review.createdAt).toLocaleDateString();
-        
-        card.innerHTML = \`
-          <div style="margin-bottom: 1.25rem;">
-            <div style="display: flex; align-items: center; margin-bottom: 0.75rem;">
-              <div style="display: flex; margin-right: 0.5rem;">\${starsHtml}</div>
-              <span style="font-size: 0.75rem; font-weight: 800; color: #fbbf24;">\${review.rating}.0</span>
-            </div>
-            <p style="margin: 0; font-size: 0.925rem; font-weight: 750; color: #1e293b; line-height: 1.6; font-style: italic;">"\${review.comment}"</p>
+        contentArea.innerHTML = \`
+          <div style="display: flex; align-items: center; margin-bottom: 1rem;">
+            <div style="display: flex; margin-right: 0.5rem;">\${starsHtml}</div>
+            <span style="font-size: 0.75rem; font-weight: 900; color: #f59e0b; background-color: rgba(245, 158, 11, 0.1); padding: 0.15rem 0.45rem; border-radius: 0.5rem; font-family: monospace;">\${review.rating}.0</span>
           </div>
-          <div style="display: flex; justify-content: space-between; align-items: center; border-top: 1px solid #f1f5f9; padding-top: 1rem; font-size: 0.75rem; color: #64748b; font-weight: 700;">
-            <div style="display: flex; align-items: center; gap: 0.35rem;">
-              <span style="display: flex; align-items: center; justify-content: center; width: 1.25rem; height: 1.25rem; background-color: #f1f5f9; border-radius: 50%; font-size: 0.65rem; font-weight: 900; color: #475569;">👤</span>
-              <span>By: \${review.author}</span>
-            </div>
-            <span>\${dateStr}</span>
-          </div>
+          <p style="margin: 0; font-size: 1rem; font-weight: 600; color: #1e293b; line-height: 1.6; word-break: break-word;">"\${review.comment}"</p>
         \`;
+        
+        card.appendChild(contentArea);
+        
+        // Footer section
+        const footerRow = document.createElement('div');
+        footerRow.style.position = 'relative';
+        footerRow.style.zIndex = '1';
+        footerRow.style.display = 'flex';
+        footerRow.style.alignItems = 'center';
+        footerRow.style.gap = '0.75rem';
+        footerRow.style.borderTop = '1px solid #f1f5f9';
+        footerRow.style.paddingTop = '1.25rem';
+        
+        const avatar = document.createElement('div');
+        avatar.style.width = '2.5rem';
+        avatar.style.height = '2.5rem';
+        avatar.style.borderRadius = '0.75rem';
+        avatar.style.backgroundColor = 'rgba(99, 102, 241, 0.1)';
+        avatar.style.display = 'flex';
+        avatar.style.alignItems = 'center';
+        avatar.style.justifyContent = 'center';
+        avatar.style.flexShrink = '0';
+        avatar.innerHTML = '<svg style="width: 1.25rem; height: 1.25rem; color: #4f46e5;" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M13.5 21v-7.5a.75.75 0 01.75-.75h3a.75.75 0 01.75.75V21m-4.5 0H2.36m11.14 0H18m0 0h3.64m-1.39 0V9.349m-16.5 11.65V9.35m0 0a3.001 3.001 0 003.75-.615A2.993 2.993 0 009.75 9.75c.896 0 1.7-.393 2.25-1.016a2.993 2.993 0 002.25 1.016c.896 0 1.7-.393 2.25-1.015a3.001 3.001 0 003.75.614m-16.5 0a3.004 3.004 0 01-.621-4.72L4.318 3.44A1.5 1.5 0 015.378 3h13.243a1.5 1.5 0 011.06.44l1.19 1.189a3 3 0 01-.621 4.72M6.75 18h3.5a.75.75 0 00.75-.75V13.5a.75.75 0 00-.75-.75h-3.5a.75.75 0 00-.75.75v3.75c0 .414.336.75.75.75z"/></svg>';
+        
+        const detailsContainer = document.createElement('div');
+        detailsContainer.style.display = 'flex';
+        detailsContainer.style.flexDirection = 'column';
+        detailsContainer.style.flexGrow = '1';
+        detailsContainer.style.minWidth = '0';
+        
+        const nameSpan = document.createElement('span');
+        nameSpan.textContent = review.shopName || 'Anonymous Partner';
+        nameSpan.style.fontSize = '0.875rem';
+        nameSpan.style.fontWeight = '800';
+        nameSpan.style.color = '#0f172a';
+        nameSpan.style.whiteSpace = 'nowrap';
+        nameSpan.style.overflow = 'hidden';
+        nameSpan.style.textOverflow = 'ellipsis';
+        
+        const codeSpan = document.createElement('span');
+        codeSpan.textContent = review.shopCode ? '#' + review.shopCode : 'VERIFIED MERCHANT';
+        codeSpan.style.fontSize = '0.7rem';
+        codeSpan.style.fontWeight = '700';
+        codeSpan.style.color = '#6366f1';
+        codeSpan.style.fontFamily = 'monospace';
+        codeSpan.style.letterSpacing = '0.05em';
+        codeSpan.style.marginTop = '0.15rem';
+        
+        detailsContainer.appendChild(nameSpan);
+        detailsContainer.appendChild(codeSpan);
+        
+        const dateSpan = document.createElement('span');
+        dateSpan.textContent = new Date(review.createdAt).toLocaleDateString(undefined, {month: 'short', day: 'numeric', year: 'numeric'});
+        dateSpan.style.fontSize = '0.7rem';
+        dateSpan.style.fontWeight = '700';
+        dateSpan.style.color = '#94a3b8';
+        dateSpan.style.marginLeft = 'auto';
+        dateSpan.style.flexShrink = '0';
+        
+        footerRow.appendChild(avatar);
+        footerRow.appendChild(detailsContainer);
+        footerRow.appendChild(dateSpan);
+        
+        card.appendChild(footerRow);
         container.appendChild(card);
+        
+        // Dot indicator
+        const dot = document.createElement('button');
+        dot.className = 'carousel-dot';
+        dot.style.width = '8px';
+        dot.style.height = '8px';
+        dot.style.borderRadius = '50%';
+        dot.style.border = 'none';
+        dot.style.backgroundColor = index === 0 ? '#6366f1' : '#cbd5e1';
+        dot.style.cursor = 'pointer';
+        dot.style.padding = '0';
+        dot.style.transition = 'all 0.3s cubic-bezier(0.16, 1, 0.3, 1)';
+        dot.title = 'Go to slide ' + (index + 1);
+        dot.onclick = () => {
+          currentIndex = index;
+          updateCarousel();
+          resetTimer();
+        };
+        dotsContainer.appendChild(dot);
       });
+      
+      if (data.reviews.length > 1) {
+        navButtons.style.display = 'flex';
+        
+        function updateCarousel() {
+          const cards = container.children;
+          if (cards.length === 0) return;
+          const cardWidth = cards[0].offsetWidth;
+          const gap = 24;
+          
+          const maxScrollLeft = container.scrollWidth - viewport.offsetWidth;
+          let offset = currentIndex * (cardWidth + gap);
+          
+          if (offset > maxScrollLeft) {
+            offset = maxScrollLeft;
+          }
+          if (offset < 0) offset = 0;
+          
+          container.style.transform = 'translateX(-' + offset + 'px)';
+          
+          const dots = dotsContainer.children;
+          for (let i = 0; i < dots.length; i++) {
+            if (i === currentIndex) {
+              dots[i].style.backgroundColor = '#6366f1';
+              dots[i].style.width = '24px';
+              dots[i].style.borderRadius = '4px';
+            } else {
+              dots[i].style.backgroundColor = '#cbd5e1';
+              dots[i].style.width = '8px';
+              dots[i].style.borderRadius = '50%';
+            }
+          }
+        }
+        
+        function nextSlide() {
+          const cards = container.children;
+          if (cards.length === 0) return;
+          currentIndex++;
+          
+          const cardWidth = cards[0].offsetWidth + 24;
+          const visibleCount = Math.floor(viewport.offsetWidth / cardWidth);
+          const maxIdx = Math.max(0, cards.length - (visibleCount || 1));
+          
+          if (currentIndex > maxIdx || currentIndex >= cards.length) {
+            currentIndex = 0;
+          }
+          updateCarousel();
+        }
+        
+        function prevSlide() {
+          const cards = container.children;
+          if (cards.length === 0) return;
+          currentIndex--;
+          if (currentIndex < 0) {
+            const cardWidth = cards[0].offsetWidth + 24;
+            const visibleCount = Math.floor(viewport.offsetWidth / cardWidth);
+            currentIndex = Math.max(0, cards.length - (visibleCount || 1));
+          }
+          updateCarousel();
+        }
+        
+        function startTimer() {
+          if (!autoPlayInterval) {
+            autoPlayInterval = setInterval(() => {
+              if (!isHovered) {
+                nextSlide();
+              }
+            }, 4000);
+          }
+        }
+        
+        function stopTimer() {
+          if (autoPlayInterval) {
+            clearInterval(autoPlayInterval);
+            autoPlayInterval = null;
+          }
+        }
+        
+        function resetTimer() {
+          stopTimer();
+          startTimer();
+        }
+        
+        prevBtn.onclick = () => {
+          prevSlide();
+          resetTimer();
+        };
+        
+        nextBtn.onclick = () => {
+          nextSlide();
+          resetTimer();
+        };
+        
+        widget.onmouseenter = () => {
+          isHovered = true;
+        };
+        
+        widget.onmouseleave = () => {
+          isHovered = false;
+        };
+        
+        window.addEventListener('resize', updateCarousel);
+        
+        updateCarousel();
+        startTimer();
+      }
     } else {
       countLabel.textContent = "No approved reviews found";
-      container.innerHTML = '<div style="grid-column: 1/-1; text-align: center; color: #64748b; padding: 3rem 1.5rem; border: 1px dashed #cbd5e1; border-radius: 1.25rem; background-color: #ffffff;"><span style="font-size: 1.5rem; display: block; margin-bottom: 0.5rem;">⭐</span>No reviews approved for public display yet. Approve some from the Merchant Panel!</div>';
+      container.innerHTML = '<div style="grid-column: 1/-1; text-align: center; color: #64748b; padding: 4rem 2rem; border: 2px dashed #e2e8f0; border-radius: 2rem; background-color: #ffffff; width: 100%; box-sizing: border-box;"><span style="font-size: 2rem; display: block; margin-bottom: 0.75rem;">⭐</span>No reviews approved for public display yet. Approve some from the Merchant Panel!</div>';
     }
   } catch (err) {
     console.error('Failed to load reviews:', err);
     countLabel.textContent = "Failed to load reviews";
-    container.innerHTML = '<div style="grid-column: 1/-1; text-align: center; color: #ef4444; padding: 3rem 1.5rem; font-weight: 700;">Error loading public reviews. Please check your connection.</div>';
+    container.innerHTML = '<div style="grid-column: 1/-1; text-align: center; color: #ef4444; padding: 4rem 2rem; font-weight: 700; width: 100%; box-sizing: border-box;">Error loading public reviews. Please check your connection.</div>';
   }
 })();
 </script>
 
 <style>
-@keyframes pulse {
-  0%, 100% { opacity: 1; }
-  50% { opacity: .5; }
+@keyframes shopPulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: .4; transform: scale(1.15); }
 }
 </style>`;
 
