@@ -5866,10 +5866,30 @@ export function AdminSidebarPages({ shopSettings = {}, user = {}, setNotificatio
 // 4. MERCHANT CONSOLE
 function ReviewModeratorConsole() {
   const [reviews, setReviews] = useState<any[]>([]);
+  const [shopsMap, setShopsMap] = useState<Record<string, { shopCode?: string; name?: string }>>({});
   const [loading, setLoading] = useState(true);
   const [filterRating, setFilterRating] = useState<number | 'all'>('all');
   const [filterApproved, setFilterApproved] = useState<'all' | 'approved' | 'pending'>('all');
   const [notif, setNotif] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
+
+  useEffect(() => {
+    const qShops = query(collection(db, 'shops'));
+    const unsubscribeShops = onSnapshot(qShops, (snapshot) => {
+      const mapping: Record<string, { shopCode?: string; name?: string }> = {};
+      snapshot.docs.forEach(docSnap => {
+        const d = docSnap.data();
+        mapping[docSnap.id] = {
+          shopCode: d.shopCode,
+          name: d.name
+        };
+      });
+      setShopsMap(mapping);
+    }, (error) => {
+      console.error("Error loading shops mapping in moderator console:", error);
+    });
+
+    return () => unsubscribeShops();
+  }, []);
 
   useEffect(() => {
     const q = query(
@@ -6082,15 +6102,26 @@ function ReviewModeratorConsole() {
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           {filteredReviews.map((ticket) => {
             let tags: string[] = [];
-            let comment = ticket.description || '';
-            if (comment.startsWith('[Tags: ')) {
-              const tagEndIndex = comment.indexOf('] ');
-              if (tagEndIndex !== -1) {
-                const tagContent = comment.substring(7, tagEndIndex);
-                tags = tagContent.split(', ').map((t: string) => t.trim());
-                comment = comment.substring(tagEndIndex + 2);
-              }
+            let comment = (ticket.description || '').trim();
+            
+            // Clean up wrapping quotes if any
+            comment = comment.replace(/^["']|["']$/g, '').trim();
+
+            // Match and extract [Tags: ...] pattern robustly
+            const tagMatch = comment.match(/^\[Tags:\s*([^\]]+)\]\s*(.*)/i);
+            if (tagMatch) {
+              const tagContent = tagMatch[1];
+              tags = tagContent.split(', ').map((t: string) => t.trim());
+              comment = tagMatch[2].trim();
             }
+
+            // Fallback quote cleanup
+            comment = comment.replace(/^["']|["']$/g, '').trim();
+
+            const shopInfo = shopsMap[ticket.shopId];
+            const authorDisplayName = shopInfo?.shopCode 
+              ? `Shop Code: ${shopInfo.shopCode}${shopInfo.name ? ` (${shopInfo.name})` : ''}` 
+              : (ticket.userEmail || 'Anonymous');
 
             return (
               <motion.div
@@ -6103,7 +6134,7 @@ function ReviewModeratorConsole() {
                 <div className="space-y-3">
                   <div className="flex items-center justify-between">
                     <span className="text-[9px] bg-slate-100 dark:bg-slate-950 border border-slate-200/50 dark:border-slate-850 px-2.5 py-1 rounded-lg text-slate-500 dark:text-slate-400 font-mono font-black">
-                      🏪 Shop: {ticket.shopId}
+                      🏪 Shop ID: {ticket.shopId}
                     </span>
                     <span className={`text-[9px] font-black uppercase tracking-widest px-2.5 py-1 rounded-lg border ${
                       ticket.approved 
@@ -6151,7 +6182,7 @@ function ReviewModeratorConsole() {
 
                 <div className="pt-3 border-t border-slate-50 dark:border-slate-850/60 mt-4 space-y-3">
                   <div className="flex items-center justify-between text-[9px] text-slate-400 font-bold uppercase tracking-wider">
-                    <span>By: {ticket.userEmail || 'Anonymous'}</span>
+                    <span>By: {authorDisplayName}</span>
                     <span>{new Date(ticket.createdAt).toLocaleDateString()}</span>
                   </div>
 

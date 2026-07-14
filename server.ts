@@ -3,7 +3,7 @@ import path from 'path';
 import fs from 'fs';
 import { GoogleGenAI } from "@google/genai";
 import { initializeApp as initServerFirebase } from 'firebase/app';
-import { getFirestore as getServerFirestore, collection as getServerCollection, getDocs as getServerDocs, query as getServerQuery, where as getServerWhere } from 'firebase/firestore';
+import { getFirestore as getServerFirestore, collection as getServerCollection, getDocs as getServerDocs, query as getServerQuery, where as getServerWhere, doc as getServerDoc, getDoc as getServerDocSnap } from 'firebase/firestore';
 
 async function startServer() {
   const app = express();
@@ -155,12 +155,36 @@ async function startServer() {
       );
       
       const snap = await getServerDocs(q);
+      
+      // Resolve shopCode values in parallel to minimize queries
+      const shopIds = Array.from(new Set(snap.docs.map(d => d.data().shopId).filter(Boolean)));
+      const shopCodesMap: Record<string, string> = {};
+      
+      if (shopIds.length > 0) {
+        await Promise.all(shopIds.map(async (id) => {
+          try {
+            const shopDocRef = getServerDoc(firestoreDb, 'shops', id);
+            const shopDocSnap = await getServerDocSnap(shopDocRef);
+            if (shopDocSnap.exists()) {
+              const shopData = shopDocSnap.data();
+              if (shopData && shopData.shopCode) {
+                shopCodesMap[id] = shopData.shopCode.toString();
+              }
+            }
+          } catch (err) {
+            console.error(`[API Reviews] Error retrieving shop ${id}:`, err);
+          }
+        }));
+      }
+
       const reviews = snap.docs.map(docSnap => {
         const data = docSnap.data();
         
-        // Anonymize email: e.g. "stratproamz@gmail.com" -> "st*******@gmail.com"
+        // Use Shop Code if available, otherwise fallback to anonymized email
         let author = 'Anonymous';
-        if (data.userEmail && typeof data.userEmail === 'string') {
+        if (data.shopId && shopCodesMap[data.shopId]) {
+          author = `Shop Code: ${shopCodesMap[data.shopId]}`;
+        } else if (data.userEmail && typeof data.userEmail === 'string') {
           const emailParts = data.userEmail.split('@');
           if (emailParts.length === 2) {
             const prefix = emailParts[0];
@@ -173,11 +197,17 @@ async function startServer() {
           }
         }
         
+        // Clean comment by stripping any [Tags: ...] markers or raw quotes
+        let comment = (data.description || '').trim();
+        comment = comment.replace(/^["']|["']$/g, '').trim();
+        comment = comment.replace(/\[Tags:[^\]]*\]/gi, '').trim();
+        comment = comment.replace(/^["'\s]+|["'\s]+$/g, '').trim();
+
         return {
           id: docSnap.id,
           rating: data.rating || 5,
           title: data.title || '',
-          comment: data.description || '',
+          comment: comment,
           author: author,
           createdAt: data.createdAt || new Date().toISOString()
         };
