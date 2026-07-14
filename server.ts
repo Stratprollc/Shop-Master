@@ -158,7 +158,7 @@ async function startServer() {
       
       // Resolve shopCode and shopName values in parallel to minimize queries
       const shopIds = Array.from(new Set(snap.docs.map(d => d.data().shopId).filter(Boolean)));
-      const shopDetailsMap: Record<string, { shopCode: string; shopName: string }> = {};
+      const shopDetailsMap: Record<string, { shopCode: string; shopName: string; ownerName: string }> = {};
       
       if (shopIds.length > 0) {
         await Promise.all(shopIds.map(async (id) => {
@@ -170,7 +170,8 @@ async function startServer() {
               if (shopData) {
                 shopDetailsMap[id] = {
                   shopCode: (shopData.shopCode || '').toString(),
-                  shopName: (shopData.name || '').toString()
+                  shopName: (shopData.name || '').toString(),
+                  ownerName: (shopData.ownerName || '').toString()
                 };
               }
             }
@@ -187,10 +188,12 @@ async function startServer() {
         let author = 'Anonymous';
         let shopCode = '';
         let shopName = '';
+        let ownerName = '';
         if (data.shopId && shopDetailsMap[data.shopId]) {
           const detail = shopDetailsMap[data.shopId];
           shopCode = detail.shopCode;
           shopName = detail.shopName;
+          ownerName = detail.ownerName;
           if (shopName) {
             author = `${shopName} (Code: ${shopCode})`;
           } else {
@@ -223,6 +226,7 @@ async function startServer() {
           author: author,
           shopCode: shopCode,
           shopName: shopName,
+          ownerName: ownerName,
           createdAt: data.createdAt || new Date().toISOString()
         };
       });
