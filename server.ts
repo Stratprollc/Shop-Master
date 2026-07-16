@@ -13,7 +13,10 @@ async function startServer() {
   let firebaseApp: any = null;
   let firestoreDb: any = null;
   try {
-    const configPath = path.join(process.cwd(), 'firebase-applet-config.json');
+    let configPath = path.join(process.cwd(), 'firebase-applet-config.json');
+    if (!fs.existsSync(configPath)) {
+      configPath = path.join(__dirname, '..', 'firebase-applet-config.json');
+    }
     if (fs.existsSync(configPath)) {
       const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
       firebaseApp = initServerFirebase(config, 'server-app');
@@ -2653,9 +2656,11 @@ async function startServer() {
       }
     });
   } 
-  // For production (Hostinger)
+  // For production (Hostinger / Electron)
   else {
-    const distPath = path.join(process.cwd(), 'dist');
+    const distPath = fs.existsSync(path.join(__dirname, 'index.html'))
+      ? __dirname
+      : path.join(process.cwd(), 'dist');
     // Disable serving index.html as the default index file so root path "/" falls through to our custom dynamic router below
     app.use(express.static(distPath, { index: false }));
     

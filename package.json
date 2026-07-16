@@ -1,5 +1,7 @@
 {
   "name": "react-example",
+  "description": "ShopMaster - WhatsApp POS Sync Super Shop Management System",
+  "author": "RAHMAN HABIB <stratproamz@gmail.com>",
   "private": true,
   "files": [
     "dist",
@@ -84,7 +86,8 @@
       "dist/**/*",
       "electron/**/*",
       "package.json",
-      "public/**/*"
+      "public/**/*",
+      "firebase-applet-config.json"
     ],
     "win": {
       "target": [

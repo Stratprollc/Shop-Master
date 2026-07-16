@@ -36,6 +36,7 @@ function startBackendServer() {
   
   // Set NODE_ENV to production inside the compiled app
   serverProcess = fork(serverPath, [], {
+    cwd: app.getPath('userData'),
     env: { 
       ...process.env, 
       NODE_ENV: 'production',
