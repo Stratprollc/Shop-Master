@@ -29,13 +29,13 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-style: 'npm'
           node-version: 18
-          cache: 'npm'
 
       # Step 3: Install Project Dependencies
       - name: Install Dependencies
-        run: npm install
+        run: |
+          if (Test-Path package-lock.json) { Remove-Item package-lock.json }
+          npm install --force
 
       # Step 4: Build React / Vite Frontend Production Files
       - name: Build React Frontend
