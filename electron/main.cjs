@@ -1,4 +1,4 @@
-const { app, BrowserWindow, shell } = require('electron');
+const { app, BrowserWindow, shell, ipcMain } = require('electron');
 const path = require('path');
 const { fork } = require('child_process');
 const { autoUpdater } = require('electron-updater');
@@ -10,24 +10,53 @@ autoUpdater.autoInstallOnAppQuit = true;
 
 autoUpdater.on('checking-for-update', () => {
   console.log('[Electron Update] Checking for update...');
+  if (mainWindow && mainWindow.webContents) {
+    mainWindow.webContents.send('update-status', { type: 'checking' });
+  }
 });
 autoUpdater.on('update-available', (info) => {
   console.log('[Electron Update] Update available. Downloading in background...', info);
+  if (mainWindow && mainWindow.webContents) {
+    mainWindow.webContents.send('update-status', { type: 'available', version: info.version });
+  }
 });
 autoUpdater.on('update-not-available', (info) => {
   console.log('[Electron Update] Update not available.', info);
+  if (mainWindow && mainWindow.webContents) {
+    mainWindow.webContents.send('update-status', { type: 'not-available' });
+  }
 });
 autoUpdater.on('error', (err) => {
   console.error('[Electron Update] Error in auto-updater:', err);
+  if (mainWindow && mainWindow.webContents) {
+    mainWindow.webContents.send('update-status', { type: 'error', message: err.message });
+  }
 });
 autoUpdater.on('download-progress', (progressObj) => {
   console.log(`[Electron Update] Download speed: ${progressObj.bytesPerSecond} - Downloaded ${progressObj.percent}%`);
+  if (mainWindow && mainWindow.webContents) {
+    mainWindow.webContents.send('update-status', { 
+      type: 'progress', 
+      percent: Math.round(progressObj.percent),
+      speed: progressObj.bytesPerSecond
+    });
+  }
 });
 autoUpdater.on('update-downloaded', (info) => {
   console.log('[Electron Update] Update downloaded; will be installed on app quit.', info);
+  if (mainWindow && mainWindow.webContents) {
+    mainWindow.webContents.send('update-status', { type: 'downloaded', version: info.version });
+  }
+});
+
+// IPC handler to relaunch app after update is downloaded
+ipcMain.on('relaunch-app', () => {
+  console.log('[Electron Update] Relaunching app to apply downloaded update...');
+  autoUpdater.quitAndInstall();
 });
 
 let mainWindow;
+let splashWindow;
 let serverProcess;
 
 function startBackendServer() {
@@ -54,6 +83,30 @@ function startBackendServer() {
   });
 }
 
+function createSplashWindow() {
+  splashWindow = new BrowserWindow({
+    width: 600,
+    height: 400,
+    frame: false,
+    transparent: true,
+    alwaysOnTop: true,
+    resizable: false,
+    center: true,
+    webPreferences: {
+      nodeIntegration: false,
+      contextIsolation: true
+    }
+  });
+
+  splashWindow.loadFile(path.join(__dirname, 'splash.html')).catch((err) => {
+    console.error('[Electron] Failed to load splash screen:', err);
+  });
+
+  splashWindow.on('closed', () => {
+    splashWindow = null;
+  });
+}
+
 function createWindow() {
   mainWindow = new BrowserWindow({
     width: 1280,
@@ -62,6 +115,7 @@ function createWindow() {
     minHeight: 768,
     title: 'ShopMaster - WhatsApp POS Sync',
     icon: path.join(__dirname, '..', 'public', 'logo.svg'),
+    show: false, // Main window loaded hidden, shown once splash completes
     webPreferences: {
       preload: path.join(__dirname, 'preload.cjs'),
       nodeIntegration: false,
@@ -76,20 +130,43 @@ function createWindow() {
   // Load local express server
   const startUrl = 'http://localhost:3000';
   
-  // Wait slightly for the server to spin up before loading the URL
+  mainWindow.loadURL(startUrl).catch((err) => {
+    console.warn('[Electron] Initial connection failed, retrying in 1.5 seconds...', err.message);
+    setTimeout(() => {
+      mainWindow.loadURL(startUrl).catch(finalErr => {
+        console.error('[Electron] Failed to load local server:', finalErr);
+      });
+    }, 1500);
+  });
+
+  // Close splash screen and reveal main window after 3.2 seconds
   setTimeout(() => {
-    mainWindow.loadURL(startUrl).catch((err) => {
-      console.warn('[Electron] Initial connection failed, retrying in 1 second...', err.message);
-      setTimeout(() => {
-        mainWindow.loadURL(startUrl).catch(finalErr => {
-          console.error('[Electron] Failed to load local server:', finalErr);
-        });
-      }, 1000);
-    });
-  }, 1200);
+    if (splashWindow) {
+      splashWindow.close();
+    }
+    if (mainWindow) {
+      mainWindow.show();
+    }
+  }, 3200);
 
   // Intercept links and open them in the user's default external browser
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
+    // Allow Firebase Auth popups to open as native child windows inside the app
+    if (url.includes('firebaseapp.com') && url.includes('/__/auth/')) {
+      return { 
+        action: 'allow',
+        overrideBrowserWindowOptions: {
+          width: 500,
+          height: 650,
+          title: 'Google Sign-In - ShopMaster',
+          autoHideMenuBar: true,
+          webPreferences: {
+            nodeIntegration: false,
+            contextIsolation: true
+          }
+        }
+      };
+    }
     if (url.startsWith('http://') || url.startsWith('https://')) {
       shell.openExternal(url);
     }
@@ -117,8 +194,9 @@ if (!gotTheLock) {
   });
 
   app.whenReady().then(() => {
-    // Start local server and then create the Electron window
+    // Start local server and then create the Electron windows
     startBackendServer();
+    createSplashWindow();
     createWindow();
 
     // Check for updates shortly after startup
@@ -136,6 +214,7 @@ if (!gotTheLock) {
     });
   });
 }
+
 
 // Terminate backend process gracefully when the app exits
 app.on('window-all-closed', () => {

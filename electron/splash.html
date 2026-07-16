@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>App Intro - Shop Master POS</title>
+    
+    <!-- গুগল থেকে স্টাইলিশ ফন্ট ইমপোর্ট করা হলো -->
+    <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@500;600&family=Orbitron:wght@600&display=swap" rel="stylesheet">
+    
+    <style>
+        /* বেসিক রিসেট এবং ব্যাকগ্রাউন্ড সেটআপ */
+        body {
+            margin: 0;
+            padding: 0;
+            background-color: #ffffff; /* হোয়াইট ব্যাকগ্রাউন্ড */
+            color: #000000;
+            font-family: 'Montserrat', sans-serif; /* প্রফেশনাল ফন্ট */
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            overflow: hidden;
+            -webkit-app-region: drag; /* Make the splash window draggable */
+            user-select: none;
+        }
+
+        .intro-container {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            text-align: center;
+            animation: fadeIn 1.2s ease-in-out;
+        }
+
+        /* লোগো ডিজাইন এবং কালারফুল ব্যাকগ্রাউন্ড গ্লো */
+        .logo-wrapper {
+            margin-bottom: 25px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            position: relative;
+        }
+
+        /* POS সফটওয়্যারের ভাইব দেওয়ার জন্য লোগোর পিছনে কালারফুল গ্লো */
+        .logo-wrapper::before {
+            content: '';
+            position: absolute;
+            width: 90px;
+            height: 90px;
+            background: linear-gradient(45deg, #00d4ff, #7928ca, #ff007a);
+            filter: blur(35px);
+            z-index: -1;
+            opacity: 0.4;
+            animation: pulseGlow 3s infinite alternate;
+        }
+
+        .logo-wrapper img {
+            width: 120px; /* লোগোর সাইজ */
+            height: 120px;
+            object-fit: contain;
+            z-index: 1;
+            filter: drop-shadow(0px 8px 15px rgba(0, 0, 0, 0.15));
+        }
+
+        /* অথর (Author) টেক্সট - RAHMAN HABIB */
+        .author-text {
+            font-size: 13px;
+            font-weight: 600;
+            letter-spacing: 3px;
+            text-transform: uppercase;
+            margin-bottom: 15px;
+            /* কালারফুল গ্র্যাডিয়েন্ট টেক্সট */
+            background: linear-gradient(90deg, #ff007a, #7928ca, #00d4ff);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        /* অ্যাপ টাইটেল */
+        .app-title {
+            font-family: 'Orbitron', sans-serif; /* স্টাইলিশ টেক ফন্ট */
+            font-size: 15px;
+            font-weight: 600;
+            letter-spacing: 5px;
+            text-transform: uppercase;
+            margin: 0;
+            margin-bottom: 40px;
+            color: #111111; /* টেক্সট ব্ল্যাক */
+        }
+
+        /* প্রোগ্রেস বার সেকশন */
+        .loading-section {
+            width: 350px;
+        }
+
+        .progress-bar-container {
+            width: 100%;
+            height: 4px;
+            background-color: #eaeaea;
+            border-radius: 4px;
+            overflow: hidden;
+            margin-bottom: 12px;
+        }
+
+        .progress-bar {
+            height: 100%;
+            width: 0%;
+            /* কালারফুল প্রোগ্রেস বার */
+            background: linear-gradient(90deg, #00d4ff, #7928ca, #ff007a);
+            animation: loadProgress 3s ease-in-out forwards;
+        }
+
+        .loading-text {
+            display: flex;
+            justify-content: space-between;
+            font-size: 11px;
+            font-weight: 600;
+            letter-spacing: 2px;
+            color: #555555;
+            text-transform: uppercase;
+        }
+
+        /* এনিমেশনসমূহ */
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(20px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        @keyframes loadProgress {
+            0% { width: 0%; }
+            50% { width: 70%; }
+            100% { width: 100%; }
+        }
+
+        @keyframes pulseGlow {
+            0% { transform: scale(1); opacity: 0.2; }
+            100% { transform: scale(1.4); opacity: 0.5; }
+        }
+    </style>
+</head>
+<body>
+
+    <div class="intro-container">
+        <!-- লোগো -->
+        <div class="logo-wrapper">
+            <img id="logo-img" src="../public/logo.svg" alt="Shop Master AI Logo" onerror="this.src='logo.svg'">
+        </div>
+
+        <!-- অথর নাম -->
+        <div class="author-text">Created By RAHMAN HABIB</div>
+
+        <!-- অ্যাপ টাইটেল -->
+        <h1 class="app-title">Shop Master With AI</h1>
+
+        <!-- লোডিং বা প্রোগ্রেস বার -->
+        <div class="loading-section">
+            <div class="progress-bar-container">
+                <div class="progress-bar"></div>
+            </div>
+            <div class="loading-text">
+                <span>System_Ready</span>
+                <span id="pct">100%</span>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Smoothly animate percentage counter matching the 3s progress bar animation
+        const pctEl = document.getElementById('pct');
+        let count = 0;
+        const interval = setInterval(() => {
+            count += 1;
+            if (count > 100) {
+                count = 100;
+                clearInterval(interval);
+            }
+            pctEl.textContent = count + '%';
+        }, 28);
+    </script>
+</body>
+</html>

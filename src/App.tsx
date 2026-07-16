@@ -4889,6 +4889,22 @@ async function generateUniqueShopCode(dbInstance: any, ownerEmail?: string): Pro
 
 export default function App() {
   console.log("App component rendered");
+  const [updateStatus, setUpdateStatus] = useState<any>(null);
+  const isElectron = typeof window !== 'undefined' && (window as any).electronAPI?.isElectron === true;
+
+  useEffect(() => {
+    if (isElectron && (window as any).electronAPI?.onUpdateStatus) {
+      console.log("[Electron] Subscribing to auto-updater events...");
+      const unsubscribe = (window as any).electronAPI.onUpdateStatus((status: any) => {
+        console.log("[Electron] Received update status event:", status);
+        setUpdateStatus(status);
+      });
+      return () => {
+        if (unsubscribe) unsubscribe();
+      };
+    }
+  }, [isElectron]);
+
   const [darkMode, setDarkMode] = useState<boolean>(() => {
     try {
       const saved = localStorage.getItem('theme_dark');
@@ -9069,6 +9085,63 @@ export default function App() {
   return (
     <ErrorBoundary>
       <div className={`min-h-screen bg-slate-50 dark:bg-slate-950 flex ${isRtl ? 'flex-row-reverse' : 'flex-row'}`}>
+          {/* Floating Electron Auto-Updater Status Panel */}
+          {isElectron && updateStatus && updateStatus.type !== 'not-available' && (
+            <div className="fixed bottom-6 right-6 z-[9999] bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-2xl rounded-2xl p-4 w-80 max-w-[calc(100vw-32px)] transition-all duration-300">
+              <div className="flex items-center gap-3">
+                <div className="p-2 bg-indigo-50 dark:bg-indigo-950/50 rounded-xl text-indigo-600 dark:text-indigo-400">
+                  <LucideIcons.RefreshCw className={`w-5 h-5 ${(updateStatus.type === 'checking' || updateStatus.type === 'progress') ? 'animate-spin' : ''}`} />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-[10px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-widest">System Update</p>
+                  <p className="text-xs font-bold text-slate-800 dark:text-slate-200 mt-0.5">
+                    {updateStatus.type === 'checking' && 'Checking for updates...'}
+                    {updateStatus.type === 'available' && `New update (v${updateStatus.version || ''}) available!`}
+                    {updateStatus.type === 'progress' && `Downloading update: ${updateStatus.percent || 0}%`}
+                    {updateStatus.type === 'downloaded' && 'Update downloaded & ready!'}
+                    {updateStatus.type === 'error' && 'Update system error'}
+                  </p>
+                </div>
+                {updateStatus.type === 'error' && (
+                  <button onClick={() => setUpdateStatus(null)} className="text-slate-400 hover:text-slate-600">
+                    <LucideIcons.X className="w-4 h-4" />
+                  </button>
+                )}
+              </div>
+              
+              {updateStatus.type === 'progress' && (
+                <div className="mt-3">
+                  <div className="w-full bg-slate-100 dark:bg-slate-800 rounded-full h-1.5 overflow-hidden">
+                    <div 
+                      className="bg-gradient-to-r from-cyan-500 via-purple-500 to-pink-500 h-full transition-all duration-300"
+                      style={{ width: `${updateStatus.percent || 0}%` }}
+                    />
+                  </div>
+                  <div className="flex justify-between items-center mt-1 text-[9px] font-bold text-slate-400 uppercase tracking-wider">
+                    <span>Downloading...</span>
+                    <span>{updateStatus.percent || 0}%</span>
+                  </div>
+                </div>
+              )}
+              
+              {updateStatus.type === 'downloaded' && (
+                <div className="mt-3">
+                  <button
+                    onClick={() => {
+                      if ((window as any).electronAPI?.relaunchApp) {
+                        (window as any).electronAPI.relaunchApp();
+                      }
+                    }}
+                    className="w-full bg-gradient-to-r from-cyan-500 via-purple-500 to-pink-500 hover:opacity-90 text-white font-bold py-2.5 px-4 rounded-xl text-xs transition-all flex items-center justify-center gap-2 shadow-md shadow-purple-500/10 uppercase tracking-wider"
+                  >
+                    <LucideIcons.Play className="w-3.5 h-3.5 fill-current" />
+                    Relaunch to Update
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
+
           {/* Mobile Backdrop Overlay */}
           {!isDesktop && isSidebarOpen && (
             <div 
