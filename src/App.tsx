@@ -2621,6 +2621,8 @@ function SettingsPanel({
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [logoPreview, setLogoPreview] = useState<string | null>(settings.logoBase64 || null);
   const [faviconPreview, setFaviconPreview] = useState<string | null>(settings.faviconBase64 || null);
+  const [desktopInstallMethod, setDesktopInstallMethod] = useState<'pwa' | 'powershell'>('pwa');
+  const [copiedCmd, setCopiedCmd] = useState<string | null>(null);
 
   const [newDisplayName, setNewDisplayName] = useState('');
   const [newPassword, setNewPassword] = useState('');
@@ -3448,19 +3450,209 @@ function SettingsPanel({
               </button>
             </div>
 
-            <div className="bg-white p-8 rounded-3xl shadow-sm border border-gray-100">
-              <h3 className="text-xl font-bold mb-6 flex items-center gap-2">
-                <MonitorIcon className="w-6 h-6 text-indigo-600" />
-                {st('downloadDesktop')}
-              </h3>
-              <p className="text-gray-500 mb-6 text-sm">Download the desktop application for a seamless offline-capable experience.</p>
-              <button 
-                onClick={onInstallPWA}
-                className="w-full py-4 bg-indigo-50 text-indigo-700 font-bold rounded-2xl border border-indigo-100 hover:bg-indigo-100 transition-all flex items-center justify-center gap-3"
-              >
-                <MonitorIcon className="w-5 h-5" />
-                Install Desktop App (PWA)
-              </button>
+            <div className="bg-white dark:bg-slate-900 p-8 rounded-3xl shadow-sm border border-gray-100 dark:border-slate-800 md:col-span-2 space-y-6">
+              <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-gray-100 dark:border-slate-800 pb-6">
+                <div>
+                  <h3 className="text-xl font-bold flex items-center gap-2 text-slate-800 dark:text-slate-100">
+                    <LucideIcons.Monitor className="w-6 h-6 text-indigo-600" />
+                    {systemLang === 'bn' ? 'ডেস্কটপ অ্যাপ্লিকেশন ও ইন্টিগ্রেশন' : 'Desktop Application & Integration'}
+                  </h3>
+                  <p className="text-gray-500 dark:text-slate-400 text-sm mt-1">
+                    {systemLang === 'bn' 
+                      ? 'রিয়েল-টাইম প্রিন্টিং ও অফলাইন সিঙ্ক কার্যকারিতার জন্য ডেক্সটপ এজেন্ট ব্যবহার করুন।' 
+                      : 'Use the desktop agent for real-time printing & offline synchronization features.'}
+                  </p>
+                </div>
+                
+                {/* Mode Selector Tabs */}
+                <div className="flex bg-slate-100 dark:bg-slate-800 p-1.5 rounded-2xl border border-slate-200/50 dark:border-slate-700/50 self-start md:self-auto">
+                  <button
+                    type="button"
+                    onClick={() => setDesktopInstallMethod('pwa')}
+                    className={`px-4 py-2 text-xs font-bold rounded-xl transition-all flex items-center gap-2 cursor-pointer ${desktopInstallMethod === 'pwa' ? 'bg-white dark:bg-slate-950 text-indigo-600 dark:text-indigo-400 shadow-sm' : 'text-slate-500 dark:text-slate-400 hover:text-slate-700'}`}
+                  >
+                    <LucideIcons.Smartphone className="w-4 h-4" />
+                    {systemLang === 'bn' ? 'ব্রাউজার PWA অ্যাপ' : 'Browser PWA App'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setDesktopInstallMethod('powershell')}
+                    className={`px-4 py-2 text-xs font-bold rounded-xl transition-all flex items-center gap-2 cursor-pointer ${desktopInstallMethod === 'powershell' ? 'bg-white dark:bg-slate-950 text-indigo-600 dark:text-indigo-400 shadow-sm' : 'text-slate-500 dark:text-slate-400 hover:text-slate-700'}`}
+                  >
+                    <LucideIcons.Terminal className="w-4 h-4" />
+                    {systemLang === 'bn' ? 'পাওয়ারশেল ১-ক্লিক CLI' : 'PowerShell Direct CLI'}
+                  </button>
+                </div>
+              </div>
+
+              {desktopInstallMethod === 'pwa' ? (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6 items-center">
+                  <div className="space-y-4">
+                    <div className="bg-indigo-50/50 dark:bg-indigo-950/20 p-4 rounded-2xl border border-indigo-100/30">
+                      <h4 className="font-bold text-slate-800 dark:text-slate-200 text-sm mb-1">
+                        {systemLang === 'bn' ? 'সুবিধাসমূহ (Features):' : 'Key Advantages:'}
+                      </h4>
+                      <ul className="text-xs text-slate-600 dark:text-slate-400 space-y-1.5 list-disc pl-4 mt-2">
+                        <li>{systemLang === 'bn' ? 'ডেস্কটপ হোম স্ক্রিন শর্টকাট আইকন' : 'Direct desktop shortcut on your screen.'}</li>
+                        <li>{systemLang === 'bn' ? 'অফলাইনেও ক্যাশে মেমোরি থেকে দ্রুত লোড হবে' : 'Loads extremely fast using cache memory.'}</li>
+                        <li>{systemLang === 'bn' ? 'অটোমেটিক আপডেট সাপোর্ট' : 'Automatic background updates supported.'}</li>
+                      </ul>
+                    </div>
+                    
+                    <button 
+                      onClick={onInstallPWA}
+                      className="w-full py-4 bg-indigo-600 hover:bg-indigo-500 text-white font-bold rounded-2xl transition-all flex items-center justify-center gap-3 shadow-lg shadow-indigo-600/10 cursor-pointer"
+                    >
+                      <LucideIcons.Monitor className="w-5 h-5" />
+                      Install Desktop App (PWA)
+                    </button>
+                  </div>
+                  
+                  <div className="text-center p-6 border border-dashed border-slate-200 dark:border-slate-800 rounded-3xl bg-slate-50/50 dark:bg-slate-900/50">
+                    <div className="w-12 h-12 bg-indigo-100 dark:bg-indigo-950/40 rounded-2xl flex items-center justify-center mx-auto mb-3 text-indigo-600 dark:text-indigo-400">
+                      <LucideIcons.HelpCircle className="w-6 h-6" />
+                    </div>
+                    <p className="text-xs text-slate-500 dark:text-slate-400 leading-relaxed">
+                      {systemLang === 'bn'
+                        ? 'আপনার ক্রোম বা এজ ব্রাউজার দিয়ে ইনস্টল অপশনটি দেখতে পাবেন। কোনো অতিরিক্ত সফটওয়্যার ইনস্টল করতে হবে না।'
+                        : 'Simply install using your Chrome or Edge browser. No additional heavy software is required to start.'}
+                    </p>
+                  </div>
+                </div>
+              ) : (
+                <div className="space-y-6">
+                  <div className="bg-amber-500/10 border border-amber-500/20 p-4 rounded-2xl">
+                    <p className="text-xs text-amber-800 dark:text-amber-400 font-bold flex items-center gap-1.5">
+                      <LucideIcons.ShieldAlert className="w-4 h-4" />
+                      {systemLang === 'bn' 
+                        ? 'পাওয়ারশেল ১-ক্লিক ডিরেক্ট সেটাপ (Windows PowerShell Direct Setup)' 
+                        : 'PowerShell One-Click Direct Setup (Enterprise Style)'}
+                    </p>
+                    <p className="text-xs text-slate-600 dark:text-slate-400 mt-1.5 leading-relaxed">
+                      {systemLang === 'bn'
+                        ? 'গিটহাব থেকে সরাসরি সিকিউর কানেকশন ও প্রিন্টার এজেন্ট সার্ভিস ডাউনলোড ও রানিং করার জন্য নিচের কমান্ডটি আপনার কম্পিউটারের PowerShell ওপেন করে পেস্ট করুন।'
+                        : 'Run this optimized Windows PowerShell command to download, authorize, and sync your POS agent automatically from GitHub releases.'}
+                    </p>
+                  </div>
+
+                  {/* Terminal Command 1: Bypass Installer */}
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-bold text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
+                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
+                        {systemLang === 'bn' ? '১-ক্লিক অটো ইনস্টলার (প্রস্তাবিত)' : '1-Click Auto Installer (Recommended)'}
+                      </span>
+                      <span className="text-[10px] font-mono text-indigo-600 dark:text-indigo-400 uppercase font-black">GitHub Releases</span>
+                    </div>
+
+                    <div className="bg-slate-950 rounded-2xl border border-slate-800 overflow-hidden relative group font-mono text-xs">
+                      {/* Terminal window top bar */}
+                      <div className="flex items-center justify-between px-4 py-2.5 bg-slate-900 border-b border-slate-800/80">
+                        <div className="flex items-center gap-1.5">
+                          <span className="w-2.5 h-2.5 rounded-full bg-rose-500"></span>
+                          <span className="w-2.5 h-2.5 rounded-full bg-amber-500"></span>
+                          <span className="w-2.5 h-2.5 rounded-full bg-emerald-500"></span>
+                          <span className="text-[10px] text-slate-500 ml-2 font-sans font-bold">Windows PowerShell (Admin)</span>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const cmdText = `powershell -NoProfile -ExecutionPolicy Bypass -Command "iwr -useb 'https://raw.githubusercontent.com/stratproamz/pos-sync-agent/main/install.ps1' | iex"`;
+                            navigator.clipboard.writeText(cmdText);
+                            setCopiedCmd('auto');
+                            setTimeout(() => setCopiedCmd(null), 2500);
+                          }}
+                          className="text-slate-400 hover:text-white transition-all p-1 flex items-center gap-1.5 text-[11px] font-sans font-bold cursor-pointer"
+                        >
+                          {copiedCmd === 'auto' ? (
+                            <>
+                              <LucideIcons.Check className="w-3.5 h-3.5 text-emerald-400" />
+                              <span className="text-emerald-400">কপি হয়েছে!</span>
+                            </>
+                          ) : (
+                            <>
+                              <LucideIcons.Copy className="w-3.5 h-3.5" />
+                              <span>কপি কমান্ড</span>
+                            </>
+                          )}
+                        </button>
+                      </div>
+                      
+                      <div className="p-4 overflow-x-auto text-slate-300 whitespace-pre leading-relaxed select-all">
+                        <span className="text-indigo-400 font-bold">PS C:\&gt;</span> powershell -NoProfile -ExecutionPolicy Bypass -Command &quot;iwr -useb 'https://raw.githubusercontent.com/stratproamz/pos-sync-agent/main/install.ps1' | iex&quot;
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Terminal Command 2: Manual Direct Download & Extract */}
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-bold text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
+                        <span className="w-1.5 h-1.5 rounded-full bg-indigo-500"></span>
+                        {systemLang === 'bn' ? 'বিকল্প ম্যানুয়াল পাওয়ারশেল ডাউনলোড' : 'Alternative Manual PowerShell Download'}
+                      </span>
+                    </div>
+
+                    <div className="bg-slate-950 rounded-2xl border border-slate-800 overflow-hidden relative group font-mono text-xs">
+                      <div className="flex items-center justify-between px-4 py-2.5 bg-slate-900 border-b border-slate-800/80">
+                        <div className="flex items-center gap-1.5">
+                          <span className="w-2.5 h-2.5 rounded-full bg-rose-500 opacity-60"></span>
+                          <span className="w-2.5 h-2.5 rounded-full bg-amber-500 opacity-60"></span>
+                          <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 opacity-60"></span>
+                          <span className="text-[10px] text-slate-500 ml-2 font-sans font-bold">PowerShell Downloader</span>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const cmdText = `powershell -Command "New-Item -ItemType Directory -Force -Path '$HOME\\BismillahPOS'; iwr -useb 'https://github.com/stratproamz/pos-sync-agent/releases/latest/download/BismillahPOS.exe' -OutFile '$HOME\\BismillahPOS\\BismillahPOS.exe'; Start-Process '$HOME\\BismillahPOS\\BismillahPOS.exe'"`;
+                            navigator.clipboard.writeText(cmdText);
+                            setCopiedCmd('manual');
+                            setTimeout(() => setCopiedCmd(null), 2500);
+                          }}
+                          className="text-slate-400 hover:text-white transition-all p-1 flex items-center gap-1.5 text-[11px] font-sans font-bold cursor-pointer"
+                        >
+                          {copiedCmd === 'manual' ? (
+                            <>
+                              <LucideIcons.Check className="w-3.5 h-3.5 text-emerald-400" />
+                              <span className="text-emerald-400">কপি হয়েছে!</span>
+                            </>
+                          ) : (
+                            <>
+                              <LucideIcons.Copy className="w-3.5 h-3.5" />
+                              <span>কপি কমান্ড</span>
+                            </>
+                          )}
+                        </button>
+                      </div>
+                      
+                      <div className="p-4 overflow-x-auto text-slate-300 whitespace-pre leading-relaxed select-all">
+                        <span className="text-indigo-400 font-bold">PS C:\&gt;</span> powershell -Command &quot;New-Item -ItemType Directory -Force -Path '$HOME\BismillahPOS'; iwr -useb 'https://github.com/stratproamz/pos-sync-agent/releases/latest/download/BismillahPOS.exe' -OutFile '$HOME\BismillahPOS\BismillahPOS.exe'; Start-Process '$HOME\BismillahPOS\BismillahPOS.exe'&quot;
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Step by Step Guideline */}
+                  <div className="bg-indigo-50/30 dark:bg-slate-950 p-5 rounded-2xl border border-indigo-100/50 dark:border-slate-800">
+                    <h4 className="font-bold text-xs text-indigo-700 dark:text-indigo-400 uppercase tracking-wider mb-3">
+                      {systemLang === 'bn' ? 'ব্যবহারের নিয়মাবলী (How to run):' : 'Step-by-step Execution:'}
+                    </h4>
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-xs font-sans">
+                      <div className="space-y-1">
+                        <p className="font-black text-indigo-500">১. ওপেন করুন</p>
+                        <p className="text-slate-600 dark:text-slate-400 leading-relaxed">উইন্ডোজ স্টার্ট মেনু থেকে <b>PowerShell</b> লিখে সার্চ করে এটি ওপেন করুন।</p>
+                      </div>
+                      <div className="space-y-1">
+                        <p className="font-black text-indigo-500">২. পেস্ট ও এন্টার</p>
+                        <p className="text-slate-600 dark:text-slate-400 leading-relaxed">ওপরের যেকোনো একটি কমান্ড কপি করে পাওয়ারশেল উইন্ডোতে রাইট ক্লিক করে এন্টার চাপুন।</p>
+                      </div>
+                      <div className="space-y-1">
+                        <p className="font-black text-indigo-500">৩. অটো কানেক্ট</p>
+                        <p className="text-slate-600 dark:text-slate-400 leading-relaxed">কমান্ডটি স্বয়ংক্রিয়ভাবে ডাউনলোড সম্পন্ন করে আপনার ডেক্সটপ উইন্ডো ওপেন করে দিবে।</p>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
 
             <div className="bg-white p-8 rounded-3xl shadow-sm border border-gray-100">
