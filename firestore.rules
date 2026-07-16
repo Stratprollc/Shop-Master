@@ -29,13 +29,11 @@ service cloud.firestore {
       );
     }
 
-    function isOwnerOrStaffO1(shopId) {
+    function isOwnerOrStaffList(shopId) {
       return isSignedIn() && (
         request.auth.uid == shopId || 
         (exists(/databases/$(database)/documents/users/$(request.auth.uid)) && 
-         get(/databases/$(database)/documents/users/$(request.auth.uid)).data.shopId == shopId) ||
-        (exists(/databases/$(database)/documents/shops/$(shopId)) && 
-         get(/databases/$(database)/documents/shops/$(shopId)).data.ownerUid == request.auth.uid)
+         get(/databases/$(database)/documents/users/$(request.auth.uid)).data.shopId == shopId)
       );
     }
 
@@ -88,7 +86,7 @@ service cloud.firestore {
                     (resource != null && resource.data.shopId != null && isOwnerOrStaff(resource.data.shopId)) || 
                     (resource == null || resource.data.phone != null);
       allow list: if isMasterAdmin() || 
-                    (resource != null && resource.data.shopId != null && isOwnerOrStaffO1(resource.data.shopId));
+                    (resource != null && resource.data.shopId != null && isOwnerOrStaffList(resource.data.shopId));
       allow create: if true;
       allow update: if isMasterAdmin() || (
         isSignedIn() && 
@@ -110,7 +108,7 @@ service cloud.firestore {
                     (resource != null && resource.data.shopId != null && isOwnerOrStaff(resource.data.shopId)) || 
                     (resource == null || resource.data.customerPhone != null);
       allow list: if isMasterAdmin() || 
-                    (resource != null && resource.data.shopId != null && isOwnerOrStaffO1(resource.data.shopId));
+                    (resource != null && resource.data.shopId != null && isOwnerOrStaffList(resource.data.shopId));
       allow create: if true;
       allow update: if isMasterAdmin() || (
         isSignedIn() && 
@@ -144,7 +142,7 @@ service cloud.firestore {
           isSignedIn() && (
             resource != null &&
             resource.data.shopId != null &&
-            isOwnerOrStaffO1(resource.data.shopId)
+            isOwnerOrStaffList(resource.data.shopId)
           )
         )
       );
@@ -243,7 +241,7 @@ service cloud.firestore {
         isSignedIn() && 
         resource != null && 
         resource.data.shopId != null && 
-        isOwnerOrStaffO1(resource.data.shopId)
+        isOwnerOrStaffList(resource.data.shopId)
       ) || (
         resource != null &&
         resource.data.type == 'feedback' &&
@@ -278,7 +276,7 @@ service cloud.firestore {
         isSignedIn() && 
         resource != null && 
         resource.data.shopId != null && 
-        isOwnerOrStaffO1(resource.data.shopId)
+        isOwnerOrStaffList(resource.data.shopId)
       );
       allow create: if isMasterAdmin() || (
         isSignedIn() && 
@@ -304,11 +302,14 @@ service cloud.firestore {
 
     // Personal Budgets Match Block
     match /personal_budgets/{shopId} {
-      allow read, write: if isMasterAdmin() || isOwnerOrStaff(shopId);
+      allow get: if isMasterAdmin() || isOwnerOrStaff(shopId);
+      allow list: if isMasterAdmin() || isOwnerOrStaffList(shopId);
+      allow write: if isMasterAdmin() || isOwnerOrStaff(shopId);
     }
 
     match /settings/{shopId} {
-      allow read: if isMasterAdmin() || isOwnerOrStaff(shopId);
+      allow get: if isMasterAdmin() || isOwnerOrStaff(shopId);
+      allow list: if isMasterAdmin() || isOwnerOrStaffList(shopId);
       allow write: if isMasterAdmin() || isOwnerOrStaff(shopId);
     }
 
@@ -325,7 +326,11 @@ service cloud.firestore {
     match /shops/{shopId} {
       allow read: if true;
       allow create: if isSignedIn() && request.auth.uid == shopId;
-      allow update: if isMasterAdmin() || isOwnerOrStaff(shopId);
+      allow update: if isMasterAdmin() || 
+                       request.auth.uid == shopId || 
+                       (resource != null && (resource.data.ownerUid == request.auth.uid || resource.data.ownerEmail == request.auth.token.email)) ||
+                       (exists(/databases/$(database)/documents/users/$(request.auth.uid)) && 
+                        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.shopId == shopId);
       allow delete: if isMasterAdmin();
     }
 
@@ -348,7 +353,7 @@ service cloud.firestore {
       ));
 
       allow list: if isMasterAdmin() || (isSignedIn() && (
-        resource != null && isOwnerOrStaffO1(resource.data.shopId)
+        resource != null && isOwnerOrStaffList(resource.data.shopId)
       ));
       
       allow create: if isMasterAdmin() || (isSignedIn() && (

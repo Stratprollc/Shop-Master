@@ -238,6 +238,8 @@ import {
   clearAllLocalStorage
 } from './firebase';
 
+import { signInWithCredential } from 'firebase/auth';
+
 import { 
   BarChart, 
   Bar, 
@@ -5042,6 +5044,31 @@ export default function App() {
     }
   };
   const [isDesktop, setIsDesktop] = useState(() => typeof window !== 'undefined' ? window.innerWidth >= 1024 : true);
+  const [waitingForBrowserAuth, setWaitingForBrowserAuth] = useState<string | null>(null);
+  const [desktopAuthCode, setDesktopAuthCode] = useState<string | null>(() => {
+    if (typeof window !== 'undefined' && window.location) {
+      const searchParams = new URLSearchParams(window.location.search);
+      let code = searchParams.get('desktop-code');
+      if (!code && window.location.hash) {
+        const hashQuery = window.location.hash.split('?')[1];
+        if (hashQuery) {
+          code = new URLSearchParams(hashQuery).get('desktop-code');
+        }
+      }
+      return code;
+    }
+    return null;
+  });
+  const [desktopAuthStatus, setDesktopAuthStatus] = useState<'idle' | 'authorizing' | 'success' | 'error'>('idle');
+  const [desktopAuthError, setDesktopAuthError] = useState<string | null>(null);
+
+  useEffect(() => {
+    const isElectron = typeof window !== 'undefined' && (window as any).electronAPI?.isElectron === true;
+    if (typeof window !== 'undefined' && window.location && !isElectron) {
+      localStorage.setItem('shopmaster_web_origin', window.location.origin);
+    }
+  }, []);
+
   const [isSidebarOpen, setIsSidebarOpen] = useState(() => {
     if (typeof window !== 'undefined') {
       const saved = localStorage.getItem('sidebar_visible');
@@ -7327,104 +7354,161 @@ export default function App() {
     }
   };
 
-  const handleGoogleLogin = async () => {
-    try {
-      setLoading(true);
-      const result = await signInWithPopup(auth, googleProvider);
-      const googleUser = result.user;
+  const processGoogleLoginResult = async (result: any) => {
+    const googleUser = result.user;
 
-      const credential = GoogleAuthProvider.credentialFromResult(result);
-      if (credential?.accessToken) {
-        setCachedAccessToken(credential.accessToken);
-        setGoogleToken(credential.accessToken);
-        // Dispatch to unified workspace service controller if needed later
-      }
-      
-      const isMasterAdmin = googleUser.email?.toLowerCase().trim() === "stratproamz@gmail.com";
-      const existingAppUser = appUsers.find(u => u.username.toLowerCase() === googleUser.email?.split('@')[0].toLowerCase());
-      
-      // Merchants logging in via Google who are not registered staff should get 'admin' role by default
-      const role = isMasterAdmin ? 'admin' : (existingAppUser?.role || 'admin');
-      
-      let finalShopId = googleUser.uid;
-      let onboardStatus = false;
-      let isBlocked = false;
-      let blockedShopDetails: any = null;
+    const credential = GoogleAuthProvider.credentialFromResult(result);
+    if (credential?.accessToken) {
+      setCachedAccessToken(credential.accessToken);
+      setGoogleToken(credential.accessToken);
+    }
+    
+    const isMasterAdmin = googleUser.email?.toLowerCase().trim() === "stratproamz@gmail.com";
+    const existingAppUser = appUsers.find(u => u.username.toLowerCase() === googleUser.email?.split('@')[0].toLowerCase());
+    
+    // Merchants logging in via Google who are not registered staff should get 'admin' role by default
+    const role = isMasterAdmin ? 'admin' : (existingAppUser?.role || 'admin');
+    
+    let finalShopId = googleUser.uid;
+    let onboardStatus = false;
+    let isBlocked = false;
+    let blockedShopDetails: any = null;
 
-      if (isMasterAdmin) {
-        finalShopId = 'master';
-        onboardStatus = true;
-      } else {
-        try {
-          // 1. Direct match: doc ID is firebaseUser.uid
-          const shopDoc = await getDoc(doc(db, 'shops', googleUser.uid));
-          if (shopDoc.exists()) {
-            finalShopId = googleUser.uid;
+    if (isMasterAdmin) {
+      finalShopId = 'master';
+      onboardStatus = true;
+    } else {
+      try {
+        // 1. Direct match: doc ID is firebaseUser.uid
+        const shopDoc = await getDoc(doc(db, 'shops', googleUser.uid));
+        if (shopDoc.exists()) {
+          finalShopId = googleUser.uid;
+          onboardStatus = true;
+          if (shopDoc.data().status === 'blocked') {
+            isBlocked = true;
+            blockedShopDetails = { name: shopDoc.data().name, shopCode: shopDoc.data().shopCode };
+          }
+        } else {
+          // 2. Try searching by ownerUid
+          const qByUid = query(collection(db, 'shops'), where('ownerUid', '==', googleUser.uid));
+          const snapByUid = await getDocs(qByUid);
+          if (!snapByUid.empty) {
+            const foundShop = snapByUid.docs[0];
+            finalShopId = foundShop.id;
             onboardStatus = true;
-            if (shopDoc.data().status === 'blocked') {
+            if (foundShop.data().status === 'blocked') {
               isBlocked = true;
-              blockedShopDetails = { name: shopDoc.data().name, shopCode: shopDoc.data().shopCode };
+              blockedShopDetails = { name: foundShop.data().name, shopCode: foundShop.data().shopCode };
             }
-          } else {
-            // 2. Try searching by ownerUid
-            const qByUid = query(collection(db, 'shops'), where('ownerUid', '==', googleUser.uid));
-            const snapByUid = await getDocs(qByUid);
-            if (!snapByUid.empty) {
-              const foundShop = snapByUid.docs[0];
+          } else if (googleUser.email) {
+            // 3. Try searching by ownerEmail
+            const qByEmail = query(collection(db, 'shops'), where('ownerEmail', '==', googleUser.email));
+            const snapByEmail = await getDocs(qByEmail);
+            if (!snapByEmail.empty) {
+              const foundShop = snapByEmail.docs[0];
               finalShopId = foundShop.id;
               onboardStatus = true;
               if (foundShop.data().status === 'blocked') {
                 isBlocked = true;
                 blockedShopDetails = { name: foundShop.data().name, shopCode: foundShop.data().shopCode };
               }
-            } else if (googleUser.email) {
-              // 3. Try searching by ownerEmail
-              const qByEmail = query(collection(db, 'shops'), where('ownerEmail', '==', googleUser.email));
-              const snapByEmail = await getDocs(qByEmail);
-              if (!snapByEmail.empty) {
-                const foundShop = snapByEmail.docs[0];
-                finalShopId = foundShop.id;
-                onboardStatus = true;
-                if (foundShop.data().status === 'blocked') {
-                  isBlocked = true;
-                  blockedShopDetails = { name: foundShop.data().name, shopCode: foundShop.data().shopCode };
-                }
+            }
+          }
+        }
+      } catch (shopSearchErr: any) {
+        if (shopSearchErr?.message?.includes('offline') || shopSearchErr?.code?.includes('unavailable')) {
+          console.warn("Offline during Google Login search:", shopSearchErr.message);
+        } else {
+          console.warn("Error searching shops during Google Login:", shopSearchErr);
+        }
+      }
+    }
+
+    if (isBlocked) {
+      await signOut(auth);
+      setUser(null);
+      setIsOnboarded(null);
+      localStorage.removeItem('shopmaster_user');
+      setBlockedShopInfo(blockedShopDetails);
+      setAuthError("ja tomaq k block kora hoya ca, please contact +8801604877281");
+      setNotification({ message: "Account Blocked! Please contact support.", type: 'error' });
+      return;
+    }
+
+    const userData = { 
+      uid: googleUser.uid, 
+      email: googleUser.email || '', 
+      displayName: googleUser.displayName || googleUser.email?.split('@')[0] || 'Google User', 
+      role,
+      shopId: finalShopId,
+      isOnboarded: onboardStatus
+    };
+    
+    setUser(userData);
+    setIsOnboarded(onboardStatus);
+    localStorage.setItem('shopmaster_user', JSON.stringify(userData));
+    setNotification({ message: `Signed in as ${userData.displayName}`, type: 'success' });
+  };
+
+  const handleGoogleLogin = async () => {
+    if (isElectron) {
+      try {
+        setLoading(true);
+        const code = 'sm_auth_' + Date.now() + '_' + Math.random().toString(36).substring(2, 15);
+        
+        await setDoc(doc(db, 'desktop_auth_handshakes', code), {
+          status: 'pending',
+          createdAt: new Date().toISOString()
+        });
+
+        const savedWebOrigin = localStorage.getItem('shopmaster_web_origin');
+        const webBaseUrl = savedWebOrigin || 'https://ais-pre-w36tbpaxisvv2iygxn53ei-345055769930.asia-east1.run.app';
+        const loginUrl = `${webBaseUrl}/?desktop-code=${code}`;
+
+        console.log("[Electron] Redirecting browser auth flow via:", loginUrl);
+        setWaitingForBrowserAuth(code);
+        setNotification({
+          message: 'লগইন করতে আপনার সিস্টেমের ওয়েব ব্রাউজারটি ওপেন করা হয়েছে। (Browser opened for secure login)',
+          type: 'info'
+        });
+
+        window.open(loginUrl, '_blank');
+
+        const unsub = onSnapshot(doc(db, 'desktop_auth_handshakes', code), async (snapshot) => {
+          if (snapshot.exists()) {
+            const data = snapshot.data();
+            if (data.status === 'completed' && data.idToken) {
+              console.log("[Electron] Secure handshake received! Authenticating locally...");
+              unsub();
+              setWaitingForBrowserAuth(null);
+              
+              try {
+                const credential = GoogleAuthProvider.credential(data.idToken, data.accessToken || undefined);
+                const result = await signInWithCredential(auth, credential);
+                
+                await processGoogleLoginResult(result);
+                
+                await deleteDoc(doc(db, 'desktop_auth_handshakes', code)).catch(() => {});
+              } catch (authErr: any) {
+                console.error("[Electron] Handshake login failed:", authErr);
+                setAuthError(`Local authentication failed: ${authErr.message || authErr}`);
+                setLoading(false);
               }
             }
           }
-        } catch (shopSearchErr: any) {
-          if (shopSearchErr?.message?.includes('offline') || shopSearchErr?.code?.includes('unavailable')) {
-            console.warn("Offline during Google Login search:", shopSearchErr.message);
-          } else {
-            console.warn("Error searching shops during Google Login:", shopSearchErr);
-          }
-        }
+        });
+      } catch (err: any) {
+        console.error("[Electron] Failed to start browser authentication handshake:", err);
+        setAuthError(`Failed to initiate browser login connection: ${err.message || err}`);
+        setLoading(false);
       }
+      return;
+    }
 
-      if (isBlocked) {
-        await signOut(auth);
-        setUser(null);
-        setIsOnboarded(null);
-        localStorage.removeItem('shopmaster_user');
-        setBlockedShopInfo(blockedShopDetails);
-        setAuthError("ja tomaq k block kora hoya ca, please contact +8801604877281");
-        setNotification({ message: "Account Blocked! Please contact support.", type: 'error' });
-        return;
-      }
-
-      const userData = { 
-        uid: googleUser.uid, 
-        email: googleUser.email || '', 
-        displayName: googleUser.displayName || googleUser.email?.split('@')[0] || 'Google User', 
-        role,
-        shopId: finalShopId,
-        isOnboarded: onboardStatus
-      };
-      
-      setUser(userData);
-      setIsOnboarded(onboardStatus);
-      localStorage.setItem('shopmaster_user', JSON.stringify(userData));
-      setNotification({ message: `Signed in as ${userData.displayName}`, type: 'success' });
+    try {
+      setLoading(true);
+      const result = await signInWithPopup(auth, googleProvider);
+      await processGoogleLoginResult(result);
     } catch (error: any) {
       console.error("DETAILED GOOGLE OAUTH ERROR:", error);
       
@@ -8637,6 +8721,162 @@ export default function App() {
     );
   }
 
+  if (desktopAuthCode) {
+    const handleApproveDesktopAuth = async () => {
+      try {
+        setDesktopAuthStatus('authorizing');
+        setDesktopAuthError(null);
+        
+        const result = await signInWithPopup(auth, googleProvider);
+        const credential = GoogleAuthProvider.credentialFromResult(result);
+        const idToken = credential?.idToken;
+        const accessToken = credential?.accessToken;
+
+        if (!idToken) {
+          throw new Error("Could not retrieve Google authentication credentials. Please try again.");
+        }
+
+        await setDoc(doc(db, 'desktop_auth_handshakes', desktopAuthCode), {
+          status: 'completed',
+          uid: result.user.uid,
+          email: result.user.email,
+          displayName: result.user.displayName || result.user.email?.split('@')[0],
+          idToken: idToken,
+          accessToken: accessToken || null,
+          updatedAt: new Date().toISOString()
+        }, { merge: true });
+
+        setDesktopAuthStatus('success');
+      } catch (err: any) {
+        console.error("Desktop auth approval error:", err);
+        setDesktopAuthStatus('error');
+        setDesktopAuthError(err?.message || "Authentication failed. Please check your internet connection.");
+      }
+    };
+
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-slate-900 text-white p-4 font-sans relative overflow-hidden">
+        <div className="absolute top-0 left-0 w-full h-full pointer-events-none overflow-hidden">
+          <div className="absolute -top-24 -left-24 w-96 h-96 bg-indigo-900/30 rounded-full blur-3xl opacity-50" />
+          <div className="absolute -bottom-24 -right-24 w-96 h-96 bg-indigo-950/40 rounded-full blur-3xl opacity-50" />
+        </div>
+
+        <motion.div 
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="max-w-md w-full bg-slate-800/80 backdrop-blur-xl border border-slate-700/50 rounded-3xl p-8 shadow-2xl relative z-10"
+        >
+          <div className="flex flex-col items-center text-center mb-8">
+            <div className="w-16 h-16 bg-gradient-to-tr from-indigo-500 to-indigo-600 rounded-2xl flex items-center justify-center mb-6 shadow-lg shadow-indigo-500/20">
+              <Store className="w-8 h-8 text-white" />
+            </div>
+            <h2 className="text-2xl font-bold tracking-tight mb-2 text-white">
+              ডেক্সটপ অ্যাপ কানেক্ট করুন
+            </h2>
+            <p className="text-slate-400 text-sm">
+              Authorize ShopMaster Desktop Connection
+            </p>
+          </div>
+
+          <div className="w-full h-px bg-slate-700/50 mb-6" />
+
+          {desktopAuthStatus === 'idle' && (
+            <div className="space-y-6">
+              <p className="text-slate-300 text-sm leading-relaxed text-center">
+                আপনার ডেক্সটপ অ্যাপ্লিকেশনের সাথে গুগল অ্যাকাউন্ট নিরাপদে কানেক্ট করতে নিচের বাটনে ক্লিক করুন। ব্রাউজারে লগইন সফল হলে ডেক্সটপ অ্যাপটি স্বয়ংক্রিয়ভাবে সচল হয়ে যাবে।
+              </p>
+              
+              <div className="bg-slate-900/50 rounded-2xl p-4 border border-slate-700/30 text-xs text-slate-400 leading-relaxed">
+                <span className="font-semibold text-indigo-400 uppercase tracking-widest block mb-1">Security Notice</span>
+                এই হ্যান্ডশেকটি সম্পূর্ণরূপে এনক্রিপ্ট করা এবং সিকিউর ফায়ারবেস টোকেন এক্সচেঞ্জ ব্যবহার করে কাজ করে।
+              </div>
+
+              <button
+                type="button"
+                onClick={handleApproveDesktopAuth}
+                className="w-full h-14 bg-indigo-600 hover:bg-indigo-500 text-white rounded-2xl font-bold transition-all flex items-center justify-center gap-4 group cursor-pointer shadow-lg shadow-indigo-600/20 animate-pulse"
+              >
+                <div className="w-8 h-8 bg-white/10 rounded-full flex items-center justify-center">
+                  <svg className="w-5 h-5 fill-white" viewBox="0 0 24 24">
+                    <path d="M12.48 10.92v3.28h7.84c-.24 1.84-2.21 5.38-7.84 5.38-4.81 0-8.73-3.92-8.73-8.73s3.92-8.73 8.73-8.73c2.72 0 4.53 1.16 5.57 2.16l2.58-2.58C18.91 1.76 15.91 1 12.48 1 6.26 1 1.24 6.02 1.24 12.24s5.02 11.24 11.24 11.24c6.53 0 10.86-4.57 10.86-11.02 0-.74-.08-1.3-.18-1.86h-9.44z"/>
+                  </svg>
+                </div>
+                লগইন এবং কানেক্ট করুন
+              </button>
+            </div>
+          )}
+
+          {desktopAuthStatus === 'authorizing' && (
+            <div className="flex flex-col items-center justify-center py-8 space-y-4">
+              <motion.div 
+                animate={{ rotate: 360 }}
+                transition={{ repeat: Infinity, duration: 1, ease: "linear" }}
+                className="w-12 h-12 border-4 border-indigo-500 border-t-transparent rounded-full"
+              />
+              <p className="text-slate-300 font-medium">নিরাপদে অথেনটিকেট করা হচ্ছে...</p>
+              <p className="text-slate-500 text-xs text-center">অনুগ্রহ করে গুগল সাইন-ইন পপআপ সম্পন্ন করুন।</p>
+            </div>
+          )}
+
+          {desktopAuthStatus === 'success' && (
+            <div className="space-y-6 text-center">
+              <div className="inline-flex h-16 w-16 bg-emerald-500/10 rounded-full items-center justify-center border border-emerald-500/20 mb-2">
+                <Check className="h-8 w-8 text-emerald-500 animate-bounce" />
+              </div>
+              <div className="space-y-2">
+                <h3 className="text-xl font-bold text-emerald-400">অ্যাক্সেস অনুমোদিত হয়েছে!</h3>
+                <p className="text-slate-300 text-sm leading-relaxed">
+                  আপনার গুগল অ্যাকাউন্টটি সফলভাবে ডেক্সটপ অ্যাপের সাথে সংযুক্ত হয়েছে। আপনি এখন নিরাপদে এই ব্রাউজার ট্যাবটি বন্ধ করে ডেক্সটপ অ্যাপে ফিরে যেতে পারেন।
+                </p>
+              </div>
+              
+              <div className="w-full h-px bg-slate-700/50" />
+              
+              <button
+                type="button"
+                onClick={() => setDesktopAuthCode(null)}
+                className="text-xs text-slate-400 hover:text-indigo-400 transition-colors cursor-pointer"
+              >
+                ← মূল পেজে ফিরে যান (Go to Home)
+              </button>
+            </div>
+          )}
+
+          {desktopAuthStatus === 'error' && (
+            <div className="space-y-6">
+              <div className="flex flex-col items-center text-center">
+                <div className="inline-flex h-14 w-14 bg-rose-500/10 rounded-full items-center justify-center border border-rose-500/20 mb-4">
+                  <AlertCircle className="h-6 w-6 text-rose-500" />
+                </div>
+                <h3 className="text-lg font-bold text-rose-400">কানেকশন ব্যর্থ হয়েছে</h3>
+                <p className="text-slate-400 text-xs mt-2 leading-relaxed">
+                  {desktopAuthError}
+                </p>
+              </div>
+
+              <div className="flex flex-col gap-3">
+                <button
+                  type="button"
+                  onClick={handleApproveDesktopAuth}
+                  className="w-full h-12 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl font-semibold transition-all cursor-pointer"
+                >
+                  আবার চেষ্টা করুন
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setDesktopAuthStatus('idle')}
+                  className="w-full h-12 bg-slate-700 hover:bg-slate-600 text-slate-200 rounded-xl font-semibold transition-all cursor-pointer"
+                >
+                  ফিরে যান
+                </button>
+              </div>
+            </div>
+          )}
+        </motion.div>
+      </div>
+    );
+  }
+
   if (showCustomerPortal && !user) {
     return (
       <CustomerPortal 
@@ -8648,6 +8888,105 @@ export default function App() {
   }
 
   if (!user) {
+    if (waitingForBrowserAuth) {
+      const loginUrl = `${localStorage.getItem('shopmaster_web_origin') || 'https://ais-pre-w36tbpaxisvv2iygxn53ei-345055769930.asia-east1.run.app'}/?desktop-code=${waitingForBrowserAuth}`;
+
+      return (
+        <div className="min-h-screen flex items-center justify-center bg-slate-950 text-white p-4 font-sans relative overflow-hidden">
+          <div className="absolute top-0 left-0 w-full h-full pointer-events-none overflow-hidden">
+            <div className="absolute -top-24 -left-24 w-96 h-96 bg-indigo-950/40 rounded-full blur-3xl opacity-50 animate-pulse" />
+            <div className="absolute -bottom-24 -right-24 w-96 h-96 bg-indigo-900/30 rounded-full blur-3xl opacity-50" />
+          </div>
+
+          <motion.div 
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+            className="max-w-md w-full bg-slate-900/90 backdrop-blur-xl border border-slate-800 rounded-3xl p-8 shadow-2xl relative z-10 text-center"
+          >
+            <div className="flex flex-col items-center mb-6">
+              <div className="relative">
+                <div className="absolute inset-0 bg-indigo-500/20 rounded-full blur-lg animate-ping" />
+                <div className="relative w-16 h-16 bg-indigo-600 rounded-2xl flex items-center justify-center mb-6 shadow-lg shadow-indigo-600/30">
+                  <Store className="w-8 h-8 text-white" />
+                </div>
+              </div>
+              
+              <h2 className="text-2xl font-bold tracking-tight mb-2 text-white">
+                ব্রাউজারে লগইন সম্পন্ন করুন
+              </h2>
+              <p className="text-slate-400 text-sm">
+                Completing Google Login in Browser
+              </p>
+            </div>
+
+            <div className="w-full h-px bg-slate-800 my-4" />
+
+            <div className="space-y-6">
+              <div className="flex justify-center my-4">
+                <motion.div
+                  animate={{ rotate: 360 }}
+                  transition={{ repeat: Infinity, duration: 2, ease: "linear" }}
+                  className="relative w-10 h-10 flex items-center justify-center"
+                >
+                  <RefreshCw className="w-8 h-8 text-indigo-400" />
+                </motion.div>
+              </div>
+
+              <p className="text-slate-300 text-sm leading-relaxed px-4">
+                আপনার ডিফল্ট ওয়েব ব্রাউজারে গুগল সাইন-ইন পেজটি চালু করা হয়েছে। সেখানে লগইন সফল হলে এই অ্যাপটি স্বয়ংক্রিয়ভাবে কানেক্ট হয়ে যাবে।
+              </p>
+
+              <div className="p-4 bg-slate-950/60 rounded-2xl border border-slate-800 text-left space-y-2">
+                <span className="text-[10px] font-bold text-indigo-400 uppercase tracking-wider">Troubleshooting / ট্রাবলশুটিং</span>
+                <p className="text-xs text-slate-400 leading-relaxed">
+                  যদি ব্রাউজার উইন্ডোটি নিজে থেকে ওপেন না হয়ে থাকে, তবে নিচের লিংকটি ম্যানুয়ালি কপি করে আপনার ব্রাউজারে পেস্ট করুন:
+                </p>
+                <div className="flex items-center gap-2 mt-2">
+                  <input
+                    type="text"
+                    readOnly
+                    value={loginUrl}
+                    className="bg-slate-900 text-slate-300 text-[10px] p-2 rounded-lg flex-1 border border-slate-800 font-mono select-all focus:outline-none"
+                  />
+                  <button
+                    onClick={() => {
+                      navigator.clipboard.writeText(loginUrl);
+                      setNotification({ message: 'কানেকশন লিংকটি কপি করা হয়েছে।', type: 'success' });
+                    }}
+                    className="bg-indigo-600 hover:bg-indigo-500 p-2 rounded-lg text-white font-bold text-xs cursor-pointer flex items-center justify-center gap-1 shrink-0"
+                  >
+                    <Copy className="w-3.5 h-3.5" />
+                    কপি
+                  </button>
+                </div>
+              </div>
+
+              <div className="flex flex-col gap-3 pt-2">
+                <button
+                  type="button"
+                  onClick={() => window.open(loginUrl, '_blank')}
+                  className="w-full h-12 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl font-semibold transition-all cursor-pointer flex items-center justify-center gap-2"
+                >
+                  <Globe className="w-4 h-4" />
+                  ব্রাউজারে আবার ওপেন করুন
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setWaitingForBrowserAuth(null);
+                    setLoading(false);
+                  }}
+                  className="w-full h-12 bg-slate-800 hover:bg-slate-700 text-slate-400 rounded-xl font-semibold transition-all cursor-pointer"
+                >
+                  বাতিল করুন (Cancel)
+                </button>
+              </div>
+            </div>
+          </motion.div>
+        </div>
+      );
+    }
+
     const st = (key: keyof typeof SYSTEM_TRANSLATIONS['en']) => (SYSTEM_TRANSLATIONS['en'] as any)[key];
 
     return (
