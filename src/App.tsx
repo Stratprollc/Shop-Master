@@ -5061,6 +5061,62 @@ export default function App() {
   });
   const [desktopAuthStatus, setDesktopAuthStatus] = useState<'idle' | 'authorizing' | 'success' | 'error'>('idle');
   const [desktopAuthError, setDesktopAuthError] = useState<string | null>(null);
+  const [desktopAuthIsPopupBlocked, setDesktopAuthIsPopupBlocked] = useState(false);
+  const [hasAttemptedAutoPopup, setHasAttemptedAutoPopup] = useState(false);
+
+  const handleApproveDesktopAuth = async (isAuto = false) => {
+    try {
+      setDesktopAuthStatus('authorizing');
+      setDesktopAuthError(null);
+      setDesktopAuthIsPopupBlocked(false);
+      
+      const result = await signInWithPopup(auth, googleProvider);
+      const credential = GoogleAuthProvider.credentialFromResult(result);
+      const idToken = credential?.idToken;
+      const accessToken = credential?.accessToken;
+
+      if (!idToken) {
+        throw new Error("Google credentials could not be retrieved. Please try again.");
+      }
+
+      await setDoc(doc(db, 'desktop_auth_handshakes', desktopAuthCode!), {
+        status: 'completed',
+        uid: result.user.uid,
+        email: result.user.email,
+        displayName: result.user.displayName || result.user.email?.split('@')[0],
+        idToken: idToken,
+        accessToken: accessToken || null,
+        updatedAt: new Date().toISOString()
+      }, { merge: true });
+
+      setDesktopAuthStatus('success');
+    } catch (err: any) {
+      console.error("Desktop auth approval error:", err);
+      const isBlocked = err?.code === 'auth/popup-blocked' || 
+                        err?.message?.includes('popup-blocked') || 
+                        err?.message?.includes('popup blocker') || 
+                        err?.message?.includes('closed by user') || 
+                        err?.code === 'auth/popup-closed-by-user';
+      
+      if (isAuto && isBlocked) {
+        setDesktopAuthStatus('idle');
+        setDesktopAuthIsPopupBlocked(true);
+      } else {
+        setDesktopAuthStatus('error');
+        setDesktopAuthError(err?.message || "Authentication failed. Please check your internet connection.");
+      }
+    }
+  };
+
+  useEffect(() => {
+    if (desktopAuthCode && desktopAuthStatus === 'idle' && !hasAttemptedAutoPopup) {
+      setHasAttemptedAutoPopup(true);
+      const timer = setTimeout(() => {
+        handleApproveDesktopAuth(true);
+      }, 800);
+      return () => clearTimeout(timer);
+    }
+  }, [desktopAuthCode, desktopAuthStatus, hasAttemptedAutoPopup]);
 
   useEffect(() => {
     const isElectron = typeof window !== 'undefined' && (window as any).electronAPI?.isElectron === true;
@@ -8722,38 +8778,6 @@ export default function App() {
   }
 
   if (desktopAuthCode) {
-    const handleApproveDesktopAuth = async () => {
-      try {
-        setDesktopAuthStatus('authorizing');
-        setDesktopAuthError(null);
-        
-        const result = await signInWithPopup(auth, googleProvider);
-        const credential = GoogleAuthProvider.credentialFromResult(result);
-        const idToken = credential?.idToken;
-        const accessToken = credential?.accessToken;
-
-        if (!idToken) {
-          throw new Error("Could not retrieve Google authentication credentials. Please try again.");
-        }
-
-        await setDoc(doc(db, 'desktop_auth_handshakes', desktopAuthCode), {
-          status: 'completed',
-          uid: result.user.uid,
-          email: result.user.email,
-          displayName: result.user.displayName || result.user.email?.split('@')[0],
-          idToken: idToken,
-          accessToken: accessToken || null,
-          updatedAt: new Date().toISOString()
-        }, { merge: true });
-
-        setDesktopAuthStatus('success');
-      } catch (err: any) {
-        console.error("Desktop auth approval error:", err);
-        setDesktopAuthStatus('error');
-        setDesktopAuthError(err?.message || "Authentication failed. Please check your internet connection.");
-      }
-    };
-
     return (
       <div className="min-h-screen flex items-center justify-center bg-slate-900 text-white p-4 font-sans relative overflow-hidden">
         <div className="absolute top-0 left-0 w-full h-full pointer-events-none overflow-hidden">
@@ -8782,6 +8806,30 @@ export default function App() {
 
           {desktopAuthStatus === 'idle' && (
             <div className="space-y-6">
+              {!desktopAuthIsPopupBlocked ? (
+                <div className="flex flex-col items-center text-center py-4 space-y-4">
+                  <motion.div 
+                    animate={{ rotate: 360 }}
+                    transition={{ repeat: Infinity, duration: 1, ease: "linear" }}
+                    className="w-10 h-10 border-4 border-indigo-500 border-t-transparent rounded-full"
+                  />
+                  <p className="text-slate-200 font-medium">স্বয়ংক্রিয়ভাবে গুগল লগইন ওপেন করা হচ্ছে...</p>
+                  <p className="text-slate-400 text-xs">
+                    Please wait while Google Login window opens automatically.
+                  </p>
+                </div>
+              ) : (
+                <div className="bg-amber-500/10 rounded-2xl p-4 border border-amber-500/20 space-y-2">
+                  <div className="flex items-center gap-2 text-amber-400 font-bold text-sm">
+                    <AlertTriangle className="w-5 h-5" />
+                    পপ-আপ ব্লক করা হয়েছে (Popup Blocked)
+                  </div>
+                  <p className="text-xs text-slate-300 leading-relaxed">
+                    আপনার ব্রাউজারে গুগল সাইন-ইন উইন্ডোটি পপ-আপ ব্লকারের কারণে স্বয়ংক্রিয়ভাবে বন্ধ বা ব্লক হয়েছে। কানেকশন সম্পন্ন করতে অনুগ্রহ করে নিচের বাটনে ক্লিক করুন।
+                  </p>
+                </div>
+              )}
+
               <p className="text-slate-300 text-sm leading-relaxed text-center">
                 আপনার ডেক্সটপ অ্যাপ্লিকেশনের সাথে গুগল অ্যাকাউন্ট নিরাপদে কানেক্ট করতে নিচের বাটনে ক্লিক করুন। ব্রাউজারে লগইন সফল হলে ডেক্সটপ অ্যাপটি স্বয়ংক্রিয়ভাবে সচল হয়ে যাবে।
               </p>
@@ -8793,7 +8841,7 @@ export default function App() {
 
               <button
                 type="button"
-                onClick={handleApproveDesktopAuth}
+                onClick={() => handleApproveDesktopAuth(false)}
                 className="w-full h-14 bg-indigo-600 hover:bg-indigo-500 text-white rounded-2xl font-bold transition-all flex items-center justify-center gap-4 group cursor-pointer shadow-lg shadow-indigo-600/20 animate-pulse"
               >
                 <div className="w-8 h-8 bg-white/10 rounded-full flex items-center justify-center">
@@ -8801,7 +8849,7 @@ export default function App() {
                     <path d="M12.48 10.92v3.28h7.84c-.24 1.84-2.21 5.38-7.84 5.38-4.81 0-8.73-3.92-8.73-8.73s3.92-8.73 8.73-8.73c2.72 0 4.53 1.16 5.57 2.16l2.58-2.58C18.91 1.76 15.91 1 12.48 1 6.26 1 1.24 6.02 1.24 12.24s5.02 11.24 11.24 11.24c6.53 0 10.86-4.57 10.86-11.02 0-.74-.08-1.3-.18-1.86h-9.44z"/>
                   </svg>
                 </div>
-                লগইন এবং কানেক্ট করুন
+                {desktopAuthIsPopupBlocked ? "লগইন উইন্ডো ওপেন করুন (Open Login)" : "লগইন এবং কানেক্ট করুন"}
               </button>
             </div>
           )}
@@ -8824,7 +8872,7 @@ export default function App() {
                 <Check className="h-8 w-8 text-emerald-500 animate-bounce" />
               </div>
               <div className="space-y-2">
-                <h3 className="text-xl font-bold text-emerald-400">অ্যাক্সেস অনুমোদিত হয়েছে!</h3>
+                <h3 className="text-xl font-bold text-emerald-400">লগইন সফল হয়েছে!</h3>
                 <p className="text-slate-300 text-sm leading-relaxed">
                   আপনার গুগল অ্যাকাউন্টটি সফলভাবে ডেক্সটপ অ্যাপের সাথে সংযুক্ত হয়েছে। আপনি এখন নিরাপদে এই ব্রাউজার ট্যাবটি বন্ধ করে ডেক্সটপ অ্যাপে ফিরে যেতে পারেন।
                 </p>
@@ -8857,7 +8905,7 @@ export default function App() {
               <div className="flex flex-col gap-3">
                 <button
                   type="button"
-                  onClick={handleApproveDesktopAuth}
+                  onClick={() => handleApproveDesktopAuth(false)}
                   className="w-full h-12 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl font-semibold transition-all cursor-pointer"
                 >
                   আবার চেষ্টা করুন
@@ -9425,14 +9473,19 @@ export default function App() {
     <ErrorBoundary>
       <div className={`min-h-screen bg-slate-50 dark:bg-slate-950 flex ${isRtl ? 'flex-row-reverse' : 'flex-row'}`}>
           {/* Floating Electron Auto-Updater Status Panel */}
-          {isElectron && updateStatus && updateStatus.type !== 'not-available' && (
+          {((isElectron && updateStatus && updateStatus.type !== 'not-available') || (updateStatus && updateStatus.isSimulated)) && (
             <div className="fixed bottom-6 right-6 z-[9999] bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-2xl rounded-2xl p-4 w-80 max-w-[calc(100vw-32px)] transition-all duration-300">
               <div className="flex items-center gap-3">
                 <div className="p-2 bg-indigo-50 dark:bg-indigo-950/50 rounded-xl text-indigo-600 dark:text-indigo-400">
                   <LucideIcons.RefreshCw className={`w-5 h-5 ${(updateStatus.type === 'checking' || updateStatus.type === 'progress') ? 'animate-spin' : ''}`} />
                 </div>
                 <div className="flex-1 min-w-0">
-                  <p className="text-[10px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-widest">System Update</p>
+                  <div className="flex items-center gap-1.5">
+                    <p className="text-[10px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-widest">System Update</p>
+                    {updateStatus.isSimulated && (
+                      <span className="text-[8px] bg-indigo-100 dark:bg-indigo-950 text-indigo-600 dark:text-indigo-400 font-bold px-1.5 py-0.5 rounded uppercase tracking-wider">Demo Sim</span>
+                    )}
+                  </div>
                   <p className="text-xs font-bold text-slate-800 dark:text-slate-200 mt-0.5">
                     {updateStatus.type === 'checking' && 'Checking for updates...'}
                     {updateStatus.type === 'available' && `New update (v${updateStatus.version || ''}) available!`}
@@ -9441,8 +9494,12 @@ export default function App() {
                     {updateStatus.type === 'error' && 'Update system error'}
                   </p>
                 </div>
-                {updateStatus.type === 'error' && (
-                  <button onClick={() => setUpdateStatus(null)} className="text-slate-400 hover:text-slate-600">
+                {(updateStatus.type === 'error' || updateStatus.isSimulated) && (
+                  <button 
+                    onClick={() => setUpdateStatus(null)} 
+                    className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 p-1 cursor-pointer"
+                    title="Dismiss"
+                  >
                     <LucideIcons.X className="w-4 h-4" />
                   </button>
                 )}
@@ -9469,11 +9526,16 @@ export default function App() {
                     onClick={() => {
                       if ((window as any).electronAPI?.relaunchApp) {
                         (window as any).electronAPI.relaunchApp();
+                      } else {
+                        setNotification({ message: 'সিমুলেশন রিলাঞ্চ: পেজ রিলোড হচ্ছে...', type: 'success' });
+                        setTimeout(() => {
+                          window.location.reload();
+                        }, 1200);
                       }
                     }}
-                    className="w-full bg-gradient-to-r from-cyan-500 via-purple-500 to-pink-500 hover:opacity-90 text-white font-bold py-2.5 px-4 rounded-xl text-xs transition-all flex items-center justify-center gap-2 shadow-md shadow-purple-500/10 uppercase tracking-wider"
+                    className="w-full bg-gradient-to-r from-cyan-500 via-purple-500 to-pink-500 hover:opacity-90 text-white font-bold py-2.5 px-4 rounded-xl text-xs transition-all flex items-center justify-center gap-2 shadow-md shadow-purple-500/10 uppercase tracking-wider cursor-pointer"
                   >
-                    <LucideIcons.Play className="w-3.5 h-3.5 fill-current" />
+                    <LucideIcons.Play className="w-3.5 h-3.5 fill-current animate-pulse" />
                     Relaunch to Update
                   </button>
                 </div>
@@ -9668,6 +9730,42 @@ export default function App() {
               {darkMode ? <Sun className="w-5 h-5 text-amber-500 animate-spin-slow" /> : <Moon className="w-5 h-5 text-indigo-400" />}
               {darkMode ? (shopSettings.systemLanguage === 'bn' ? 'লাইট মোড (Light Mode)' : 'Light Mode') : (shopSettings.systemLanguage === 'bn' ? 'ডার্ক মোড (Dark Mode)' : 'Dark Mode')}
             </motion.button>
+            
+            {/* Update Test Simulator Button */}
+            <motion.button 
+              whileHover={{ scale: 1.02 }}
+              whileTap={{ scale: 0.98 }}
+              onClick={() => {
+                setUpdateStatus({ type: 'checking', isSimulated: true });
+                setNotification({ message: 'সিমুলেশন: আপডেট চেক করা হচ্ছে...', type: 'info' });
+                
+                setTimeout(() => {
+                  setUpdateStatus({ type: 'available', version: '2.5.0', isSimulated: true });
+                  setNotification({ message: 'সিমুলেশন: নতুন সংস্করণ পাওয়া গেছে (v2.5.0)', type: 'success' });
+                  
+                  setTimeout(() => {
+                    let percent = 0;
+                    setUpdateStatus({ type: 'progress', percent: 0, isSimulated: true });
+                    
+                    const interval = setInterval(() => {
+                      percent += 10;
+                      if (percent >= 100) {
+                        clearInterval(interval);
+                        setUpdateStatus({ type: 'downloaded', version: '2.5.0', isSimulated: true });
+                        setNotification({ message: 'সিমুলেশন: আপডেট ডাউনলোড সম্পন্ন হয়েছে!', type: 'success' });
+                      } else {
+                        setUpdateStatus({ type: 'progress', percent, isSimulated: true });
+                      }
+                    }, 250);
+                  }, 1500);
+                }, 2000);
+              }}
+              className="w-full flex items-center justify-center gap-3 py-3 mb-2 text-indigo-600 dark:text-indigo-400 hover:text-white hover:bg-gradient-to-r hover:from-cyan-500 hover:via-purple-500 hover:to-pink-500 rounded-xl transition-all font-bold text-sm border border-indigo-100 dark:border-slate-800 shadow-sm cursor-pointer"
+            >
+              <LucideIcons.RefreshCw className="w-5 h-5 text-indigo-500 dark:text-indigo-400" />
+              {shopSettings.systemLanguage === 'bn' ? 'আপডেট টেস্ট সিমুলেটর' : 'Simulate Update'}
+            </motion.button>
+
             <motion.button 
               whileHover={{ scale: 1.02 }}
               whileTap={{ scale: 0.98 }}
@@ -16853,6 +16951,12 @@ function POS({
       }
     } catch (err) {
       console.warn("AI parsing failed:", err);
+      const isQuota = String(err).toLowerCase().includes('quota') || String(err).toLowerCase().includes('429') || String(err).toLowerCase().includes('limit');
+      if (isQuota) {
+        setNotification({ type: 'error', message: 'AI Voice Quota Exceeded. Using manual search.' });
+      } else {
+        setNotification({ type: 'error', message: 'AI voice parsing failed. Using manual search.' });
+      }
       setSearchTerm(rawText.trim());
     }
   };
@@ -18167,8 +18271,11 @@ Return the result as JSON with a "category" field containing exactly one string 
       
     } catch (e: any) {
       console.error(e);
-      if (e.message === 'QUOTA_EXCEEDED') {
+      const isQuota = String(e).toLowerCase().includes('quota') || String(e).toLowerCase().includes('429') || e.message === 'QUOTA_EXCEEDED';
+      if (isQuota) {
         setNotification({ type: 'error', message: 'AI Voice Quota Exceeded. Using local search.' });
+      } else {
+        setNotification({ type: 'error', message: 'Voice connection failed. Using local search.' });
       }
       setSearchTerm(rawText.trim());
     }

@@ -52,7 +52,17 @@ autoUpdater.on('update-downloaded', (info) => {
 // IPC handler to relaunch app after update is downloaded
 ipcMain.on('relaunch-app', () => {
   console.log('[Electron Update] Relaunching app to apply downloaded update...');
-  autoUpdater.quitAndInstall();
+  try {
+    autoUpdater.quitAndInstall();
+  } catch (err) {
+    console.error('[Electron Update] quitAndInstall failed, attempting fallback relaunch:', err);
+    try {
+      app.relaunch();
+      app.exit(0);
+    } catch (fallbackErr) {
+      console.error('[Electron Update] Fallback relaunch failed:', fallbackErr);
+    }
+  }
 });
 
 let mainWindow;

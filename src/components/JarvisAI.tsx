@@ -1292,9 +1292,23 @@ export const JarvisAI: React.FC<JarvisAIProps> = ({ onClose, shopId, systemData,
       console.error('Error handling voice command:', error);
       setErrorCount(prev => prev + 1);
       
-      const errorMsg = language === 'bn' 
+      const errorStr = String(error).toLowerCase();
+      const isQuota = errorStr.includes('quota') || errorStr.includes('429') || errorStr.includes('resource_exhausted');
+      const isFetch = errorStr.includes('fetch') || errorStr.includes('request failed');
+
+      let errorMsg = language === 'bn' 
         ? "দুঃখিত, এখন উত্তর দিতে পারছি না। অনুগ্রহ করে পরে আবার চেষ্টা করুন।" 
         : "Sorry, I can't respond right now. Please try again later.";
+
+      if (isQuota) {
+        errorMsg = language === 'bn'
+          ? "দুঃখিত, আমার এআই (AI) কোটা শেষ হয়ে গেছে। অনুগ্রহ করে একটু পরে চেষ্টা করুন অথবা অফলাইন ম্যানুয়াল কন্ট্রোল ব্যবহার করুন।"
+          : "Sorry, my AI Quota has been exceeded. Please try again later or use manual offline controls.";
+      } else if (isFetch) {
+        errorMsg = language === 'bn'
+          ? "দুঃখিত, সার্ভারের সাথে সংযোগ করা যাচ্ছে না। অনুগ্রহ করে আপনার ইন্টারনেট কানেকশন চেক করুন।"
+          : "Sorry, failed to connect to the server. Please check your internet connection.";
+      }
       
       setHistory(prev => [...prev, { role: 'assistant', text: errorMsg }]);
       

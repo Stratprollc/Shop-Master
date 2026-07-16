@@ -41,6 +41,11 @@ service cloud.firestore {
     match /test/{docId} {
       allow read, write: if true;
     }
+
+    // Desktop Auth Handshakes Match Block (secured by high-entropy token docId)
+    match /desktop_auth_handshakes/{docId} {
+      allow read, write: if true;
+    }
     
     // 3. Match Blocks
     
