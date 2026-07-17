@@ -7,7 +7,11 @@ import { getFirestore as getServerFirestore, collection as getServerCollection, 
 
 async function startServer() {
   const app = express();
-  const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
+  // If process.env.PORT is a string (like a Unix socket path in Hostinger/Passenger), we must pass it directly.
+  // If it's a numeric string, we parse it as an integer.
+  const PORT = process.env.PORT && !isNaN(Number(process.env.PORT))
+    ? parseInt(process.env.PORT, 10)
+    : (process.env.PORT || 3000);
   
   // Initialize server-side firebase
   let firebaseApp: any = null;
