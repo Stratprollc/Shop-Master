@@ -940,7 +940,17 @@ export const JarvisAI: React.FC<JarvisAIProps> = ({ onClose, shopId, systemData,
         })
       });
 
-      if (!responseFetch.ok) throw new Error("API request failed");
+      if (!responseFetch.ok) {
+        let errText = "API request failed";
+        try {
+          const errData = await responseFetch.json();
+          errText = errData.error || errData.message || errText;
+        } catch {}
+        if (responseFetch.status === 429 || errText.toLowerCase().includes("quota") || errText.toLowerCase().includes("limit") || errText.includes("RESOURCE_EXHAUSTED")) {
+          throw new Error("QUOTA_EXCEEDED: " + errText);
+        }
+        throw new Error(errText);
+      }
       const data = await responseFetch.json();
 
       const text = data.text || "";
@@ -1290,6 +1300,86 @@ export const JarvisAI: React.FC<JarvisAIProps> = ({ onClose, shopId, systemData,
       }
     } catch (error) {
       console.error('Error handling voice command:', error);
+      
+      // Try to run offline fallback command
+      let offlineHandled = false;
+      let offlineFeedback = "";
+      const lowerCmd = command.toLowerCase().trim();
+      
+      if (lowerCmd.includes("স্টক") || lowerCmd.includes("stock") || lowerCmd.includes("কতটুকু আছে") || lowerCmd.includes("কত কেজি") || lowerCmd.includes("কত বস্তা")) {
+        let word = lowerCmd.replace(/(স্টক|stock|কতটুকু|আছে|কত|কেজি|বস্তা|হাবিব|হেই)/g, "").trim();
+        if (word.length > 1) {
+          const matchedItem = fuzzyMatchProduct(systemData.items, word);
+          if (matchedItem) {
+            const idx = systemData.items.findIndex((i: any) => i.id === matchedItem.id) + 1;
+            const serialNo = matchedItem.serialNumber || idx;
+            offlineFeedback = language === 'bn'
+              ? `অফলাইন মোড: ${matchedItem.name} (সিরিয়াল #${serialNo}) এর স্টক আছে ${matchedItem.stock} ${matchedItem.unit || 'টি'} এবং দাম ${matchedItem.price} টাকা।`
+              : `Offline Mode: ${matchedItem.name} (Serial #${serialNo}) has ${matchedItem.stock} ${matchedItem.unit || 'units'} in stock with price of ${matchedItem.price} ${systemData.settings.currency || '৳'}.`;
+            offlineHandled = true;
+          }
+        }
+      }
+      
+      if (!offlineHandled && (lowerCmd.includes("প্রিন্ট") || lowerCmd.includes("print") || lowerCmd.includes("রসিদ"))) {
+        actions.printLatestInvoice();
+        offlineFeedback = language === 'bn'
+          ? `অফলাইন মোড: শেষ চালানটি প্রিন্ট করা হচ্ছে।`
+          : `Offline Mode: Printing the latest invoice.`;
+        offlineHandled = true;
+      }
+      
+      if (!offlineHandled && (lowerCmd.includes("হোয়াটসঅ্যাপ") || lowerCmd.includes("whatsapp") || lowerCmd.includes("মেসেজ পাঠাও") || lowerCmd.includes("ইনভয়েস পাঠাও"))) {
+        if (actions.sendLatestInvoiceWhatsApp) {
+          actions.sendLatestInvoiceWhatsApp();
+          offlineFeedback = language === 'bn'
+            ? `অফলাইন মোড: শেষ ইনভয়েসটি হোয়াটসঅ্যাপে পাঠানো হচ্ছে।`
+            : `Offline Mode: Sending the latest invoice via WhatsApp.`;
+          offlineHandled = true;
+        }
+      }
+      
+      if (!offlineHandled && (lowerCmd.includes("যাও") || lowerCmd.includes("চল") || lowerCmd.includes("খোল") || lowerCmd.includes("navigate") || lowerCmd.includes("open"))) {
+        let dest = "";
+        if (lowerCmd.includes("ইনভেন্টরি") || lowerCmd.includes("স্টক") || lowerCmd.includes("inventory") || lowerCmd.includes("product")) dest = "inventory";
+        else if (lowerCmd.includes("সেল") || lowerCmd.includes("pos") || lowerCmd.includes("invoice") || lowerCmd.includes("point")) dest = "pos";
+        else if (lowerCmd.includes("কাস্টমার") || lowerCmd.includes("customer")) dest = "customers";
+        else if (lowerCmd.includes("রিপোর্ট") || lowerCmd.includes("report")) dest = "reports";
+        else if (lowerCmd.includes("সেটিং") || lowerCmd.includes("setting")) dest = "settings";
+        else if (lowerCmd.includes("ড্যাশবোর্ড") || lowerCmd.includes("dashboard")) dest = "dashboard";
+        
+        if (dest) {
+          actions.navigate(dest);
+          offlineFeedback = language === 'bn'
+            ? `অফলাইন মোড: আপনাকে সেই প্যানেলে নিয়ে যাওয়া হচ্ছে।`
+            : `Offline Mode: Navigating to the requested panel.`;
+          onClose();
+          offlineHandled = true;
+        }
+      }
+      
+      if (!offlineHandled && (lowerCmd.includes("বকেয়া") || lowerCmd.includes("বাকি") || lowerCmd.includes("due") || lowerCmd.includes("unpaid"))) {
+        let word = lowerCmd.replace(/(বকেয়া|বাকি|কত|টাকা|পায়|due|unpaid|কার|হাবিব|হেই)/g, "").trim();
+        if (word.length > 1) {
+          const matchedCust = systemData.customers.find((c: any) => 
+            c.name.toLowerCase().includes(word) || c.phone.includes(word)
+          );
+          if (matchedCust) {
+            const due = matchedCust.currentDue || matchedCust.totalUnpaid || 0;
+            offlineFeedback = language === 'bn'
+              ? `অফলাইন মোড: ${matchedCust.name} এর কাছে আপনার বকেয়া পাওনা আছে ${due} টাকা।`
+              : `Offline Mode: ${matchedCust.name} has a due balance of ${due} ${systemData.settings.currency || '৳'}.`;
+            offlineHandled = true;
+          }
+        }
+      }
+
+      if (offlineHandled && offlineFeedback) {
+        setHistory(prev => [...prev, { role: 'assistant', text: offlineFeedback }]);
+        speak(offlineFeedback);
+        return;
+      }
+
       setErrorCount(prev => prev + 1);
       
       const errorStr = String(error).toLowerCase();

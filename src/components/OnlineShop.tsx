@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { motion } from 'motion/react';
+import { IntegrationsAddons } from './IntegrationsAddons';
 import { 
   Globe, 
   Settings, 
@@ -32,7 +33,8 @@ import {
   Edit,
   Trash2,
   CheckCircle,
-  Printer
+  Printer,
+  Instagram
 } from 'lucide-react';
 
 interface TrackingMilestone {
@@ -100,7 +102,7 @@ interface WaThread {
 }
 
 export default function OnlineShop() {
-  const [activeTab, setActiveTab] = useState<'woocommerce' | 'laravel' | 'facebook' | 'whatsapp_ai'>('woocommerce');
+  const [activeTab, setActiveTab] = useState<'woocommerce' | 'laravel' | 'facebook' | 'whatsapp_ai' | 'integrations_addons' | 'shopify' | 'telegram' | 'instagram' | 'voice_ai' | 'logs'>('woocommerce');
   const [loading, setLoading] = useState(false);
   const [data, setData] = useState<{ 
     wooOrders: WooOrder[]; 
@@ -703,38 +705,71 @@ export default function OnlineShop() {
         </div>
       </div>
 
-      {/* Main Tabs controller */}
-      <div className="flex border-b border-gray-200 dark:border-slate-800 px-6 bg-white dark:bg-slate-950 shrink-0 transition-colors">
-        {[
-          { id: 'woocommerce', label: 'WordPress / WooCommerce', count: data.wooOrders.filter(o => o.status === 'pending').length },
-          { id: 'laravel', label: 'Laravel PHP System', count: data.laravelEvents.filter(e => e.status === 'unread').length },
-          { id: 'facebook', label: 'Facebook Messenger', count: data.fbChats.filter(t => t.unread).length },
-          { id: 'whatsapp_ai', label: 'WhatsApp AI Agent (Expert)', count: (data.waChats || []).filter(t => t.unread).length }
-        ].map(tab => (
-          <button
-            key={tab.id}
-            onClick={() => setActiveTab(tab.id as any)}
-            className={`flex items-center gap-2 px-6 py-4 font-bold text-xs uppercase tracking-wider border-b-2 transition-all relative ${
-              activeTab === tab.id 
-                ? 'border-indigo-600 text-indigo-600 dark:text-indigo-400' 
-                : 'border-transparent text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-300'
-            }`}
-          >
-            {tab.label}
-            {tab.count > 0 && (
-              <span className="shrink-0 flex items-center justify-center min-w-[18px] h-[18px] text-[10px] bg-indigo-600 text-white font-black rounded-full px-1">
-                {tab.count}
-              </span>
-            )}
-          </button>
-        ))}
-      </div>
-
       {/* Editor Content split with Webhook configuration / Playground panel */}
       <div className="flex-1 overflow-hidden flex flex-col lg:flex-row">
         
+        {/* Left Sidebar: Main Channel Navigation */}
+        <div className="w-full lg:w-72 bg-white dark:bg-slate-950 border-r border-gray-200 dark:border-slate-800 flex flex-col shrink-0 transition-colors">
+          <div className="p-4 border-b border-gray-150 dark:border-slate-850 flex items-center justify-between">
+            <p className="text-[10px] font-black uppercase text-gray-400 tracking-wider">Integrations & Channels</p>
+            <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" title="System Online"></span>
+          </div>
+          <div className="flex-1 overflow-y-auto p-3 custom-scrollbar">
+            <div className="bg-slate-50/50 dark:bg-slate-900/30 border border-gray-150 dark:border-slate-800/80 rounded-2xl p-2.5 space-y-1.5 shadow-inner">
+              {[
+                { id: 'woocommerce', label: 'WordPress / WooCommerce', count: data.wooOrders.filter(o => o.status === 'pending').length, desc: 'Live Webhooks & Order Sync', icon: ShoppingBag, badgeColor: 'bg-indigo-600', activeBg: 'bg-indigo-50/70 text-indigo-700 border-indigo-150 dark:bg-indigo-950/20 dark:text-indigo-400 dark:border-indigo-950/40' },
+                { id: 'laravel', label: 'Laravel PHP System', count: data.laravelEvents.filter(e => e.status === 'unread').length, desc: 'Real-time HTTP Events', icon: Globe, badgeColor: 'bg-amber-600', activeBg: 'bg-amber-50/70 text-amber-700 border-amber-150 dark:bg-amber-950/20 dark:text-amber-400 dark:border-amber-950/40' },
+                { id: 'facebook', label: 'Facebook Messenger', count: data.fbChats.filter(t => t.unread).length, desc: 'Automated AI Chats', icon: MessageSquare, badgeColor: 'bg-sky-600', activeBg: 'bg-sky-50/70 text-sky-700 border-sky-150 dark:bg-sky-950/20 dark:text-sky-400 dark:border-sky-950/40' },
+                { id: 'whatsapp_ai', label: 'WhatsApp AI Agent', count: (data.waChats || []).filter(t => t.unread).length, desc: 'STT / TTS Live Handshake', icon: Bot, badgeColor: 'bg-emerald-600', activeBg: 'bg-emerald-50/70 text-emerald-700 border-emerald-150 dark:bg-emerald-950/20 dark:text-emerald-400 dark:border-emerald-950/40' },
+                { id: 'shopify', label: 'Shopify Webhooks', count: 0, desc: 'অটো স্টক মাইনাস ও অর্ডার অ্যালার্ট', icon: ShoppingBag, badgeColor: 'bg-green-600', activeBg: 'bg-green-50/70 text-green-700 border-green-150 dark:bg-green-950/20 dark:text-green-400 dark:border-green-950/40' },
+                { id: 'telegram', label: 'Telegram Bot API', count: 0, desc: 'setWebhook ও চ্যাট প্যানেল', icon: Send, badgeColor: 'bg-blue-500', activeBg: 'bg-blue-50/70 text-blue-700 border-blue-150 dark:bg-blue-950/20 dark:text-blue-400 dark:border-blue-950/40' },
+                { id: 'instagram', label: 'Instagram Graph API', count: 0, desc: 'Comment-to-DM অটো রিপ্লাই', icon: Instagram, badgeColor: 'bg-pink-600', activeBg: 'bg-pink-50/70 text-pink-700 border-pink-150 dark:bg-pink-950/20 dark:text-pink-400 dark:border-pink-950/40' },
+                { id: 'voice_ai', label: 'Voice Message AI', count: 0, desc: 'ভয়েস ও টেক্সট টু ভয়েস কনভার্টার', icon: Mic, badgeColor: 'bg-indigo-500', activeBg: 'bg-indigo-50/70 text-indigo-700 border-indigo-150 dark:bg-indigo-950/20 dark:text-indigo-400 dark:border-indigo-950/40' },
+                { id: 'logs', label: 'Terminal Logs', count: 0, desc: 'লাইভ অ্যাক্টিভিটি কনসোল', icon: Terminal, badgeColor: 'bg-slate-600', activeBg: 'bg-slate-100 text-indigo-700 border-slate-200 dark:bg-slate-800 dark:text-indigo-400 dark:border-slate-700' }
+              ].map(tab => {
+                const IconComponent = tab.icon;
+                const isActive = activeTab === tab.id;
+                return (
+                  <button
+                    key={tab.id}
+                    onClick={() => setActiveTab(tab.id as any)}
+                    className={`w-full flex items-start gap-3 p-3 rounded-xl border transition-all text-left group cursor-pointer ${
+                      isActive 
+                        ? tab.activeBg + ' shadow-sm font-bold' 
+                        : 'bg-white dark:bg-slate-950 text-gray-500 hover:text-gray-900 hover:bg-slate-50 dark:text-gray-400 dark:hover:text-white dark:hover:bg-slate-900 border-gray-100 dark:border-slate-800/60 shadow-sm'
+                    }`}
+                  >
+                    <div className={`p-2 rounded-lg shrink-0 transition-colors ${
+                      isActive 
+                        ? 'bg-white dark:bg-slate-900 shadow-sm text-indigo-600 dark:text-indigo-400' 
+                        : 'bg-slate-50 dark:bg-slate-900 text-gray-500 dark:text-gray-400 group-hover:bg-white dark:group-hover:bg-slate-800'
+                    }`}>
+                      <IconComponent className="w-4 h-4" />
+                    </div>
+                    <div className="overflow-hidden flex-1">
+                      <div className="flex items-center justify-between gap-1.5">
+                        <h4 className="text-xs font-bold truncate">{tab.label}</h4>
+                        {tab.count > 0 && (
+                          <span className={`shrink-0 flex items-center justify-center min-w-[18px] h-[18px] text-[10px] ${tab.badgeColor} text-white font-black rounded-full px-1 animate-pulse`}>
+                            {tab.count}
+                          </span>
+                        )}
+                      </div>
+                      <p className={`text-[10px] truncate mt-0.5 ${isActive ? 'opacity-85' : 'text-gray-400 dark:text-gray-500'}`}>{tab.desc}</p>
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+          <div className="p-4 border-t border-gray-100 dark:border-slate-850 text-center bg-slate-50/50 dark:bg-slate-950">
+            <p className="text-[9px] text-gray-400 font-bold tracking-widest uppercase">System Node Active</p>
+          </div>
+        </div>
+
         {/* Playgound & Config sidebar */}
-        <div className="w-full lg:w-96 bg-white dark:bg-slate-950 border-r border-gray-200 dark:border-slate-800 overflow-y-auto custom-scrollbar p-6 shrink-0 flex flex-col justify-between transition-colors">
+        {!['shopify', 'telegram', 'instagram', 'voice_ai', 'logs'].includes(activeTab) && (
+          <div className="w-full lg:w-96 bg-white dark:bg-slate-950 border-r border-gray-200 dark:border-slate-800 overflow-y-auto custom-scrollbar p-6 shrink-0 flex flex-col justify-between transition-colors">
           
           {/* Active Integration Documentation & Webhook Endpoint configuration */}
           <div className="space-y-6">
@@ -1257,10 +1292,15 @@ export default function OnlineShop() {
           </div>
 
         </div>
+        )}
 
         {/* Dynamic Display Area based on tabs */}
         <div className="flex-1 overflow-hidden flex flex-col">
           
+          {['shopify', 'telegram', 'instagram', 'voice_ai', 'logs'].includes(activeTab) && (
+            <IntegrationsAddons activeSubTab={activeTab as 'shopify' | 'telegram' | 'instagram' | 'voice_ai' | 'logs'} hideSidebar={true} />
+          )}
+
           {activeTab === 'woocommerce' && (
             <div className="flex-1 overflow-y-auto p-6 space-y-6 custom-scrollbar text-xs">
               

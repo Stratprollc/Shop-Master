@@ -130,10 +130,19 @@ async function startServer() {
     } catch (error: any) {
       console.error('Gemini API Error:', error);
       let errorMsg = error.message || 'Internal Server Error';
-      if (errorMsg.includes('503') || errorMsg.includes('high demand') || errorMsg.includes('UNAVAILABLE')) {
-        errorMsg = 'AI Model is currently experiencing high demand. Please try again in a few moments.';
+      const isQuota = errorMsg.includes('429') || 
+                      errorMsg.toLowerCase().includes('quota') || 
+                      errorMsg.includes('RESOURCE_EXHAUSTED') ||
+                      errorMsg.toLowerCase().includes('limit');
+      
+      if (isQuota) {
+        res.status(429).json({ error: 'QUOTA_EXCEEDED', message: 'You have exceeded your Gemini API quota. Please check your plan or try again later.' });
+      } else {
+        if (errorMsg.includes('503') || errorMsg.includes('high demand') || errorMsg.includes('UNAVAILABLE')) {
+          errorMsg = 'AI Model is currently experiencing high demand. Please try again in a few moments.';
+        }
+        res.status(500).json({ error: errorMsg });
       }
-      res.status(500).json({ error: errorMsg });
     }
   };
 
@@ -1809,6 +1818,89 @@ async function startServer() {
     } catch (err: any) {
       console.error('Error updating WooCommerce status:', err);
       res.status(500).json({ success: false, error: err.message || 'Failed to update order status' });
+    }
+  });
+
+  // Shopify Webhook Receiver
+  app.post(['/api/integrations/shopify', '/api/integrations/shopify/'], (req: express.Request, res: express.Response) => {
+    try {
+      const body = req.body || {};
+      
+      // If it's a test/ping request or empty body
+      if (!body.id && !body.name && !body.order_number) {
+        return res.status(200).json({
+          success: true,
+          message: 'Shopify Webhook URL verified successfully'
+        });
+      }
+
+      const id = body.id || ('shp_' + Date.now());
+      const orderNumber = body.name || body.order_number || ('#SHP-' + Math.floor(Math.random() * 9000 + 1000));
+      
+      let customerName = 'Anonymous Buyer';
+      let customerEmail = 'no-email@shopify.com';
+      let customerPhone = '01711223344';
+      let customerAddress = 'Dhaka, Bangladesh';
+
+      if (body.customer) {
+        const firstName = body.customer.first_name || '';
+        const lastName = body.customer.last_name || '';
+        customerName = `${firstName} ${lastName}`.trim() || 'Shopify Buyer';
+        customerEmail = body.customer.email || customerEmail;
+        customerPhone = body.customer.phone || customerPhone;
+        if (body.customer.default_address) {
+          const addr = body.customer.default_address;
+          customerAddress = [addr.address1, addr.address2, addr.city, addr.country].filter(Boolean).join(', ') || customerAddress;
+        }
+      }
+
+      let items = 'Custom Shopify Order';
+      if (Array.isArray(body.line_items)) {
+        items = body.line_items.map((it: any) => `${it.quantity}x ${it.title}`).join(', ');
+      } else if (body.items) {
+        items = body.items;
+      }
+
+      let total = body.total_price || body.total || '0';
+      if (typeof total === 'string' && !total.includes('৳') && !total.includes('TK')) {
+        total = '৳ ' + total;
+      } else if (typeof total === 'number') {
+        total = '৳ ' + total;
+      }
+
+      const rawPaymentStatus = body.financial_status === 'paid' ? 'paid' : 'unpaid';
+      const rawStatus = 'confirmed';
+
+      const data = getIntegrationsData();
+      if (!data.shopifyOrders) {
+        data.shopifyOrders = [];
+      }
+
+      const newOrder = {
+        id: String(id),
+        orderNumber: orderNumber,
+        customerName: customerName,
+        customerEmail: customerEmail,
+        customerPhone: customerPhone,
+        customerAddress: customerAddress,
+        items: items,
+        total: total,
+        paymentStatus: rawPaymentStatus,
+        syncStatus: 'synced',
+        createdAt: new Date().toISOString()
+      };
+
+      data.shopifyOrders.unshift(newOrder);
+      // Keep it capped at 50 to avoid file bloat
+      if (data.shopifyOrders.length > 50) {
+        data.shopifyOrders = data.shopifyOrders.slice(0, 50);
+      }
+      
+      saveIntegrationsData(data);
+      res.json({ success: true, message: 'Shopify Webhook processed successfully', order: newOrder });
+    } catch (err: any) {
+      console.error('Error receiving Shopify webhook:', err);
+      res.status(500).json({ success: false, error: err.message || 'Failed to process Shopify integration' });
     }
   });
 

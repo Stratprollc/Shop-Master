@@ -12605,7 +12605,7 @@ function Calculator({ settings, isRtl, isSidebarOpen, isDesktop }: { settings: S
       {/* Floating Trigger Button with high z-id */}
       <button 
         onClick={() => setIsOpen(!isOpen)}
-        className={`fixed bottom-24 ${isRtl ? (isDesktop ? 'right-[312px]' : 'right-8') : (isDesktop ? 'left-[312px]' : 'left-8')} w-16 h-16 bg-gradient-to-br from-indigo-600 via-indigo-700 to-purple-800 text-white rounded-2xl shadow-[0_8px_30px_rgb(79,70,229,0.3)] flex items-center justify-center hover:scale-110 active:scale-95 transition-all duration-300 z-[100] group shadow-indigo-200/50`}
+        className={`fixed bottom-24 ${isRtl ? 'left-8' : 'right-8'} w-16 h-16 bg-gradient-to-br from-indigo-600 via-indigo-700 to-purple-800 text-white rounded-2xl shadow-[0_8px_30px_rgb(79,70,229,0.3)] flex items-center justify-center hover:scale-110 active:scale-95 transition-all duration-300 z-[100] group shadow-indigo-200/50`}
         title={settings.systemLanguage === 'bn' ? 'ক্যালকুলেটর' : 'Calculator'}
         id="calc-open-trigger"
       >
@@ -12894,7 +12894,7 @@ function NoteGlobal({ notes, onAdd, onDelete, settings, isRtl, isSidebarOpen, is
         whileHover={{ scale: 1.1 }}
         whileTap={{ scale: 0.9 }}
         onClick={() => setIsOpen(!isOpen)}
-        className={`fixed bottom-44 ${isRtl ? (isDesktop ? 'right-[312px]' : 'right-8') : (isDesktop ? 'left-[312px]' : 'left-8')} w-14 h-14 bg-emerald-600 text-white rounded-full shadow-2xl flex items-center justify-center transition-all duration-500 z-50 overflow-hidden`}
+        className={`fixed bottom-44 ${isRtl ? 'left-8' : 'right-8'} w-14 h-14 bg-emerald-600 text-white rounded-full shadow-2xl flex items-center justify-center transition-all duration-500 z-50 overflow-hidden`}
         title="Quick Notes"
       >
         <StickyNote className="w-6 h-6" />
