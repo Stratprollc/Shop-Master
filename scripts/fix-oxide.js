@@ -18,14 +18,36 @@ try {
 
   if (platform === 'linux' && arch === 'x64') {
     // Check if musl or gnu
-    const isMusl = fs.existsSync('/lib/ld-musl-x86_64.so.1') || 
-                   fs.existsSync('/lib/ld-musl-x86_64.so') ||
-                   (process.report && process.report.getReport().indexOf('musl') !== -1);
+    let isMusl = false;
+    try {
+      if (fs.existsSync('/lib/ld-musl-x86_64.so.1') || fs.existsSync('/lib/ld-musl-x86_64.so')) {
+        isMusl = true;
+      } else if (process.report && typeof process.report.getReport === 'function') {
+        const report = process.report.getReport();
+        const reportStr = typeof report === 'string' ? report : JSON.stringify(report);
+        if (reportStr.indexOf('musl') !== -1) {
+          isMusl = true;
+        }
+      }
+    } catch (e) {
+      // ignore check errors
+    }
     targetPkg = isMusl ? '@tailwindcss/oxide-linux-x64-musl' : '@tailwindcss/oxide-linux-x64-gnu';
   } else if (platform === 'linux' && arch === 'arm64') {
-    const isMusl = fs.existsSync('/lib/ld-musl-aarch64.so.1') || 
-                   fs.existsSync('/lib/ld-musl-aarch64.so') ||
-                   (process.report && process.report.getReport().indexOf('musl') !== -1);
+    let isMusl = false;
+    try {
+      if (fs.existsSync('/lib/ld-musl-aarch64.so.1') || fs.existsSync('/lib/ld-musl-aarch64.so')) {
+        isMusl = true;
+      } else if (process.report && typeof process.report.getReport === 'function') {
+        const report = process.report.getReport();
+        const reportStr = typeof report === 'string' ? report : JSON.stringify(report);
+        if (reportStr.indexOf('musl') !== -1) {
+          isMusl = true;
+        }
+      }
+    } catch (e) {
+      // ignore check errors
+    }
     targetPkg = isMusl ? '@tailwindcss/oxide-linux-arm64-musl' : '@tailwindcss/oxide-linux-arm64-gnu';
   } else if (platform === 'win32' && arch === 'x64') {
     targetPkg = '@tailwindcss/oxide-win32-x64-msvc';
