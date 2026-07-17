@@ -1,14 +1,49 @@
-// Hostinger Entrypoint Wrapper
+// Hostinger Entrypoint Wrapper with Robust Logging
 // This file runs after Hostinger triggers 'npm run build' which compiles 'server.ts' to 'dist/server.cjs'
-// Using dynamic import ensures it is compatible with both ES Module ("type": "module") and older CommonJS Passenger environments.
-import('./dist/server.cjs').catch((err) => {
-  console.error("Failed to load server.cjs via ES import, trying CommonJS require fallback...", err);
+
+function logCrash(error) {
+  const message = `[${new Date().toISOString()}] CRASH ERROR: ${error?.stack || error || 'Unknown Error'}\n`;
+  console.error(message);
   try {
-    // If we are in a CommonJS wrapper where require is defined
+    if (typeof require !== 'undefined') {
+      const fs = require('fs');
+      fs.appendFileSync('server_crash.log', message);
+    } else {
+      import('fs').then((fs) => {
+        fs.appendFileSync('server_crash.log', message);
+      }).catch(() => {});
+    }
+  } catch (e) {
+    // Ignore logging errors
+  }
+}
+
+process.on('uncaughtException', (err) => {
+  logCrash(err);
+  process.exit(1);
+});
+
+process.on('unhandledRejection', (reason) => {
+  logCrash(reason);
+});
+
+console.log("[Hostinger Entrypoint Wrapper] Booting up...");
+
+if (typeof require !== 'undefined') {
+  try {
     const path = require('path');
     require(path.join(__dirname, 'dist', 'server.cjs'));
-  } catch (reqErr) {
-    console.error("Failed to load server.cjs via CommonJS require:", reqErr);
+    console.log("[Hostinger Entrypoint Wrapper] Loaded server.cjs via CommonJS require.");
+  } catch (err) {
+    logCrash(err);
     process.exit(1);
   }
-});
+} else {
+  import('./dist/server.cjs').then(() => {
+    console.log("[Hostinger Entrypoint Wrapper] Loaded server.cjs via ES dynamic import.");
+  }).catch((err) => {
+    logCrash(err);
+    process.exit(1);
+  });
+}
+
