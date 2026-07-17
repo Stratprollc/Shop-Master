@@ -7,7 +7,7 @@ import { getFirestore as getServerFirestore, collection as getServerCollection, 
 
 async function startServer() {
   const app = express();
-  const PORT = 3000;
+  const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
   
   // Initialize server-side firebase
   let firebaseApp: any = null;
