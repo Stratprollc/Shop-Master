@@ -66,7 +66,9 @@
     "electron": "^43.1.1",
     "electron-builder": "^26.15.3",
     "eslint-plugin-react-hooks": "^7.1.1",
-    "tsx": "^4.21.0",
+    "tsx": "^4.21.0"
+  },
+  "optionalDependencies": {
     "@tailwindcss/oxide-win32-x64-msvc": "^4.1.14",
     "@tailwindcss/oxide-linux-x64-gnu": "^4.1.14",
     "@tailwindcss/oxide-linux-x64-musl": "^4.1.14"
