@@ -658,7 +658,7 @@ if (typeof window !== 'undefined') {
 
 // Initialize Firestore with smart adaptive cache
 export const db = initializeFirestore(app, {
-  experimentalForceLongPolling: true,
+  experimentalAutoDetectLongPolling: true,
   localCache: determineLocalCache()
 }, (firebaseConfig as any).firestoreDatabaseId);
 
