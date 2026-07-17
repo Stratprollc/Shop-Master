@@ -3540,7 +3540,7 @@ function SettingsPanel({
                     <div className="flex items-center justify-between">
                       <span className="text-xs font-bold text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
                         <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
-                        {systemLang === 'bn' ? '১-ক্লিক অটো ইনস্টলার (প্রস্তাবিত)' : '1-Click Auto Installer (Recommended)'}
+                        {systemLang === 'bn' ? '১-ক্লিক অটো ইনস্টলার (প্রস্তাবিত ও অটো-আপডেট)' : '1-Click Auto Installer (Recommended & Auto-Detect)'}
                       </span>
                       <span className="text-[10px] font-mono text-indigo-600 dark:text-indigo-400 uppercase font-black">GitHub Releases</span>
                     </div>
@@ -3557,7 +3557,7 @@ function SettingsPanel({
                         <button
                           type="button"
                           onClick={() => {
-                            const cmdText = `powershell -NoProfile -ExecutionPolicy Bypass -Command "iwr -useb 'https://raw.githubusercontent.com/stratproamz/pos-sync-agent/main/install.ps1' | iex"`;
+                            const cmdText = `powershell -NoProfile -ExecutionPolicy Bypass -Command "[System.Net.ServicePointManager]::SecurityProtocol = [System.Net.SecurityProtocolType]::Tls12; $r = Invoke-RestMethod -Uri 'https://api.github.com/repos/Stratprollc/Shop-Master/releases/latest'; $a = $r.assets | Where-Object { $_.name -like '*.exe' } | Select-Object -First 1; if ($a) { $d = Join-Path $HOME ('ShopMaster\\' + $a.name); New-Item -ItemType Directory -Force -Path (Split-Path $d); iwr -useb $a.browser_download_url -OutFile $d; Start-Process $d } else { Write-Error 'No installer exe found!' }"`;
                             navigator.clipboard.writeText(cmdText);
                             setCopiedCmd('auto');
                             setTimeout(() => setCopiedCmd(null), 2500);
@@ -3579,7 +3579,7 @@ function SettingsPanel({
                       </div>
                       
                       <div className="p-4 overflow-x-auto text-slate-300 whitespace-pre leading-relaxed select-all">
-                        <span className="text-indigo-400 font-bold">PS C:\&gt;</span> powershell -NoProfile -ExecutionPolicy Bypass -Command &quot;iwr -useb 'https://raw.githubusercontent.com/stratproamz/pos-sync-agent/main/install.ps1' | iex&quot;
+                        <span className="text-indigo-400 font-bold">PS C:\&gt;</span> {"powershell -NoProfile -ExecutionPolicy Bypass -Command \"[System.Net.ServicePointManager]::SecurityProtocol = [System.Net.SecurityProtocolType]::Tls12; $r = Invoke-RestMethod -Uri 'https://api.github.com/repos/Stratprollc/Shop-Master/releases/latest'; $a = $r.assets | Where-Object { $_.name -like '*.exe' } | Select-Object -First 1; if ($a) { $d = Join-Path $HOME ('ShopMaster\\' + $a.name); New-Item -ItemType Directory -Force -Path (Split-Path $d); iwr -useb $a.browser_download_url -OutFile $d; Start-Process $d } else { Write-Error 'No installer exe found!' }\""}
                       </div>
                     </div>
                   </div>
@@ -3589,7 +3589,7 @@ function SettingsPanel({
                     <div className="flex items-center justify-between">
                       <span className="text-xs font-bold text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
                         <span className="w-1.5 h-1.5 rounded-full bg-indigo-500"></span>
-                        {systemLang === 'bn' ? 'বিকল্প ম্যানুয়াল পাওয়ারশেল ডাউনলোড' : 'Alternative Manual PowerShell Download'}
+                        {systemLang === 'bn' ? 'বিকল্প সরাসরি ১.০.৩ সংস্করণ ডাউনলোড' : 'Alternative Direct 1.0.3 Version Download'}
                       </span>
                     </div>
 
@@ -3604,7 +3604,7 @@ function SettingsPanel({
                         <button
                           type="button"
                           onClick={() => {
-                            const cmdText = `powershell -Command "New-Item -ItemType Directory -Force -Path '$HOME\\BismillahPOS'; iwr -useb 'https://github.com/stratproamz/pos-sync-agent/releases/latest/download/BismillahPOS.exe' -OutFile '$HOME\\BismillahPOS\\BismillahPOS.exe'; Start-Process '$HOME\\BismillahPOS\\BismillahPOS.exe'"`;
+                            const cmdText = `powershell -Command "[System.Net.ServicePointManager]::SecurityProtocol = [System.Net.SecurityProtocolType]::Tls12; New-Item -ItemType Directory -Force -Path '$HOME\\ShopMaster'; iwr -useb 'https://github.com/Stratprollc/Shop-Master/releases/download/v1.0.3/ShopMaster%20Setup%201.0.3.exe' -OutFile '$HOME\\ShopMaster\\ShopMasterSetup.exe'; Start-Process '$HOME\\ShopMaster\\ShopMasterSetup.exe'"`;
                             navigator.clipboard.writeText(cmdText);
                             setCopiedCmd('manual');
                             setTimeout(() => setCopiedCmd(null), 2500);
@@ -3626,9 +3626,22 @@ function SettingsPanel({
                       </div>
                       
                       <div className="p-4 overflow-x-auto text-slate-300 whitespace-pre leading-relaxed select-all">
-                        <span className="text-indigo-400 font-bold">PS C:\&gt;</span> powershell -Command &quot;New-Item -ItemType Directory -Force -Path '$HOME\BismillahPOS'; iwr -useb 'https://github.com/stratproamz/pos-sync-agent/releases/latest/download/BismillahPOS.exe' -OutFile '$HOME\BismillahPOS\BismillahPOS.exe'; Start-Process '$HOME\BismillahPOS\BismillahPOS.exe'&quot;
+                        <span className="text-indigo-400 font-bold">PS C:\&gt;</span> powershell -Command &quot;[System.Net.ServicePointManager]::SecurityProtocol = [System.Net.SecurityProtocolType]::Tls12; New-Item -ItemType Directory -Force -Path '$HOME\ShopMaster'; iwr -useb 'https://github.com/Stratprollc/Shop-Master/releases/download/v1.0.3/ShopMaster%20Setup%201.0.3.exe' -OutFile '$HOME\ShopMaster\ShopMasterSetup.exe'; Start-Process '$HOME\ShopMaster\ShopMasterSetup.exe'&quot;
                       </div>
                     </div>
+                  </div>
+
+                  {/* Private Repository Warning/Notice */}
+                  <div className="bg-amber-500/5 border border-amber-500/20 p-4 rounded-2xl text-xs space-y-1">
+                    <p className="font-bold text-amber-700 dark:text-amber-400 flex items-center gap-1.5">
+                      <LucideIcons.Lock className="w-3.5 h-3.5" />
+                      {systemLang === 'bn' ? 'প্রাইভেট রিপোজিটরি সংক্রান্ত নোটিশ:' : 'Private Repository Notice:'}
+                    </p>
+                    <p className="text-slate-600 dark:text-slate-400 leading-relaxed">
+                      {systemLang === 'bn' 
+                        ? 'আপনার গিটহাব রিপোজিটরি যদি প্রাইভেট (ব্যক্তিগত) হয়ে থাকে, তবে সরাসরি পাওয়ারশেল দিয়ে ডাউনলোড করতে এটি কাজ নাও করতে পারে। সেক্ষেত্রে আপনার ব্রাউজার থেকে সরাসরি আপনার GitHub রিলিজ পেজে গিয়ে ডাউনলোড করে নিন।'
+                        : 'If your GitHub repository is private, command-line download requires GitHub Authentication. In that case, please download the executable directly through your web browser via GitHub Release page.'}
+                    </p>
                   </div>
 
                   {/* Step by Step Guideline */}
